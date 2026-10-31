@@ -76,6 +76,7 @@ export type BrowserSettings = {
   runOnStartup: boolean;
   startupRestoreBehavior: StartupRestoreBehavior;
   tabStripPosition: TabStripPosition;
+  verticalTabsAddressBarInTopBar: boolean;
   searchEngine: SearchEngine;
   searchEngineShortcutsEnabled: boolean;
   searchEngineShortcutPrefix: string;
@@ -108,6 +109,7 @@ export const DEFAULT_BROWSER_SETTINGS: BrowserSettings = {
   runOnStartup: false,
   startupRestoreBehavior: 'ask',
   tabStripPosition: 'top',
+  verticalTabsAddressBarInTopBar: true,
   searchEngine: 'google',
   searchEngineShortcutsEnabled: false,
   searchEngineShortcutPrefix: DEFAULT_SEARCH_ENGINE_SHORTCUT_PREFIX,
@@ -466,6 +468,10 @@ export function normalizeBrowserSettings(value: unknown): BrowserSettings {
     runOnStartup: normalizeRunOnStartup(candidate.runOnStartup),
     startupRestoreBehavior: normalizeStartupRestoreBehavior(candidate.startupRestoreBehavior),
     tabStripPosition: normalizeTabStripPosition(candidate.tabStripPosition),
+    verticalTabsAddressBarInTopBar:
+      typeof candidate.verticalTabsAddressBarInTopBar === 'boolean'
+        ? candidate.verticalTabsAddressBarInTopBar
+        : DEFAULT_BROWSER_SETTINGS.verticalTabsAddressBarInTopBar,
     searchEngine: normalizeSearchEngine(candidate.searchEngine),
     searchEngineShortcutsEnabled: normalizeSearchEngineShortcutsEnabled(
       candidate.searchEngineShortcutsEnabled,

@@ -1159,6 +1159,32 @@ textarea {
   }
 }
 
+.browser-topbar {
+  -webkit-app-region: drag;
+  flex-shrink: 0;
+}
+
+.topbar-brand {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.topbar-window-controls {
+  display: flex;
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+}
+
+.address-bar-in-topbar {
+  -webkit-app-region: no-drag;
+}
+
+@media (max-width: 800px) {
+  .topbar-hide-brand-when-narrow .topbar-brand {
+    display: none;
+  }
+}
+
 .topbar-window-btn {
   background: var(--surfaceBg, var(--tabBg));
   border-left: 1px solid color-mix(in srgb, var(--surfaceBorder, var(--tabBorder)) 45%, transparent);

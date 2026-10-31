@@ -4,7 +4,13 @@ import { electron } from '../electronBridge';
 import appIcon from '../assets/mira_icon.png';
 import appWordmark from '../assets/mira.png';
 
-export default function TopBar({ children }: { children?: React.ReactNode }) {
+export default function TopBar({
+  children,
+  hideBrandWhenNarrow = false,
+}: {
+  children?: React.ReactNode;
+  hideBrandWhenNarrow?: boolean;
+}) {
   const [isMaximized, setIsMaximized] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isTitleBarOverlayEnabled, setIsTitleBarOverlayEnabled] = useState(true);
@@ -81,8 +87,8 @@ export default function TopBar({ children }: { children?: React.ReactNode }) {
 
   const brandSection = (
     <div
+      className="topbar-brand"
       style={{
-        display: 'flex',
         alignItems: 'center',
         gap: 8,
         paddingLeft: isMacOS ? 0 : 10,
@@ -116,7 +122,7 @@ export default function TopBar({ children }: { children?: React.ReactNode }) {
       }}
     />
   ) : (
-    <div style={{ display: 'flex', WebkitAppRegion: 'no-drag' as const }}>
+    <div className="topbar-window-controls">
       <button
         title="Minimize"
         onClick={onMinimize}
@@ -171,6 +177,7 @@ export default function TopBar({ children }: { children?: React.ReactNode }) {
 
   return (
     <div
+      className={`browser-topbar${hideBrandWhenNarrow ? ' topbar-hide-brand-when-narrow' : ''}`}
       onDoubleClick={isMacOS ? undefined : onToggleMaximize}
       style={{
         height: 'var(--layoutTopBarHeight, 38px)',
@@ -178,7 +185,6 @@ export default function TopBar({ children }: { children?: React.ReactNode }) {
         alignItems: 'center',
         justifyContent: 'space-between',
         background: 'var(--surfaceBg, var(--tabBg))',
-        WebkitAppRegion: 'drag',
         userSelect: 'none',
       }}
     >
@@ -192,12 +198,10 @@ export default function TopBar({ children }: { children?: React.ReactNode }) {
           display: 'flex',
           alignItems: 'stretch',
           padding: '0 8px',
-          WebkitAppRegion: 'drag',
         }}
       >
         <div
           style={{
-            WebkitAppRegion: 'drag',
             height: '100%',
             minWidth: 0,
             display: 'flex',

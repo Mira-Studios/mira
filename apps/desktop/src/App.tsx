@@ -229,6 +229,9 @@ function Browser() {
     const settings = getBrowserSettings();
     return settings.tabStripPosition ?? 'top';
   });
+  const [verticalTabsAddressBarInTopBar, setVerticalTabsAddressBarInTopBar] = useState(
+    () => getBrowserSettings().verticalTabsAddressBarInTopBar,
+  );
   const { isFullscreen } = useFullscreenState();
   const {
     tabs,
@@ -323,6 +326,7 @@ function Browser() {
       applyLayout(getLayoutById(settings.layoutId));
       setShowPerfOverlay(settings.dev && settings.showPerfOverlay);
       setTabStripPosition(settings.tabStripPosition ?? 'top');
+      setVerticalTabsAddressBarInTopBar(settings.verticalTabsAddressBarInTopBar);
       setShowBookmarksBar(settings.showBookmarksBar);
       if (!electron?.ipcRenderer) return;
 
@@ -413,12 +417,21 @@ function Browser() {
   }, [tabs, activeId]);
 
   const isVerticalTabs = tabStripPosition === 'left' || tabStripPosition === 'right';
+  const addressBarInTopBar = isVerticalTabs && verticalTabsAddressBarInTopBar;
   const hideBars = isFullscreen;
   const showVerticalTabSidebar = isVerticalTabs && !hideBars;
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', width: '100vw' }}>
-      {!hideBars && <TopBar>{!isVerticalTabs && <TabBar orientation="horizontal" />}</TopBar>}
+      {!hideBars && (
+        <TopBar hideBrandWhenNarrow={addressBarInTopBar}>
+          {addressBarInTopBar ? (
+            <AddressBar inputRef={addressInputRef} inTopBar />
+          ) : (
+            !isVerticalTabs && <TabBar orientation="horizontal" />
+          )}
+        </TopBar>
+      )}
 
       {/* Keep page content mounted when the tab strip changes position. */}
       <div
@@ -462,7 +475,7 @@ function Browser() {
             flexDirection: 'column',
           }}
         >
-          {!hideBars && <AddressBar inputRef={addressInputRef} />}
+          {!hideBars && !addressBarInTopBar && <AddressBar inputRef={addressInputRef} />}
           {!hideBars && showBookmarksBar && <BookmarksBar />}
           <FindBar open={findBarOpen} focusToken={findBarFocusToken} onClose={closeFindBar} />
           <TabView />

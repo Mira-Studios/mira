@@ -44,6 +44,7 @@ function ForwardIcon() {
 
 type AddressBarProps = {
   inputRef?: React.RefObject<HTMLInputElement | null>;
+  inTopBar?: boolean;
 };
 
 type AddressMenuAction = {
@@ -125,7 +126,7 @@ function readSiteSettingsPageInfo(url: string | undefined): SiteSettingsPageInfo
   };
 }
 
-export default function AddressBar({ inputRef }: AddressBarProps) {
+export default function AddressBar({ inputRef, inTopBar = false }: AddressBarProps) {
   const {
     tabs,
     activeId,
@@ -606,14 +607,18 @@ export default function AddressBar({ inputRef }: AddressBarProps) {
 
   return (
     <div
+      className={inTopBar ? 'address-bar-in-topbar' : undefined}
+      onDoubleClick={inTopBar ? (event) => event.stopPropagation() : undefined}
       style={{
         position: 'relative',
         display: 'flex',
         alignItems: 'center',
-        padding: 'var(--layoutAddressBarPaddingY, 6px)',
+        padding: inTopBar ? '0' : 'var(--layoutAddressBarPaddingY, 6px)',
         gap: 4,
-        background: 'var(--surfaceBgHover, var(--tabBgHover))',
-        borderTop: '1px solid var(--surfaceBorder, var(--tabBorder))',
+        background: inTopBar ? 'transparent' : 'var(--surfaceBgHover, var(--tabBgHover))',
+        borderTop: inTopBar ? undefined : '1px solid var(--surfaceBorder, var(--tabBorder))',
+        flex: inTopBar ? 1 : undefined,
+        minWidth: 0,
       }}
     >
       <button
@@ -739,7 +744,7 @@ export default function AddressBar({ inputRef }: AddressBarProps) {
         )}
       </div>
 
-      <div style={{ position: 'relative', flex: 1 }}>
+      <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
         <input
           ref={inputRef}
           value={input}

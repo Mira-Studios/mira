@@ -274,6 +274,9 @@ export default function Settings() {
   );
   const [showPerfOverlay, setShowPerfOverlay] = useState(() => initialSettings.showPerfOverlay);
   const [showBookmarkButton, setShowBookmarkButton] = useState(() => initialSettings.showBookmarkButton);
+  const [verticalTabsAddressBarInTopBar, setVerticalTabsAddressBarInTopBar] = useState(
+    () => initialSettings.verticalTabsAddressBarInTopBar,
+  );
   const [showBookmarksBar, setShowBookmarksBar] = useState(() => initialSettings.showBookmarksBar);
   const [cookiesEnabled, setCookiesEnabled] = useState(() => initialSettings.cookiesEnabled);
   const [themes, setThemes] = useState<ThemeEntry[]>(() => getAllThemes());
@@ -595,6 +598,7 @@ export default function Settings() {
         startupRestoreBehavior,
         showPerfOverlay,
         tabStripPosition,
+        verticalTabsAddressBarInTopBar,
         showBookmarkButton,
         showBookmarksBar,
       });
@@ -635,6 +639,7 @@ export default function Settings() {
     startupRestoreBehavior,
     showPerfOverlay,
     tabStripPosition,
+    verticalTabsAddressBarInTopBar,
     showBookmarkButton,
     showBookmarksBar,
     cookiesEnabled,
@@ -1754,6 +1759,24 @@ export default function Settings() {
                     <option value="left">Left</option>
                     <option value="right">Right</option>
                   </select>
+                </div>
+                <div className="settings-setting-row">
+                  <label htmlFor="vertical-tabs-address-bar-in-topbar" className="settings-setting-meta">
+                    <span className="settings-setting-label">URL bar in top bar with vertical tabs</span>
+                    <span className="settings-setting-description">
+                      Move the URL bar and navigation controls into the top bar when tabs are on the left or right.
+                    </span>
+                  </label>
+                  <input
+                    id="vertical-tabs-address-bar-in-topbar"
+                    type="checkbox"
+                    className="settings-toggle settings-setting-control"
+                    checked={verticalTabsAddressBarInTopBar}
+                    onChange={(e) => {
+                      setVerticalTabsAddressBarInTopBar(e.currentTarget.checked);
+                      setSaveStatus('saving');
+                    }}
+                  />
                 </div>
                 <div className="settings-setting-row">
                   <label htmlFor="show-bookmark-button" className="settings-setting-meta">
