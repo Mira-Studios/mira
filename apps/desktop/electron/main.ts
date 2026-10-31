@@ -23,6 +23,15 @@ import os from 'node:os';
 import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 
+// Isolate development before sessions or the single-instance lock use these paths.
+const isDevelopment = !app.isPackaged;
+if (isDevelopment) {
+  const developmentDataPath = path.join(app.getPath('appData'), 'Mira Dev');
+  app.setName('Mira Dev');
+  app.setPath('userData', developmentDataPath);
+  app.setPath('sessionData', developmentDataPath);
+}
+
 // Store active downloads by ID
 const downloadMap = new Map<string, DownloadItem>();
 const downloadWindowById = new Map<string, number>();
@@ -1099,6 +1108,7 @@ function isDefaultForProtocol(protocol: string): boolean {
 }
 
 function setAsDefaultForProtocol(protocol: string): boolean {
+  if (isDevelopment) return false;
   try {
     const registrationContext = getDefaultProtocolRegistrationContext();
     const hasRegistrationContext = !!registrationContext;
@@ -5214,7 +5224,10 @@ function setupWindowsJumpList() {
   if (!isWindows) return;
 
   // Set consistent AppUserModelID for proper taskbar grouping
-  app.setAppUserModelId('com.fatalmistake02.mira');
+  app.setAppUserModelId(
+    isDevelopment ? 'com.fatalmistake02.mira.dev' : 'com.fatalmistake02.mira',
+  );
+  if (isDevelopment) return;
 
   // Configure Windows Jump List for taskbar right-click menu
   app.setUserTasks([
