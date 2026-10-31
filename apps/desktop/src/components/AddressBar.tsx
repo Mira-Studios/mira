@@ -28,7 +28,7 @@ import {
 import { markPendingHttpsUpgrade, toHttpsUrlFromHttp } from '../features/security/unsecureSitePolicy';
 import { electron } from '../electronBridge';
 
-const MAIN_MENU_ANIMATION_MS = 150;
+const MENU_ANIMATION_MS = 150;
 
 function ReloadIcon() {
   return <RotateCw size={16} strokeWidth={1.9} aria-hidden="true" />;
@@ -145,6 +145,7 @@ export default function AddressBar({ inputRef }: AddressBarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuClosing, setMenuClosing] = useState(false);
   const [siteSettingsOpen, setSiteSettingsOpen] = useState(false);
+  const [siteSettingsClosing, setSiteSettingsClosing] = useState(false);
   const [permissionRequests, setPermissionRequests] = useState<SitePermissionRequestPayload[]>([]);
   const [animationsEnabled, setAnimationsEnabled] = useState(
     () => getBrowserSettings().animationsEnabled,
@@ -155,6 +156,7 @@ export default function AddressBar({ inputRef }: AddressBarProps) {
   const menuRef = useRef<HTMLDivElement | null>(null);
   const siteSettingsRef = useRef<HTMLDivElement | null>(null);
   const menuCloseTimerRef = useRef<number | null>(null);
+  const siteSettingsCloseTimerRef = useRef<number | null>(null);
 
   const clearMenuCloseTimer = useCallback(() => {
     if (menuCloseTimerRef.current === null) return;
@@ -163,6 +165,7 @@ export default function AddressBar({ inputRef }: AddressBarProps) {
   }, []);
 
   const closeMenu = useCallback(() => {
+    if (!menuOpen) return;
     clearMenuCloseTimer();
     if (!animationsEnabled) {
       setMenuOpen(false);
@@ -175,14 +178,36 @@ export default function AddressBar({ inputRef }: AddressBarProps) {
     menuCloseTimerRef.current = window.setTimeout(() => {
       setMenuClosing(false);
       menuCloseTimerRef.current = null;
-    }, MAIN_MENU_ANIMATION_MS);
-  }, [animationsEnabled, clearMenuCloseTimer]);
+    }, MENU_ANIMATION_MS);
+  }, [menuOpen, animationsEnabled, clearMenuCloseTimer]);
 
   const openMenu = useCallback(() => {
     clearMenuCloseTimer();
     setMenuClosing(false);
     setMenuOpen(true);
   }, [clearMenuCloseTimer]);
+
+  const clearSiteSettingsCloseTimer = useCallback(() => {
+    if (siteSettingsCloseTimerRef.current === null) return;
+    window.clearTimeout(siteSettingsCloseTimerRef.current);
+    siteSettingsCloseTimerRef.current = null;
+  }, []);
+
+  const closeSiteSettings = useCallback(() => {
+    if (!siteSettingsOpen) return;
+    clearSiteSettingsCloseTimer();
+    setSiteSettingsOpen(false);
+    if (!animationsEnabled) {
+      setSiteSettingsClosing(false);
+      return;
+    }
+
+    setSiteSettingsClosing(true);
+    siteSettingsCloseTimerRef.current = window.setTimeout(() => {
+      setSiteSettingsClosing(false);
+      siteSettingsCloseTimerRef.current = null;
+    }, MENU_ANIMATION_MS);
+  }, [siteSettingsOpen, animationsEnabled, clearSiteSettingsCloseTimer]);
 
   useEffect(() => {
     const activeTab = tabs.find((t) => t.id === activeId);
@@ -388,12 +413,13 @@ export default function AddressBar({ inputRef }: AddressBarProps) {
   useEffect(() => {
     return () => {
       clearMenuCloseTimer();
+      clearSiteSettingsCloseTimer();
     };
-  }, [clearMenuCloseTimer]);
+  }, [clearMenuCloseTimer, clearSiteSettingsCloseTimer]);
 
   useEffect(() => {
     const menuVisible = menuOpen || menuClosing;
-    if (!menuVisible && !siteSettingsOpen) return;
+    if (!menuVisible && !siteSettingsOpen && !siteSettingsClosing) return;
 
     const onPointerDown = (event: MouseEvent) => {
       const target = event.target as Node;
@@ -402,7 +428,7 @@ export default function AddressBar({ inputRef }: AddressBarProps) {
       if (menuVisible) {
         closeMenu();
       }
-      setSiteSettingsOpen(false);
+      closeSiteSettings();
     };
 
     // Close popups when clicking on webview (window loses focus)
@@ -410,7 +436,7 @@ export default function AddressBar({ inputRef }: AddressBarProps) {
       if (menuVisible) {
         closeMenu();
       }
-      setSiteSettingsOpen(false);
+      closeSiteSettings();
     };
 
     window.addEventListener('mousedown', onPointerDown);
@@ -419,11 +445,13 @@ export default function AddressBar({ inputRef }: AddressBarProps) {
       window.removeEventListener('mousedown', onPointerDown);
       window.removeEventListener('blur', onBlur);
     };
-  }, [menuOpen, menuClosing, closeMenu, siteSettingsOpen]);
+  }, [menuOpen, menuClosing, closeMenu, siteSettingsOpen, siteSettingsClosing, closeSiteSettings]);
 
   useEffect(() => {
+    clearSiteSettingsCloseTimer();
     setSiteSettingsOpen(false);
-  }, [activeId]);
+    setSiteSettingsClosing(false);
+  }, [activeId, clearSiteSettingsCloseTimer]);
 
   useEffect(() => {
     const ipc = electron?.ipcRenderer;
@@ -557,13 +585,14 @@ export default function AddressBar({ inputRef }: AddressBarProps) {
   const menuVisible = menuOpen || menuClosing;
   const toggleSiteSettingsPanel = (e?: React.MouseEvent) => {
     e?.stopPropagation();
-    setSiteSettingsOpen((current) => {
-      const nextOpen = !current;
-      if (nextOpen) {
-        closeMenu();
-      }
-      return nextOpen;
-    });
+    if (siteSettingsOpen) {
+      closeSiteSettings();
+      return;
+    }
+    closeMenu();
+    clearSiteSettingsCloseTimer();
+    setSiteSettingsClosing(false);
+    setSiteSettingsOpen(true);
   };
 
   const siteSettingsStatusIcon = activePageInfo.kind === 'site'
@@ -654,8 +683,18 @@ export default function AddressBar({ inputRef }: AddressBarProps) {
           <Settings2 size={16} strokeWidth={2} aria-hidden="true" />
         </button>
 
-        {siteSettingsOpen && (
-          <div className="theme-panel site-settings-panel">
+        {(siteSettingsOpen || siteSettingsClosing) && (
+          <div
+            className={`theme-panel site-settings-panel ${
+              animationsEnabled
+                ? siteSettingsOpen
+                  ? 'site-settings-panel-open'
+                  : 'site-settings-panel-closing'
+                : ''
+            }`}
+            role="dialog"
+            aria-label="Site settings"
+          >
             <div className="site-settings-panel-header">
               <div className="site-settings-panel-title-row">
                 <span
@@ -688,7 +727,7 @@ export default function AddressBar({ inputRef }: AddressBarProps) {
                   type="button"
                   className="theme-btn theme-btn-nav site-settings-open-settings-btn"
                   onClick={() => {
-                    setSiteSettingsOpen(false);
+                    closeSiteSettings();
                     openBrowserSettingsPageWithOrigin(activePageInfo.siteLabel);
                   }}
                 >
@@ -777,7 +816,7 @@ export default function AddressBar({ inputRef }: AddressBarProps) {
               closeMenu();
               return;
             }
-            setSiteSettingsOpen(false);
+            closeSiteSettings();
             openMenu();
           }}
           title="Menu"

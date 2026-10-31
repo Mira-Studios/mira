@@ -1298,7 +1298,6 @@ textarea {
     color-mix(in srgb, var(--surfaceBgHover, var(--tabBgHover)) 88%, transparent),
     color-mix(in srgb, var(--surfaceBg, var(--tabBg)) 95%, transparent)
   );
-  box-shadow: var(--dropdownShadow);
   backdrop-filter: blur(10px);
   overflow: hidden;
   transform-origin: top right;
@@ -1326,11 +1325,13 @@ textarea {
   }
 }
 
-.address-menu-panel-open {
+.address-menu-panel-open,
+.site-settings-panel-open {
   animation: address-menu-panel-open 150ms cubic-bezier(0.2, 0, 0.2, 1) both;
 }
 
-.address-menu-panel-closing {
+.address-menu-panel-closing,
+.site-settings-panel-closing {
   animation: address-menu-panel-close 150ms ease both;
   pointer-events: none;
 }
@@ -1445,12 +1446,12 @@ textarea {
   width: min(360px, calc(100vw - 24px));
   padding: 12px;
   border-radius: var(--layoutAddressMenuPanelRadius, 12px);
-  box-shadow: var(--dropdownShadow);
   display: flex;
   flex-direction: column;
   gap: 12px;
   z-index: 1300;
   backdrop-filter: blur(10px);
+  transform-origin: top left;
 }
 
 .site-settings-panel-header {
