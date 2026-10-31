@@ -888,7 +888,7 @@ export default function Settings() {
         setOnboardingResetStatus('Failed to reset onboarding.');
         return;
       }
-      setOnboardingResetStatus('Onboarding reset. It will show again on next app open.');
+      setOnboardingResetStatus('Onboarding opened.');
     } catch {
       setOnboardingResetStatus('Failed to reset onboarding.');
     } finally {
@@ -2344,7 +2344,7 @@ export default function Settings() {
                   <div className="settings-setting-meta">
                     <span className="settings-setting-label">Show onboarding again</span>
                     <span className="settings-setting-description">
-                      Reset first-run onboarding so it appears the next time you open Mira.
+                      Open first-run onboarding again.
                     </span>
                   </div>
                   <div className="settings-actions-row settings-setting-control settings-setting-control-grow settings-setting-control-right">

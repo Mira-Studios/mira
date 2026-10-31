@@ -1,0 +1,199 @@
+.onboarding-root {
+  height: 100vh;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--text1);
+  user-select: none;
+}
+.onboarding-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  gap: 16px;
+  height: 62px;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--surfaceBorder);
+  -webkit-app-region: drag;
+}
+.onboarding-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.onboarding-brand img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+}
+.onboarding-step-count {
+  color: var(--text2);
+  font-size: 12px;
+}
+.onboarding-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+.onboarding-main {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.onboarding-scroll {
+  flex: 1;
+  width: 100%;
+  max-width: 680px;
+  align-self: center;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 26px 28px;
+  scrollbar-color: var(--surfaceBorder) var(--bg);
+  scrollbar-width: thin;
+}
+.onboarding-section-header {
+  flex-shrink: 0;
+  margin-bottom: 24px;
+}
+.onboarding-group {
+  flex-shrink: 0;
+}
+.onboarding-root h1 {
+  margin: 0;
+  font-size: 25px;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.5px;
+}
+.onboarding-welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+.onboarding-main-welcome .onboarding-scroll {
+  justify-content: safe center;
+}
+.onboarding-welcome-logo {
+  width: 112px;
+  height: 112px;
+  margin-bottom: 18px;
+  object-fit: contain;
+}
+.onboarding-root .settings-card {
+  padding: 2px 16px;
+}
+.onboarding-root .settings-setting-row {
+  flex-direction: row;
+  align-items: center;
+  gap: 14px;
+  min-height: 76px;
+}
+.onboarding-root .settings-setting-meta {
+  gap: 4px;
+}
+.onboarding-root .settings-setting-description {
+  font-size: 12px;
+  line-height: 1.5;
+}
+.onboarding-root .settings-select-input {
+  width: 44%;
+  max-width: 230px;
+  min-width: 0;
+  color: var(--fieldText);
+  background: var(--fieldBg);
+  border-color: var(--fieldBorder);
+  text-overflow: ellipsis;
+}
+.onboarding-root .settings-select-input:hover {
+  background: var(--fieldBgHover);
+  border-color: var(--fieldBorderHover);
+}
+.onboarding-root .settings-select-input:focus {
+  background: var(--fieldBgActive);
+  border-color: var(--fieldBorderActive);
+}
+.onboarding-footer {
+  flex-shrink: 0;
+  padding: 18px 24px 24px;
+}
+.onboarding-footer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+.onboarding-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 14px;
+  corner-shape: squircle;
+  background: var(--navButtonBg);
+  color: var(--navButtonText);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.onboarding-button > span {
+  white-space: nowrap;
+}
+.onboarding-button > svg {
+  display: block;
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+}
+.onboarding-button-primary {
+  width: 140px;
+  background: var(--navButtonBgActive);
+  color: var(--navButtonTextActive);
+}
+.onboarding-button-secondary {
+  width: 100px;
+}
+.onboarding-button:hover:not(:disabled) {
+  background: var(--navButtonBgHover);
+  color: var(--navButtonTextHover);
+}
+.onboarding-button:active:not(:disabled) {
+  background: var(--navButtonBgActive);
+  color: var(--navButtonTextActive);
+}
+.onboarding-button:focus-visible {
+  outline: 2px solid var(--focusOutline, var(--navButtonBorderActive));
+  outline-offset: 3px;
+}
+.onboarding-button:disabled,
+.onboarding-root .settings-toggle:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.onboarding-error {
+  margin: 0 0 12px;
+  color: var(--text2);
+  font-size: 12px;
+}
+@media (max-width: 600px) {
+  .onboarding-scroll {
+    padding: 20px;
+  }
+  .onboarding-footer {
+    padding: 18px 20px 24px;
+  }
+}

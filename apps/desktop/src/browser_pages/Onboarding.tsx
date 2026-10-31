@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
+import { ArrowLeft, ArrowRight } from 'lucide-react';
+import './Settings.css';
+import './Onboarding.css';
 import miraLogo from '../assets/mira_logo.png';
 import { electron } from '../electronBridge';
 import {
@@ -83,6 +86,7 @@ export default function Onboarding() {
   const [canConfigureRunOnStartup, setCanConfigureRunOnStartup] = useState(false);
   const [canAutoInstallOnLaunch, setCanAutoInstallOnLaunch] = useState(false);
   const [isFinishing, setIsFinishing] = useState(false);
+  const [finishError, setFinishError] = useState('');
 
   const resolvedThemeMode: ThemeMode =
     themePreference === 'system' ? systemThemeMode : themePreference;
@@ -159,6 +163,7 @@ export default function Onboarding() {
   const finishOnboarding = async () => {
     if (isFinishing) return;
     setIsFinishing(true);
+    setFinishError('');
 
     saveBrowserSettings({
       themeId: resolvedThemeId,
@@ -174,12 +179,16 @@ export default function Onboarding() {
     });
 
     if (!electron?.ipcRenderer) {
+      setFinishError('Open Mira on desktop to finish setup.');
       setIsFinishing(false);
       return;
     }
 
     try {
-      await electron.ipcRenderer.invoke('onboarding-complete');
+      const completed = await electron.ipcRenderer.invoke('onboarding-complete');
+      if (completed !== true) throw new Error('Setup not completed');
+    } catch {
+      setFinishError('Could not finish setup. Please try again.');
     } finally {
       setIsFinishing(false);
     }
@@ -193,348 +202,251 @@ export default function Onboarding() {
     setStepIndex((index) => Math.min(index + 1, stepCount - 1));
   };
 
-  const titleByStep = ['', 'Appearance', 'Startup and updates', 'Privacy'];
-  const subtitleByStep = [
-    '',
-    'Customize the look of Mira.',
-    'Choose startup and update behavior.',
-    'Set ad and tracker blocking defaults.',
-  ];
+  const titleByStep = ['Welcome to Mira', 'Appearance', 'Startup and updates', 'Privacy'];
 
   return (
-    <div
-      className="onboarding-root"
-      style={{
-        height: '100vh',
-        width: '100vw',
-        padding: 16,
-        background: 'var(--bg)',
-        color: 'var(--text1)',
-      }}
-    >
-      <style>{`
-        .onboarding-root,
-        .onboarding-root * {
-          user-select: none;
-          -webkit-user-select: none;
-        }
-
-        .onboarding-card {
-          background: var(--surfaceBg, var(--tabBg));
-          color: var(--surfaceText, var(--text1));
-          border: none;
-          border-radius: var(--layoutPanelRadius, 8px);
-        }
-
-        .onboarding-drag-panel {
-          -webkit-app-region: drag;
-        }
-
-        .onboarding-no-drag {
-          -webkit-app-region: no-drag;
-        }
-
-        @keyframes miraOnboardingLogoFadeIn {
-          from { opacity: 0; transform: translateY(10px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-
-        @keyframes miraOnboardingTypewriter {
-          from { clip-path: inset(0 100% 0 0); }
-          to { clip-path: inset(0 0 0 0); }
-        }
-
-        @keyframes miraOnboardingCaretBlink {
-          0% { border-color: currentColor; }
-          10% { border-color: transparent; }
-          20% { border-color: currentColor; }
-          30% { border-color: transparent; }
-          40% { border-color: currentColor; }
-          50% { border-color: transparent; }
-          60% { border-color: currentColor; }
-          70% { border-color: transparent; }
-          80% { border-color: currentColor; }
-          90% { border-color: transparent; }
-          100% { border-color: transparent; }
-        }
-      `}</style>
-
-      <div
-        className="onboarding-card onboarding-drag-panel"
-        style={{
-          height: '100%',
-          padding: 20,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 14,
-        }}
-      >
-        <div>
-          <div className="theme-text2" style={{ fontSize: 12 }}>
-            Step {stepIndex + 1} of {stepCount}
-          </div>
-          <h1 style={{ margin: '6px 0 0', fontSize: 26, lineHeight: 1.2 }}>
-            {titleByStep[stepIndex]}
-          </h1>
-          <p className="theme-text2" style={{ margin: '6px 0 0', fontSize: 13 }}>
-            {subtitleByStep[stepIndex]}
-          </p>
-        </div>
-
-        <div className="onboarding-no-drag" style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
-          {stepIndex === 0 && (
-            <div
-              style={{
-                height: '100%',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                textAlign: 'center',
-                gap: 14,
-              }}
-            >
-              <img
-                src={miraLogo}
-                alt="Mira logo"
-                style={{
-                  width: 180,
-                  height: 180,
-                  objectFit: 'contain',
-                  opacity: 0,
-                  animation: 'miraOnboardingLogoFadeIn 900ms ease-out forwards',
-                }}
-              />
-              <h2 style={{ margin: 0, fontSize: 30, fontWeight: 700 }}>
-                <span
-                  style={{
-                    display: 'inline-block',
-                    whiteSpace: 'nowrap',
-                    clipPath: 'inset(0 100% 0 0)',
-                    borderRight: '2px solid currentColor',
-                    animation:
-                      'miraOnboardingTypewriter 1.6s steps(15, end) 320ms forwards, miraOnboardingCaretBlink 1.8s step-end 320ms forwards',
-                  }}
-                >
-                  Welcome to Mira
-                </span>
-              </h2>
-            </div>
-          )}
-
-          {stepIndex === 1 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <label className="settings-setting-row" htmlFor="onboarding-theme">
-                <span className="settings-setting-meta">
-                  <span className="settings-setting-label">Theme preference</span>
-                  <span className="settings-setting-description">
-                    System follows your OS theme.
-                  </span>
-                </span>
-                <select
-                  id="onboarding-theme"
-                  className="theme-input settings-select-input settings-setting-control"
-                  value={themePreference}
-                  onChange={(event) => {
-                    const value = event.currentTarget.value;
-                    if (value === 'system' || value === 'light' || value === 'dark') {
-                      setThemePreference(value as ThemePreference);
-                    }
-                  }}
-                >
-                  <option value="system">System</option>
-                  <option value="light">Light</option>
-                  <option value="dark">Dark</option>
-                </select>
-              </label>
-              <label className="settings-setting-row" htmlFor="onboarding-layout">
-                <span className="settings-setting-meta">
-                  <span className="settings-setting-label">Layout</span>
-                  <span className="settings-setting-description">
-                    Pick how your browser controls should look.
-                  </span>
-                </span>
-                <select
-                  id="onboarding-layout"
-                  className="theme-input settings-select-input settings-setting-control"
-                  value={layoutId}
-                  onChange={(event) => setLayoutId(event.currentTarget.value)}
-                >
-                  {allLayouts.map((entry) => (
-                    <option key={entry.id} value={entry.id}>
-                      {formatLayoutLabel(entry)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-          )}
-
-          {stepIndex === 2 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <label className="settings-setting-row" htmlFor="onboarding-startup-restore-behavior">
-                <span className="settings-setting-meta">
-                  <span className="settings-setting-label">Restore behavior</span>
-                  <span className="settings-setting-description">
-                    Choose how Mira restores your previous session on startup.
-                  </span>
-                </span>
-                <select
-                  id="onboarding-startup-restore-behavior"
-                  className="theme-input settings-select-input settings-setting-control"
-                  value={startupRestoreBehavior}
-                  onChange={(event) => {
-                    const nextMode = event.currentTarget.value;
-                    if (
-                      nextMode === 'ask' ||
-                      nextMode === 'windows' ||
-                      nextMode === 'tabs' ||
-                      nextMode === 'fresh'
-                    ) {
-                      setStartupRestoreBehavior(nextMode as StartupRestoreBehavior);
-                    }
-                  }}
-                >
-                  <option value="ask">Always Ask (default)</option>
-                  <option value="windows">Auto Restore All Windows</option>
-                  <option value="tabs">Auto Restore Tabs</option>
-                  <option value="fresh">Auto Start Fresh</option>
-                </select>
-              </label>
-
-              <label className="settings-setting-row" htmlFor="onboarding-run-on-startup">
-                <span className="settings-setting-meta">
-                  <span className="settings-setting-label">Run on startup</span>
-                  <span className="settings-setting-description">
-                    Launch Mira when you sign in.
-                  </span>
-                </span>
-                <input
-                  id="onboarding-run-on-startup"
-                  type="checkbox"
-                  className="settings-toggle settings-setting-control"
-                  checked={runOnStartup}
-                  disabled={!canConfigureRunOnStartup}
-                  onChange={(event) => setRunOnStartup(event.currentTarget.checked)}
-                />
-              </label>
-
-              {!canConfigureRunOnStartup && (
-                <div className="theme-text2" style={{ fontSize: 12 }}>
-                  Run on startup is unavailable in this build.
+    <div className="onboarding-root settings-redesign">
+      <header className="onboarding-header">
+        <span className="onboarding-brand">
+          <img src={miraLogo} alt="" />
+          Mira
+        </span>
+        <span className="onboarding-step-count">
+          {stepIndex + 1} of {stepCount}
+        </span>
+      </header>
+      <div className="onboarding-body">
+        <main className={`onboarding-main ${stepIndex === 0 ? 'onboarding-main-welcome' : ''}`}>
+          <div className="onboarding-scroll" key={stepIndex}>
+            {stepIndex === 0 ? (
+              <div className="onboarding-welcome">
+                <img className="onboarding-welcome-logo" src={miraLogo} alt="" />
+                <h1>{titleByStep[stepIndex]}</h1>
+              </div>
+            ) : (
+              <header className="onboarding-section-header">
+                <h1>{titleByStep[stepIndex]}</h1>
+              </header>
+            )}
+            {stepIndex === 1 && (
+              <section className="onboarding-group">
+                <div className="settings-card">
+                  <label className="settings-setting-row" htmlFor="onboarding-theme">
+                    <span className="settings-setting-meta">
+                      <span className="settings-setting-label">Theme preference</span>
+                      <span className="settings-setting-description">
+                        System follows your OS theme.
+                      </span>
+                    </span>
+                    <select
+                      id="onboarding-theme"
+                      className="theme-input settings-select-input settings-setting-control"
+                      value={themePreference}
+                      onChange={(event) => {
+                        const value = event.currentTarget.value;
+                        if (value === 'system' || value === 'light' || value === 'dark') {
+                          setThemePreference(value as ThemePreference);
+                        }
+                      }}
+                    >
+                      <option value="system">System</option>
+                      <option value="light">Light</option>
+                      <option value="dark">Dark</option>
+                    </select>
+                  </label>
+                  <label className="settings-setting-row" htmlFor="onboarding-layout">
+                    <span className="settings-setting-meta">
+                      <span className="settings-setting-label">Layout</span>
+                      <span className="settings-setting-description">
+                        Pick how your browser controls should look.
+                      </span>
+                    </span>
+                    <select
+                      id="onboarding-layout"
+                      className="theme-input settings-select-input settings-setting-control"
+                      value={layoutId}
+                      onChange={(event) => setLayoutId(event.currentTarget.value)}
+                    >
+                      {allLayouts.map((entry) => (
+                        <option key={entry.id} value={entry.id}>
+                          {formatLayoutLabel(entry)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                 </div>
-              )}
+              </section>
+            )}
 
-              <label className="settings-setting-row" htmlFor="onboarding-auto-update-mode">
-                <span className="settings-setting-meta">
-                  <span className="settings-setting-label">Automatic updates</span>
-                  <span className="settings-setting-description">
-                    Choose when Mira should check for and apply updates.
-                  </span>
+            {stepIndex === 2 && (
+              <section className="onboarding-group">
+                <div className="settings-card">
+                  <label
+                    className="settings-setting-row"
+                    htmlFor="onboarding-startup-restore-behavior"
+                  >
+                    <span className="settings-setting-meta">
+                      <span className="settings-setting-label">Restore behavior</span>
+                      <span className="settings-setting-description">
+                        Choose what opens when Mira starts.
+                      </span>
+                    </span>
+                    <select
+                      id="onboarding-startup-restore-behavior"
+                      className="theme-input settings-select-input settings-setting-control"
+                      value={startupRestoreBehavior}
+                      onChange={(event) => {
+                        const nextMode = event.currentTarget.value;
+                        if (
+                          nextMode === 'ask' ||
+                          nextMode === 'windows' ||
+                          nextMode === 'tabs' ||
+                          nextMode === 'fresh'
+                        ) {
+                          setStartupRestoreBehavior(nextMode as StartupRestoreBehavior);
+                        }
+                      }}
+                    >
+                      <option value="ask">Always ask</option>
+                      <option value="windows">Restore all windows</option>
+                      <option value="tabs">Restore tabs</option>
+                      <option value="fresh">Start fresh</option>
+                    </select>
+                  </label>
+
+                  <label className="settings-setting-row" htmlFor="onboarding-run-on-startup">
+                    <span className="settings-setting-meta">
+                      <span className="settings-setting-label">Run on startup</span>
+                      <span className="settings-setting-description">
+                        {canConfigureRunOnStartup
+                          ? 'Launch Mira when you sign in.'
+                          : 'Unavailable in this build.'}
+                      </span>
+                    </span>
+                    <input
+                      id="onboarding-run-on-startup"
+                      type="checkbox"
+                      className="settings-toggle settings-setting-control"
+                      checked={runOnStartup}
+                      disabled={!canConfigureRunOnStartup}
+                      onChange={(event) => setRunOnStartup(event.currentTarget.checked)}
+                    />
+                  </label>
+
+                  <label className="settings-setting-row" htmlFor="onboarding-auto-update-mode">
+                    <span className="settings-setting-meta">
+                      <span className="settings-setting-label">Automatic updates</span>
+                      <span className="settings-setting-description">Keep Mira up to date.</span>
+                    </span>
+                    <select
+                      id="onboarding-auto-update-mode"
+                      value={autoUpdateMode}
+                      className="theme-input settings-select-input settings-select-limit settings-setting-control"
+                      onChange={(event) => {
+                        const nextMode = event.currentTarget.value as AutoUpdateMode;
+                        if (
+                          nextMode === 'off' ||
+                          nextMode === 'ask-on-launch' ||
+                          nextMode === 'ask-on-close' ||
+                          nextMode === 'auto-on-launch' ||
+                          nextMode === 'auto-on-close'
+                        ) {
+                          setAutoUpdateMode(nextMode);
+                        }
+                      }}
+                    >
+                      <option value="off">Off</option>
+                      <option value="ask-on-launch">Ask when Mira starts</option>
+                      <option value="ask-on-close">Ask when Mira closes</option>
+                      <option value="auto-on-launch" disabled={!canAutoInstallOnLaunch}>
+                        Auto update on launch
+                      </option>
+                      <option value="auto-on-close" disabled={!canAutoInstallOnLaunch}>
+                        Auto update on close
+                      </option>
+                    </select>
+                  </label>
+                </div>
+              </section>
+            )}
+
+            {stepIndex === 3 && (
+              <section className="onboarding-group">
+                <div className="settings-card">
+                  <label className="settings-setting-row" htmlFor="onboarding-ad-blocking">
+                    <span className="settings-setting-meta">
+                      <span className="settings-setting-label">Enable ad blocking</span>
+                      <span className="settings-setting-description">
+                        Block known ad and marketing hosts while browsing.
+                      </span>
+                    </span>
+                    <input
+                      id="onboarding-ad-blocking"
+                      type="checkbox"
+                      className="settings-toggle settings-setting-control"
+                      checked={adBlockEnabled}
+                      onChange={(event) => setAdBlockEnabled(event.currentTarget.checked)}
+                    />
+                  </label>
+
+                  <label className="settings-setting-row" htmlFor="onboarding-tracker-blocking">
+                    <span className="settings-setting-meta">
+                      <span className="settings-setting-label">Enable tracker blocking</span>
+                      <span className="settings-setting-description">
+                        Blocks many analytics trackers, but may also block resources some sites
+                        need.
+                      </span>
+                    </span>
+                    <input
+                      id="onboarding-tracker-blocking"
+                      type="checkbox"
+                      className="settings-toggle settings-setting-control"
+                      checked={trackerBlockEnabled}
+                      onChange={(event) => setTrackerBlockEnabled(event.currentTarget.checked)}
+                    />
+                  </label>
+                </div>
+              </section>
+            )}
+          </div>
+          <footer className="onboarding-footer">
+            {finishError && (
+              <p className="onboarding-error" role="alert">
+                {finishError}
+              </p>
+            )}
+            <div className="onboarding-footer-actions">
+              <button
+                type="button"
+                className="onboarding-button onboarding-button-secondary"
+                onClick={() =>
+                  stepIndex > 0 ? setStepIndex((index) => index - 1) : void finishOnboarding()
+                }
+                disabled={isFinishing}
+              >
+                {stepIndex > 0 && <ArrowLeft size={15} aria-hidden="true" />}
+                <span>{stepIndex > 0 ? 'Back' : 'Skip setup'}</span>
+              </button>
+              <button
+                type="button"
+                className="onboarding-button onboarding-button-primary"
+                onClick={handleNext}
+                disabled={isFinishing}
+              >
+                <span>
+                  {isFinishing
+                    ? 'Starting...'
+                    : isLastStep
+                      ? 'Start browsing'
+                      : stepIndex === 0
+                        ? 'Get started'
+                        : 'Continue'}
                 </span>
-                <select
-                  id="onboarding-auto-update-mode"
-                  value={autoUpdateMode}
-                  className="theme-input settings-select-input settings-select-limit settings-setting-control"
-                  onChange={(event) => {
-                    const nextMode = event.currentTarget.value as AutoUpdateMode;
-                    if (
-                      nextMode === 'off'
-                      || nextMode === 'ask-on-launch'
-                      || nextMode === 'ask-on-close'
-                      || nextMode === 'auto-on-launch'
-                      || nextMode === 'auto-on-close'
-                    ) {
-                      setAutoUpdateMode(nextMode);
-                    }
-                  }}
-                >
-                  <option value="off">Off (only manual checks)</option>
-                  <option value="ask-on-launch">Ask when Mira starts</option>
-                  <option value="ask-on-close">Ask when Mira closes</option>
-                  <option value="auto-on-launch" disabled={!canAutoInstallOnLaunch}>
-                    Auto update on launch
-                  </option>
-                  <option value="auto-on-close" disabled={!canAutoInstallOnLaunch}>
-                    Auto update on close
-                  </option>
-                </select>
-              </label>
+                {!isFinishing && <ArrowRight size={15} aria-hidden="true" />}
+              </button>
             </div>
-          )}
-
-          {stepIndex === 3 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <label className="settings-setting-row" htmlFor="onboarding-ad-blocking">
-                <span className="settings-setting-meta">
-                  <span className="settings-setting-label">Enable ad blocking</span>
-                  <span className="settings-setting-description">
-                    Block known ad and marketing hosts while browsing.
-                  </span>
-                </span>
-                <input
-                  id="onboarding-ad-blocking"
-                  type="checkbox"
-                  className="settings-toggle settings-setting-control"
-                  checked={adBlockEnabled}
-                  onChange={(event) => setAdBlockEnabled(event.currentTarget.checked)}
-                />
-              </label>
-
-              <label className="settings-setting-row" htmlFor="onboarding-tracker-blocking">
-                <span className="settings-setting-meta">
-                  <span className="settings-setting-label">Enable tracker blocking</span>
-                  <span className="settings-setting-description">
-                    Blocks many analytics trackers, but may also block resources some sites need.
-                  </span>
-                </span>
-                <input
-                  id="onboarding-tracker-blocking"
-                  type="checkbox"
-                  className="settings-toggle settings-setting-control"
-                  checked={trackerBlockEnabled}
-                  onChange={(event) => setTrackerBlockEnabled(event.currentTarget.checked)}
-                />
-              </label>
-            </div>
-          )}
-        </div>
-
-        <div
-          className="onboarding-no-drag"
-          style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-        >
-          {stepIndex > 0 ? (
-            <button
-              type="button"
-              className="theme-btn theme-btn-nav settings-btn-pad"
-              onClick={() => setStepIndex((index) => Math.max(index - 1, 0))}
-              disabled={isFinishing}
-            >
-              Back
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="theme-btn theme-btn-nav settings-btn-pad"
-              onClick={() => {
-                void finishOnboarding();
-              }}
-              disabled={isFinishing}
-            >
-              {isFinishing ? 'Skipping...' : 'Skip'}
-            </button>
-          )}
-
-          <button
-            type="button"
-            className="theme-btn theme-btn-go settings-btn-pad"
-            onClick={handleNext}
-            disabled={isFinishing}
-          >
-            {isLastStep ? (isFinishing ? 'Starting...' : 'Start Browsing') : 'Next'}
-          </button>
-        </div>
+          </footer>
+        </main>
       </div>
     </div>
   );

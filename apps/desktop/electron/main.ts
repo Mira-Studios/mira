@@ -5234,7 +5234,8 @@ function setupOnboardingHandlers() {
 
   ipcMain.handle('onboarding-reset', async () => {
     onboardingCompleted = false;
-    await persistAppState().catch(() => undefined);
+    await persistAppState();
+    createOnboardingWindow();
     return true;
   });
 }
