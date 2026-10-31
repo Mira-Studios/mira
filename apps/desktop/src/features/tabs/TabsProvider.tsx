@@ -11,6 +11,7 @@ import { addHistoryEntry, updateHistoryEntryTitle } from '../history/clientHisto
 import { useBookmarks } from '../bookmarks/BookmarksProvider';
 import miraLogo from '../../assets/mira_logo.png';
 import { type Tab } from './types';
+import { getNavigationMetadata, getUpdatedFavicon, type NavigationMetadata } from './tabMetadata';
 import {
   captureTabState,
   restoreTabState,
@@ -155,7 +156,7 @@ type TabsContextType = {
   ) => void;
   toggleDevTools: () => void;
   updateTabMetadata: (id: string, metadata: { title?: string; favicon?: string | null }) => void;
-  syncNavigationHistory: (id: string, history: string[], index: number, offset: number) => void;
+  syncNavigationHistory: (id: string, history: string[], index: number, offset: number, metadata?: NavigationMetadata) => void;
   printPage: () => void;
   savePage: () => void;
   openFile: () => void;
@@ -1571,11 +1572,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
           }
 
           if (metadata.favicon !== undefined) {
-            const normalizedFavicon =
-              typeof metadata.favicon === 'string' && metadata.favicon.trim()
-                ? metadata.favicon.trim()
-                : undefined;
-            nextFavicon = normalizedFavicon;
+            nextFavicon = getUpdatedFavicon(tab.favicon, metadata.favicon);
           }
 
           if (nextTitle === tab.title && nextFavicon === tab.favicon) {
@@ -1599,10 +1596,10 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
     [],
   );
 
-  const syncNavigationHistory = useCallback((id: string, history: string[], index: number, offset: number) => {
+  const syncNavigationHistory = useCallback((id: string, history: string[], index: number, offset: number, metadata: NavigationMetadata = {}) => {
     if (!history.length || index < 0 || index >= history.length) return;
     if (!history[index].startsWith('mira://')) {
-      void addHistoryEntry(history[index], history[index]).catch(() => undefined);
+      void addHistoryEntry(history[index], metadata.title?.trim() || history[index]).catch(() => undefined);
     }
     setTabs((current) => current.map((tab) => {
       if (tab.id !== id) return tab;
@@ -1613,11 +1610,12 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
       const nextHistory = tab.history.slice(0, offset).concat(history, sameEntries ? tab.history.slice(end) : []);
       const nextIndex = offset + index;
       const url = history[index];
-      if (sameEntries && tab.historyIndex === nextIndex && tab.url === url) return tab;
+      const nextMetadata = getNavigationMetadata(tab, url, metadata);
+      if (sameEntries && tab.historyIndex === nextIndex && tab.url === url
+        && tab.title === nextMetadata.title && tab.favicon === nextMetadata.favicon) return tab;
       return {
         ...tab, url, history: nextHistory, historyIndex: nextIndex,
-        title: url === tab.url ? tab.title : url,
-        favicon: url === tab.url ? tab.favicon : undefined,
+        ...nextMetadata,
       };
     }));
   }, []);

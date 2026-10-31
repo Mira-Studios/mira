@@ -106,6 +106,7 @@ interface WebviewElement extends HTMLElement {
   closeDevTools: () => void;
   isDevToolsOpened: () => boolean;
   getWebContentsId?: () => number;
+  getTitle?: () => string;
   willNavigateHandler?: (e: WebviewWillNavigateEvent) => void;
   didNavigateHandler?: (e: WebviewNavigationEvent) => void;
   didNavigateInPageHandler?: (e: WebviewInPageNavigationEvent) => void;
@@ -727,7 +728,7 @@ export default function TabView() {
     }
   });
 
-  const syncNativeHistory = React.useEffectEvent(async (tabId: string, webview: WebviewElement, url: string) => {
+  const syncNativeHistory = React.useEffectEvent(async (tabId: string, webview: WebviewElement, url: string, sameDocument = false) => {
     const ipc = electron?.ipcRenderer;
     if (!ipc) {
       navigate(url, tabId, { fromWebview: true });
@@ -744,7 +745,9 @@ export default function TabView() {
       const currentUrl = snapshot.history[snapshot.index];
       webview.setAttribute(WEBVIEW_TRACKED_SRC_ATTR, normalizeComparableUrl(currentUrl));
       navigationUrlByTabIdRef.current[tabId] = normalizeComparableUrl(currentUrl);
-      syncNavigationHistory(tabId, snapshot.history, snapshot.index, nativeHistoryOffsetRef.current[tabId] ?? 0);
+      syncNavigationHistory(tabId, snapshot.history, snapshot.index, nativeHistoryOffsetRef.current[tabId] ?? 0, {
+        sameDocument, title: webview.getTitle?.(),
+      });
     } catch {
       // Keep navigation usable when running against an older main process.
       if (webviewMap.current[tabId] === webview && historySyncSequenceRef.current[tabId] === sequence) {
@@ -754,14 +757,14 @@ export default function TabView() {
   });
 
   const handleDidNavigate = React.useEffectEvent(
-    (tabId: string, webview: WebviewElement, event: Event) => {
+    (tabId: string, webview: WebviewElement, event: Event, sameDocument = false) => {
       const webviewEvent = event as WebviewNavigationEvent;
       if (webviewEvent.url === 'about:blank' && tabsById.get(tabId)?.url !== 'about:blank') return;
       navigationUrlByTabIdRef.current[tabId] = normalizeComparableUrl(webviewEvent.url);
       webview.setAttribute(WEBVIEW_TRACKED_SRC_ATTR, normalizeComparableUrl(webviewEvent.url));
       clearPendingHttpsUpgradeForTab(tabId);
       clearExternalErrorForTab(tabId);
-      void syncNativeHistory(tabId, webview, webviewEvent.url);
+      void syncNativeHistory(tabId, webview, webviewEvent.url, sameDocument);
       applyRawFileDarkModeStyle(webview, shouldApplyRawFileDarkMode);
       maybeReturnFromAuthFlow(tabId, webviewEvent.url);
     },
@@ -969,7 +972,8 @@ export default function TabView() {
 
   const handlePageFaviconUpdated = React.useEffectEvent((tabId: string, event: Event) => {
     const webviewEvent = event as WebviewPageFaviconUpdatedEvent;
-    updateTabMetadata(tabId, { favicon: webviewEvent.favicons?.[0] ?? null });
+    const favicon = webviewEvent.favicons?.find((url) => typeof url === 'string' && url.trim());
+    if (favicon) updateTabMetadata(tabId, { favicon });
   });
 
   const handleFoundInPage = React.useEffectEvent((tabId: string, event: Event) => {
@@ -1100,7 +1104,7 @@ export default function TabView() {
     const didNavigateInPageHandler = (event: Event) => {
       const webviewEvent = event as WebviewInPageNavigationEvent;
       if (webviewEvent.isMainFrame === false) return;
-      handleDidNavigate(tabId, webview, event);
+      handleDidNavigate(tabId, webview, event, true);
     };
     const didStartLoadingHandler = () => {
       handleDidStartLoading(tabId);
