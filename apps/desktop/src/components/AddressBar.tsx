@@ -700,10 +700,11 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
           className="theme-input"
           style={{
             width: '100%',
-            padding: '6px 10px',
+            borderRadius: 999,
+            padding: '6px 14px',
             minHeight: 'var(--layoutNavButtonHeight, 30px)',
             fontSize: 16,
-            paddingRight: showBookmarkButton ? '40px' : '10px',
+            paddingRight: showBookmarkButton ? '40px' : '14px',
           }}
         />
         {showBookmarkButton && (
