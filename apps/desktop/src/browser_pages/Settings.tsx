@@ -162,7 +162,6 @@ const ALL_SITE_PERMISSIONS: Array<{ id: string; label: string }> = [
   { id: 'microphone', label: 'Microphone' },
   { id: 'location', label: 'Location' },
   { id: 'notifications', label: 'Notifications' },
-  { id: 'fullscreen', label: 'Fullscreen' },
   { id: 'clipboard', label: 'Clipboard' },
   { id: 'pointer-lock', label: 'Pointer Lock' },
   { id: 'screen-capture', label: 'Screen Capture' },

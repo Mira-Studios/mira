@@ -224,7 +224,6 @@ const SITE_SETTINGS_PERMISSION_ORDER: SitePermissionId[] = [
   'microphone',
   'location',
   'notifications',
-  'fullscreen',
   'clipboard',
   'pointer-lock',
   'screen-capture',
@@ -3248,6 +3247,7 @@ function setupSitePermissionHandlers() {
   const ses = session.defaultSession;
 
   ses.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => {
+    if (permission === 'fullscreen') return true;
     // This enables the chooser API; only an explicit chooser selection grants a device.
     if (['usb', 'hid', 'serial', 'bluetooth'].includes(permission)) return true;
     const origin = extractPermissionOrigin(webContents, {
@@ -3269,6 +3269,7 @@ function setupSitePermissionHandlers() {
   });
 
   ses.setPermissionRequestHandler((webContents, permission, callback, details) => {
+    if (permission === 'fullscreen') { callback(true); return; }
     if (['usb', 'hid', 'serial', 'bluetooth'].includes(permission)) { callback(true); return; }
     const origin = extractPermissionOrigin(webContents, {
       requestingUrl: details.requestingUrl,
