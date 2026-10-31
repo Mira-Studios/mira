@@ -82,8 +82,11 @@ export async function confirmContentsClose(contents: WebContents): Promise<boole
   if (contents.isDestroyed()) return true;
   try {
     for (const frame of contents.mainFrame.framesInSubtree) {
-      if (frame.detached) continue;
-      const result = await frame.executeJavaScript(`(() => {
+      // Chromium can keep an inactive frame in the tree without a live document.
+      if (frame.detached || !frame.url) continue;
+      let result: unknown;
+      try {
+        result = await frame.executeJavaScript(`(() => {
       if (window.__miraSiteInteractions) return window.__miraSiteInteractions.checkBeforeUnload();
       const event = new Event('beforeunload', {cancelable:true});
       let requested = false;
@@ -96,22 +99,33 @@ export async function confirmContentsClose(contents: WebContents): Promise<boole
         return requested || event.defaultPrevented || (value !== undefined && value !== null) ? 'ask' : true;
       } finally { window.onbeforeunload = handler; }
     })()`);
+      } catch (error) {
+        if (contents.isDestroyed()) return true;
+        // Script-disabled frames cannot run beforeunload handlers. Frames may
+        // also disappear while a page is adding/removing embedded content.
+        if (frame.detached || error === 'Script not run' || (error instanceof Error && error.message === 'Script not run')) continue;
+        return requestUnloadDialog(contents);
+      }
       if (result === 'ask') {
         const accepted = await new Promise<boolean>((resolve) => ask(contents, 'beforeunload', { url: frame.url }, (answer) => resolve(answer.accepted)));
         if (!accepted) return false;
-      } else if (result !== true) return false;
+      } else if (result === false) return false;
     }
     return true;
   } catch {
-    // A crashed/uninitialized page has no live document state to lose.
-    return contents.isDestroyed() || !contents.getURL() || contents.isCrashed();
+    if (contents.isDestroyed() || !contents.getURL() || contents.isCrashed()) return true;
+    // An unreadable frame must not silently make the tab impossible to close.
+    return requestUnloadDialog(contents);
   }
 }
 
 export async function allowContentsClose(contents: WebContents): Promise<void> {
   if (contents.isDestroyed()) return;
   unloadDecisions.set(contents.id, 'allow');
-  await contents.executeJavaScript('window.__miraSiteInteractions?.allowNextUnload()').catch(() => undefined);
+  for (const frame of contents.mainFrame.framesInSubtree) {
+    if (frame.detached || !frame.url) continue;
+    await frame.executeJavaScript('window.__miraSiteInteractions?.allowNextUnload()').catch(() => undefined);
+  }
 }
 
 function windowGuests(win: BrowserWindow): WebContents[] {
