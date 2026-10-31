@@ -420,62 +420,54 @@ function Browser() {
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', width: '100vw' }}>
       {!hideBars && <TopBar>{!isVerticalTabs && <TabBar orientation="horizontal" />}</TopBar>}
 
-      {isVerticalTabs ? (
-        <div
-          style={{
-            flex: 1,
-            minHeight: 0,
-            display: 'flex',
-            flexDirection: tabStripPosition === 'left' ? 'row' : 'row-reverse',
-            width: '100%',
-          }}
-        >
-          {showVerticalTabSidebar && (
-            <div
-              style={{
-                width: 240,
-                minWidth: 160,
-                maxWidth: 360,
-                borderRight:
-                  tabStripPosition === 'left'
-                    ? '1px solid var(--surfaceBorder, var(--tabBorder))'
-                    : undefined,
-                borderLeft:
-                  tabStripPosition === 'right'
-                    ? '1px solid var(--surfaceBorder, var(--tabBorder))'
-                    : undefined,
-                background: 'var(--surfaceBg, var(--tabBg))',
-                display: 'flex',
-                flexDirection: 'column',
-              }}
-            >
-              <TabBar orientation="vertical" />
-            </div>
-          )}
-
+      {/* Keep page content mounted when the tab strip changes position. */}
+      <div
+        style={{
+          flex: 1,
+          minHeight: 0,
+          display: 'flex',
+          flexDirection: tabStripPosition === 'right' ? 'row-reverse' : 'row',
+          width: '100%',
+        }}
+      >
+        {showVerticalTabSidebar && (
           <div
             style={{
-              flex: 1,
-              minWidth: 0,
-              minHeight: 0,
+              width: 240,
+              minWidth: 160,
+              maxWidth: 360,
+              borderRight:
+                tabStripPosition === 'left'
+                  ? '1px solid var(--surfaceBorder, var(--tabBorder))'
+                  : undefined,
+              borderLeft:
+                tabStripPosition === 'right'
+                  ? '1px solid var(--surfaceBorder, var(--tabBorder))'
+                  : undefined,
+              background: 'var(--surfaceBg, var(--tabBg))',
               display: 'flex',
               flexDirection: 'column',
             }}
           >
-            {!hideBars && <AddressBar inputRef={addressInputRef} />}
-            {!hideBars && showBookmarksBar && <BookmarksBar />}
-            <FindBar open={findBarOpen} focusToken={findBarFocusToken} onClose={closeFindBar} />
-            <TabView />
+            <TabBar orientation="vertical" />
           </div>
-        </div>
-      ) : (
-        <>
+        )}
+
+        <div
+          style={{
+            flex: 1,
+            minWidth: 0,
+            minHeight: 0,
+            display: 'flex',
+            flexDirection: 'column',
+          }}
+        >
           {!hideBars && <AddressBar inputRef={addressInputRef} />}
           {!hideBars && showBookmarksBar && <BookmarksBar />}
           <FindBar open={findBarOpen} focusToken={findBarFocusToken} onClose={closeFindBar} />
           <TabView />
-        </>
-      )}
+        </div>
+      </div>
 
       <RestoreTabsPrompt />
       <UpdatePrompt
