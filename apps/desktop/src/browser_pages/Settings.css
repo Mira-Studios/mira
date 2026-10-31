@@ -1,0 +1,692 @@
+/* One squircle surface per settings group, with flat rows inside. */
+.settings-page.settings-redesign {
+  position: relative;
+  max-width: 1120px;
+  width: 100%;
+  min-width: 0;
+  padding: 36px 40px 64px;
+  gap: 32px;
+}
+.settings-redesign .settings-header {
+  align-items: center;
+  min-height: 40px;
+}
+.settings-redesign .settings-title {
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: -0.7px;
+}
+.settings-redesign .settings-save-indicator {
+  font-size: 12px;
+  text-align: right;
+}
+.settings-redesign .settings-body {
+  flex: 1;
+  grid-template-columns: 190px minmax(0, 1fr);
+  gap: 32px;
+}
+.settings-page.settings-redesign::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 240px;
+  width: 1px;
+  background: var(--surfaceBorder, var(--tabBorder));
+  pointer-events: none;
+}
+@media (min-width: 1280px) {
+  .settings-page.settings-redesign {
+    max-width: none;
+  }
+  .settings-redesign .settings-body,
+  .settings-redesign .settings-header {
+    display: grid;
+    grid-template-columns: minmax(190px, 1fr) minmax(0, 740px) minmax(190px, 1fr);
+    column-gap: 32px;
+  }
+  .settings-redesign .settings-body {
+    grid-template-areas: 'sidebar content .';
+  }
+  .settings-redesign .settings-sidebar {
+    width: 190px;
+    justify-self: end;
+  }
+  .settings-redesign .settings-title {
+    width: 190px;
+    justify-self: end;
+  }
+  .settings-page.settings-redesign::before {
+    left: calc(50% - 392px);
+  }
+  .settings-redesign .settings-save-indicator {
+    grid-column: 2;
+    justify-self: end;
+  }
+}
+.settings-redesign .settings-sidebar {
+  position: sticky;
+  top: 24px;
+  gap: 8px;
+}
+.settings-redesign .settings-tabs,
+.settings-redesign .settings-actions {
+  padding: 0;
+  gap: 4px;
+  border: 0;
+  background: transparent;
+  border-radius: 0;
+}
+.settings-redesign .settings-actions {
+  position: relative;
+  padding-top: 8px;
+}
+.settings-redesign .settings-actions::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: -11px;
+  height: 1px;
+  background: var(--surfaceBorder, var(--tabBorder));
+  pointer-events: none;
+}
+.settings-redesign .settings-tab-btn {
+  min-height: 44px;
+  gap: 12px;
+  padding: 11px 14px;
+  border: 0;
+  border-radius: 16px;
+  corner-shape: squircle;
+  background: transparent;
+  color: var(--text2);
+}
+.settings-redesign .settings-tab-btn:hover {
+  background: var(--navButtonBgHover);
+  color: var(--navButtonTextHover);
+}
+.settings-redesign .settings-tab-btn-active,
+.settings-redesign .settings-tab-btn-active:hover {
+  background: var(--navButtonBgActive);
+  color: var(--navButtonTextActive);
+}
+.settings-redesign .settings-tab-btn > svg {
+  flex-shrink: 0;
+}
+.settings-redesign .settings-tab-label {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+.settings-redesign .settings-action-btn {
+  color: var(--text3);
+}
+.settings-redesign .settings-section {
+  min-width: 0;
+  gap: 26px;
+}
+.settings-redesign .settings-section-heading {
+  margin: 0 0 2px;
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.5px;
+  line-height: 1.3;
+}
+
+.settings-redesign .settings-group {
+  min-width: 0;
+}
+.settings-redesign .settings-card {
+  padding: 2px 20px;
+  gap: 0;
+  border: 0;
+  border-radius: 24px;
+  corner-shape: squircle;
+  background: var(--settingsCardBg, var(--surfaceBg));
+  box-shadow: none;
+  color: var(--settingsCardText, var(--surfaceText, var(--text1)));
+  min-width: 0;
+}
+.settings-redesign .settings-card-header {
+  gap: 6px;
+  margin-bottom: 12px;
+  padding: 0 4px;
+}
+.settings-redesign .settings-card-title {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--text1);
+}
+.settings-redesign .settings-card-description {
+  color: var(--settingsCardDescription, var(--text2));
+  font-size: 12px;
+  line-height: 1.6;
+}
+.settings-redesign .settings-setting-row,
+.settings-redesign .settings-toggle-row,
+.settings-redesign .settings-shortcuts-item {
+  min-height: 58px;
+  padding: 14px 0;
+  gap: 20px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.settings-redesign .settings-setting-row:hover,
+.settings-redesign .settings-toggle-row:hover {
+  background: transparent;
+}
+.settings-redesign .settings-setting-row + .settings-setting-row,
+.settings-redesign .settings-toggle-row + .settings-toggle-row,
+.settings-redesign .settings-shortcuts-item + .settings-shortcuts-item {
+  border-top: 1px solid var(--surfaceBorder, var(--tabBorder));
+}
+.settings-redesign .settings-setting-label {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+.settings-redesign .settings-setting-meta {
+  gap: 5px;
+}
+.settings-redesign .settings-setting-description {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--settingsCardDescription, var(--text2));
+}
+.settings-redesign .settings-toggle-list,
+.settings-redesign .settings-shortcuts-list {
+  gap: 0;
+}
+.settings-redesign .settings-setting-control-grow {
+  width: min(48%, 360px);
+}
+.settings-redesign .theme-input,
+.settings-redesign .settings-input-with-action,
+.settings-redesign .settings-dropdown-menu,
+.settings-redesign .theme-btn,
+.settings-redesign .site-settings-choice,
+.settings-redesign .settings-subsection-tab {
+  border-radius: 14px;
+  corner-shape: squircle;
+}
+.settings-redesign .theme-btn {
+  box-shadow: none;
+}
+.settings-redesign .settings-input-with-action {
+  min-height: 38px;
+  padding: 3px;
+}
+.settings-redesign .settings-input-with-action-button {
+  min-width: 30px;
+  min-height: 30px;
+  padding: 4px;
+  border: 0;
+}
+.settings-redesign .settings-dropdown-trigger {
+  min-height: 38px;
+  padding: 8px 12px;
+}
+.settings-redesign .settings-dropdown-menu {
+  padding: 5px;
+  box-shadow: none;
+}
+.settings-redesign .settings-dropdown-item {
+  padding: 2px;
+  gap: 6px;
+  border: 0;
+}
+.settings-redesign .settings-dropdown-choice {
+  min-height: 36px;
+  padding: 8px 10px;
+  border: 0;
+  background: transparent;
+}
+.settings-redesign .settings-dropdown-choice:hover {
+  background: var(--navButtonBgHover);
+}
+.settings-redesign .settings-dropdown-choice-selected {
+  background: var(--navButtonBgActive);
+  border-color: var(--navButtonBorderActive);
+  color: var(--navButtonTextActive);
+}
+.settings-redesign .settings-dropdown-caret-icon {
+  color: var(--dropdownCaretColor, var(--navButtonText));
+}
+.settings-redesign .settings-dropdown-choice-selected:hover:not(:disabled) {
+  background: var(--navButtonBgHover);
+  border-color: var(--navButtonBorderHover);
+  color: var(--navButtonTextHover);
+}
+.settings-redesign .settings-btn-pad {
+  min-height: 34px;
+  padding: 7px 12px;
+  font-size: 12px;
+}
+.settings-redesign .settings-privacy-security-menu {
+  padding: 0;
+  gap: 0;
+}
+.settings-redesign .settings-privacy-security-menu-btn {
+  padding: 20px 0;
+  gap: 16px;
+  border: 0;
+  border-bottom: 1px solid var(--surfaceBorder);
+  border-radius: 0;
+  background: transparent;
+}
+.settings-redesign .settings-privacy-security-menu-btn:hover {
+  background: transparent;
+  color: var(--accentText);
+}
+.settings-redesign .settings-privacy-security-menu-btn:hover > svg {
+  transform: translateX(3px);
+}
+.settings-redesign .settings-privacy-security-menu-btn > svg {
+  transition: transform 150ms ease;
+  flex-shrink: 0;
+}
+.settings-redesign .settings-privacy-security-menu-btn-title {
+  font-size: 14px;
+  font-weight: 500;
+}
+.settings-redesign .settings-privacy-security-menu-btn-desc {
+  font-size: 12px;
+  line-height: 1.6;
+}
+.settings-redesign .settings-permission-detail,
+.settings-redesign .settings-permission-detail-full {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 12px 0 0;
+  min-width: 0;
+}
+.settings-redesign .settings-permission-detail-list {
+  gap: 0;
+}
+.settings-redesign .settings-permission-detail-row {
+  min-height: 58px;
+  gap: 20px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--surfaceBorder, var(--tabBorder));
+}
+.settings-redesign .settings-permission-detail-label {
+  font-size: 13px;
+}
+.settings-redesign .settings-permission-site-row {
+  min-height: 60px;
+  padding: 14px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--surfaceBorder);
+  background: transparent;
+  border-radius: 0;
+}
+.settings-redesign .settings-permission-site-row:hover {
+  background: var(--surfaceBgHover);
+  border-radius: 14px;
+  corner-shape: squircle;
+}
+.settings-redesign .settings-permissions-list-full {
+  margin-top: 8px;
+  gap: 0;
+}
+.settings-redesign .settings-permission-detail-header {
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+  padding-bottom: 16px;
+}
+.settings-redesign .settings-permission-site-row-count {
+  border-radius: 10px;
+  corner-shape: squircle;
+}
+.settings-redesign .settings-status {
+  margin-top: 10px;
+  line-height: 1.6;
+}
+.settings-redesign .settings-tab-btn:focus-visible,
+.settings-redesign .theme-btn:focus-visible {
+  outline: 2px solid var(--focusOutline, var(--navButtonBorderActive));
+  outline-offset: 2px;
+}
+@media (max-width: 820px) {
+  .settings-page.settings-redesign {
+    padding: 24px;
+    gap: 24px;
+  }
+  .settings-redesign .settings-body {
+    grid-template-columns: 160px minmax(0, 1fr);
+    grid-template-areas: 'sidebar content';
+    gap: 24px;
+  }
+  .settings-page.settings-redesign::before {
+    left: 192px;
+  }
+  .settings-redesign .settings-actions::before {
+    right: -9px;
+  }
+  .settings-redesign .settings-setting-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .settings-redesign .settings-setting-control,
+  .settings-redesign .settings-setting-control-grow {
+    width: 100%;
+    max-width: none;
+  }
+  .settings-redesign .settings-setting-row .settings-toggle {
+    width: 44px;
+    margin-left: auto;
+  }
+}
+@media (max-width: 580px) {
+  .settings-page.settings-redesign {
+    padding: 20px 16px 36px;
+  }
+  .settings-redesign .settings-body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: 'sidebar' 'content';
+    gap: 24px;
+  }
+  .settings-redesign .settings-sidebar {
+    position: static;
+    gap: 8px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--surfaceBorder, var(--tabBorder));
+  }
+  .settings-page.settings-redesign::before {
+    display: none;
+  }
+  .settings-redesign .settings-actions::before {
+    right: 0;
+  }
+  .settings-redesign .settings-tabs {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .settings-redesign .settings-tab-btn {
+    gap: 7px;
+    min-height: 38px;
+    padding: 9px 11px;
+  }
+  .settings-redesign .settings-tab-btn > svg {
+    width: 15px;
+    height: 15px;
+  }
+  .settings-redesign .settings-actions {
+    padding-top: 8px;
+  }
+  .settings-redesign .settings-actions .settings-tab-btn {
+    min-height: 32px;
+    padding: 6px 10px;
+  }
+  .settings-redesign .settings-permission-detail-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .settings-redesign .settings-permission-site-row-actions {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .settings-redesign .settings-privacy-security-menu-btn > svg {
+    transition: none;
+  }
+}
+
+.settings-redesign .settings-card > .settings-actions-row {
+  padding: 0 0 16px;
+}
+.settings-redesign .settings-visibility-inner {
+  gap: 0;
+}
+.settings-redesign .settings-visibility {
+  margin-top: 0;
+}
+.settings-redesign .settings-card > .settings-status,
+.settings-redesign .settings-card > .settings-inline-message {
+  padding-bottom: 14px;
+}
+.settings-redesign .settings-setting-row > .settings-select-limit {
+  width: min(48%, 360px);
+}
+.settings-redesign .settings-setting-control-grow {
+  min-width: 0;
+}
+@media (max-width: 820px) {
+  .settings-redesign .settings-setting-row > .settings-select-limit {
+    width: 100%;
+  }
+}
+@media (max-width: 580px) {
+  .settings-redesign .settings-card {
+    padding: 2px 14px;
+    border-radius: 20px;
+  }
+}
+.settings-redesign .privacy-content {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+.settings-redesign .privacy-back {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 4px;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: var(--text2);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.settings-redesign .privacy-group-heading {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.settings-redesign .privacy-toolbar,
+.settings-redesign .privacy-site-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.settings-redesign .privacy-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 10px;
+  corner-shape: squircle;
+  background: transparent;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.settings-redesign .privacy-navigation-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 20px 0;
+  border: 0;
+  background: transparent;
+  color: var(--text1);
+  text-align: left;
+  cursor: pointer;
+}
+.settings-redesign .privacy-navigation-row + .privacy-navigation-row,
+.settings-redesign .privacy-site-row + .privacy-site-row,
+.settings-redesign .privacy-permission-row + .privacy-permission-row {
+  border-top: 1px solid var(--settingsRowBorder, var(--surfaceBorder));
+}
+.settings-redesign .privacy-navigation-row > span {
+  flex: 1;
+  min-width: 0;
+}
+.settings-redesign .privacy-navigation-row strong {
+  font-size: 14px;
+  font-weight: 500;
+}
+.settings-redesign .privacy-navigation-row small {
+  display: block;
+  margin-top: 4px;
+  color: var(--text2);
+  font-size: 12px;
+}
+.settings-redesign .privacy-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--fieldBorder);
+  background: var(--fieldBg);
+  border-radius: 12px;
+  corner-shape: squircle;
+  color: var(--text2);
+}
+.settings-redesign .privacy-search input {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--fieldText);
+  font: inherit;
+  font-size: 13px;
+}
+.settings-redesign .privacy-search input::placeholder {
+  color: var(--fieldTextPlaceholder);
+}
+.settings-redesign .privacy-search:hover {
+  background: var(--fieldBgHover);
+  border-color: var(--fieldBorderHover);
+}
+.settings-redesign .privacy-search:focus-within {
+  background: var(--fieldBgActive);
+  border-color: var(--fieldBorderActive);
+}
+.settings-redesign .privacy-site-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 60px;
+  padding: 14px 0;
+  border: 0;
+  background: transparent;
+  color: var(--text1);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+}
+.settings-redesign .privacy-site-link {
+  cursor: pointer;
+}
+.settings-redesign .privacy-site-icon {
+  flex-shrink: 0;
+  color: var(--text2);
+}
+.settings-redesign .privacy-site-name {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.settings-redesign .privacy-site-count {
+  flex-shrink: 0;
+  color: var(--text2);
+  font-size: 12px;
+}
+.settings-redesign .privacy-permission-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 60px;
+  padding: 13px 0;
+}
+.settings-redesign .privacy-decision-group {
+  display: inline-flex;
+  flex-shrink: 0;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 12px;
+  corner-shape: squircle;
+  background: var(--surfaceBg);
+}
+.settings-redesign .privacy-decision {
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 9px;
+  corner-shape: squircle;
+  background: transparent;
+  color: var(--navButtonText);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.settings-redesign .privacy-decision[aria-pressed='true'] {
+  background: var(--navButtonBgActive);
+  color: var(--navButtonTextActive);
+}
+.settings-redesign .privacy-action:hover,
+.settings-redesign .privacy-decision:hover {
+  background: var(--navButtonBgHover);
+  color: var(--navButtonTextHover);
+}
+.settings-redesign .privacy-action:active:not(:disabled),
+.settings-redesign .privacy-decision:active {
+  background: var(--navButtonBgActive);
+  color: var(--navButtonTextActive);
+}
+.settings-redesign .privacy-navigation-row:hover,
+.settings-redesign .privacy-site-link:hover,
+.settings-redesign .privacy-back:hover {
+  color: var(--accentText);
+}
+.settings-redesign .privacy-search:focus-within,
+.settings-redesign .privacy-content button:focus-visible {
+  outline: 2px solid var(--focusOutline, var(--navButtonBorderActive));
+  outline-offset: 3px;
+}
+.settings-redesign .privacy-empty {
+  margin: 0;
+  padding: 28px 0;
+  color: var(--text2);
+  font-size: 13px;
+}
+.settings-redesign .privacy-notice {
+  margin: 0;
+  padding: 12px 0;
+  color: var(--text2);
+  font-size: 13px;
+}
+.settings-redesign .privacy-site-heading h3 {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 580px) {
+  .settings-redesign .privacy-permission-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .settings-redesign .privacy-site-row {
+    gap: 8px;
+  }
+}

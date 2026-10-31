@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
-import { Check, ChevronDown, ChevronRight, ChevronUp, Shield } from 'lucide-react';
+import { Children, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
+import { AppWindow, Check, ChevronLeft, Cookie, Globe, RefreshCw, Trash2, ChevronDown, ChevronRight, ChevronUp, Code2, Palette, PanelsTopLeft, Search, Settings2, Shield } from 'lucide-react';
+import './Settings.css';
 import { useTabs } from '../features/tabs/TabsProvider';
 import { useDownloads } from '../features/downloads/DownloadProvider';
 import { clearHistoryEntries } from '../features/history/clientHistory';
@@ -107,6 +108,16 @@ type SettingsSectionId = 'general' | 'search' | 'appearance' | 'layout' | 'priva
 
 type PrivacySecuritySubsection = 'site-permissions' | 'cookies';
 
+const SETTINGS_SECTION_ICONS = {
+  general: Settings2,
+  search: Search,
+  appearance: Palette,
+  layout: PanelsTopLeft,
+  'privacy-security': Shield,
+  app: AppWindow,
+  dev: Code2,
+};
+
 const SETTINGS_SECTION_TABS: Array<{
   id: SettingsSectionId;
   label: string;
@@ -203,6 +214,16 @@ type SettingsVisibilityProps = {
   animated: boolean;
   children: ReactNode;
 };
+
+function SettingsGroup({ children }: { children: ReactNode }) {
+  const [heading, ...content] = Children.toArray(children);
+  return (
+    <section className="settings-group">
+      {heading}
+      <div className="settings-card">{content}</div>
+    </section>
+  );
+}
 
 function SettingsVisibility({ visible, animated, children }: SettingsVisibilityProps) {
   if (!animated) {
@@ -306,7 +327,7 @@ export default function Settings() {
   const [onboardingResetStatus, setOnboardingResetStatus] = useState('');
   const [appDataResetStatus, setAppDataResetStatus] = useState('');
   const [activeSection, setActiveSection] = useState<SettingsSectionId>('general');
-  const [privacySecuritySubsection, setPrivacySecuritySubsection] = useState<PrivacySecuritySubsection>('site-permissions');
+  const [privacySecuritySubsection, setPrivacySecuritySubsection] = useState<PrivacySecuritySubsection | null>(null);
   const [isDefaultBrowser, setIsDefaultBrowser] = useState<boolean | null>(null);
   const [canAttemptDefaultBrowserRegistration, setCanAttemptDefaultBrowserRegistration] =
     useState(true);
@@ -336,6 +357,8 @@ export default function Settings() {
   }>>([]);
   const [isLoadingCookies, setIsLoadingCookies] = useState(false);
   const [cookiesStatus, setCookiesStatus] = useState('');
+  const [cookiesFilter, setCookiesFilter] = useState('');
+  const [permissionsFilter, setPermissionsFilter] = useState('');
 
   const loadSitePermissions = useCallback(async () => {
     if (!electron?.ipcRenderer) {
@@ -357,20 +380,15 @@ export default function Settings() {
 
       if (response.ok && response.origins) {
         setSitePermissions(response.origins);
-        // Clear selected site if it's no longer in the list
-        if (selectedSiteOrigin && !response.origins.some(s => s.origin === selectedSiteOrigin)) {
-          setSelectedSiteOrigin(null);
-        }
       } else {
-        setSitePermissions([]);
-        setSelectedSiteOrigin(null);
+        setSitePermissionStatus('Could not load site permissions.');
       }
     } catch {
       setSitePermissionStatus('Failed to load site permissions.');
     } finally {
       setIsLoadingSitePermissions(false);
     }
-  }, [selectedSiteOrigin]);
+  }, []);
 
   const deleteSitePermission = async (origin: string) => {
     if (!electron?.ipcRenderer) return;
@@ -381,11 +399,10 @@ export default function Settings() {
         { origin }
       );
 
+      if (!response.ok) throw new Error('Reset failed');
       if (response.ok) {
         setSitePermissions((current) => current.filter((site) => site.origin !== origin));
-        if (selectedSiteOrigin === origin) {
-          setSelectedSiteOrigin(null);
-        }
+        if (selectedSiteOrigin?.replace(/^https?:\/\//, '') === origin.replace(/^https?:\/\//, '')) navigateToSitePermission(null);
       }
     } catch {
       setSitePermissionStatus('Failed to delete site permissions.');
@@ -403,6 +420,7 @@ export default function Settings() {
         'site-permissions-delete-all'
       );
 
+      if (!response.ok) throw new Error('Reset failed');
       if (response.ok) {
         setSitePermissions([]);
         setSelectedSiteOrigin(null);
@@ -434,7 +452,7 @@ export default function Settings() {
       if (response.ok && response.origins) {
         setCookiesData(response.origins);
       } else {
-        setCookiesData([]);
+        setCookiesStatus('Could not load cookies.');
       }
     } catch {
       setCookiesStatus('Failed to load cookies.');
@@ -452,11 +470,28 @@ export default function Settings() {
         { origin }
       );
 
+      if (!response.ok) throw new Error('Delete failed');
       if (response.ok) {
         setCookiesData((current) => current.filter((site) => site.origin !== origin));
       }
     } catch {
       setCookiesStatus('Failed to delete cookies.');
+    }
+  };
+
+  const deleteAllCookies = async () => {
+    if (!electron?.ipcRenderer || !window.confirm('Clear cookies for all sites?')) return;
+    setIsLoadingCookies(true);
+    setCookiesStatus('');
+    try {
+      const response = await electron.ipcRenderer.invoke<{ ok: boolean }>('cookies-delete-all');
+      if (!response.ok) throw new Error('Clear failed');
+      setCookiesData([]);
+      setCookiesStatus('Cookies cleared.');
+    } catch {
+      setCookiesStatus('Could not clear cookies.');
+    } finally {
+      setIsLoadingCookies(false);
     }
   };
 
@@ -478,6 +513,8 @@ export default function Settings() {
         decision,
       });
 
+      if (!response?.ok || !response.snapshot) throw new Error('Update failed');
+      setSitePermissionStatus('');
       if (response?.ok && response.snapshot) {
         setSitePermissions((current) =>
           current.map((site) =>
@@ -1056,32 +1093,21 @@ export default function Settings() {
     if (subsectionParam === 'site-permissions' || subsectionParam === 'cookies') {
       setPrivacySecuritySubsection(subsectionParam as PrivacySecuritySubsection);
     } else {
-      setPrivacySecuritySubsection(null as unknown as PrivacySecuritySubsection);
+      setPrivacySecuritySubsection(null);
     }
   }, [activeTabUrl, isSettingsTab]);
 
-  // Handle site parameter for pre-selecting a site in permissions
   useEffect(() => {
-    if (!isSettingsTab) return;
     if (activeSection !== 'privacy-security') return;
-    if (privacySecuritySubsection !== 'site-permissions') return;
-    
-    const hash = activeTabUrl.includes('#') ? activeTabUrl.slice(activeTabUrl.indexOf('#')) : '';
-    const params = parseHashParams(hash);
-    const siteParam = params.site;
-    
-    // Only update state if different to prevent loops
-    if (siteParam && siteParam !== selectedSiteOrigin) {
-      setSelectedSiteOrigin(siteParam);
-    } else if (!siteParam && selectedSiteOrigin) {
-      setSelectedSiteOrigin(null);
-    }
-    
-    // Load permissions if not already loaded - ALWAYS load when entering this page
-    if (sitePermissions.length === 0 && !isLoadingSitePermissions) {
-      void loadSitePermissions();
-    }
-  }, [activeSection, privacySecuritySubsection, activeTabUrl, isSettingsTab, sitePermissions.length, isLoadingSitePermissions, loadSitePermissions, selectedSiteOrigin]);
+    if (privacySecuritySubsection === 'site-permissions') void loadSitePermissions();
+    if (privacySecuritySubsection === 'cookies') void loadCookies();
+  }, [activeSection, privacySecuritySubsection, loadSitePermissions, loadCookies]);
+
+  useEffect(() => {
+    if (!isSettingsTab || activeSection !== 'privacy-security' || privacySecuritySubsection !== 'site-permissions') return;
+    const params = parseHashParams(activeTabUrl.split('#')[1] ?? '');
+    setSelectedSiteOrigin(params.site || null);
+  }, [activeSection, privacySecuritySubsection, activeTabUrl, isSettingsTab]);
 
   // Navigate to site permission detail
   const navigateToSitePermission = (site: string | null) => {
@@ -1118,30 +1144,36 @@ export default function Settings() {
     }
   }, [activeSection, activeTabUrl, isSettingsTab, navigate]);
 
+  const openPrivacySubsection = (subsection: PrivacySecuritySubsection | null) => {
+    const baseUrl = activeTabUrl.split('#')[0] || 'mira://Settings';
+    setPrivacySecuritySubsection(subsection);
+    setSelectedSiteOrigin(null);
+    navigate(`${baseUrl}#section=privacy-security${subsection ? `&subsection=${subsection}` : ''}`);
+  };
+  const normalizedSelectedSite = selectedSiteOrigin?.replace(/^https?:\/\//, '');
+  const selectedPermissionSite = sitePermissions.find((site) => site.origin.replace(/^https?:\/\//, '') === normalizedSelectedSite);
+  const filteredPermissionSites = sitePermissions.filter((site) => `${site.siteLabel} ${site.origin}`.toLowerCase().includes(permissionsFilter.trim().toLowerCase()));
+  const filteredCookieSites = cookiesData.filter((site) => `${site.siteLabel} ${site.origin}`.toLowerCase().includes(cookiesFilter.trim().toLowerCase()));
+
   return (
     <div
-      className={`settings-page ${
+      className={`settings-page settings-redesign ${
         animationsEnabled ? 'settings-page-animations-enabled' : 'settings-page-animations-disabled'
       }`}
     >
       <header className="settings-header">
-        <div>
-          <h1 className="settings-title">Settings</h1>
-        </div>
-        <div className="settings-header-actions">
-          {saveStatus === 'saving' && (
-            <div className="theme-text2 settings-save-indicator">Saving...</div>
-          )}
-          {saveStatus === 'saved' && (
-            <div className="theme-text2 settings-save-indicator">Saved</div>
-          )}
-        </div>
+        <h1 className="settings-title">Settings</h1>
+        <span className="theme-text2 settings-save-indicator" role="status">
+          {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? 'Saved' : ''}
+        </span>
       </header>
 
       <div className="settings-body">
         <div className="settings-sidebar">
           <div className="settings-tabs" role="tablist" aria-label="Settings sections">
-            {settingsSectionTabs.map((section) => (
+            {settingsSectionTabs.map((section) => {
+              const Icon = SETTINGS_SECTION_ICONS[section.id];
+              return (
               <button
                 key={section.id}
                 id={`settings-tab-${section.id}`}
@@ -1158,9 +1190,11 @@ export default function Settings() {
                   activeSection === section.id ? 'settings-tab-btn-active' : ''
                 }`}
               >
+                <Icon size={18} strokeWidth={1.7} aria-hidden="true" />
                 <span className="settings-tab-label">{section.label}</span>
               </button>
-            ))}
+              );
+            })}
           </div>
 
           <div className="settings-actions" role="group" aria-label="Settings actions">
@@ -1182,11 +1216,12 @@ export default function Settings() {
           aria-labelledby={`settings-tab-${activeSection}`}
           className={`settings-section ${animationsEnabled ? 'settings-section-animated' : ''}`}
         >
+          <h2 className="settings-section-heading">{settingsSectionTabs.find((section) => section.id === activeSection)?.label}</h2>
           {activeSection === 'general' && (
             <>
-              <section className="theme-panel settings-card">
+              <SettingsGroup>
                 <div className="settings-card-header">
-                  <h2 className="settings-card-title">New Tab</h2>
+                  <h3 className="settings-card-title">New Tab</h3>
                 </div>
                 <div className="settings-setting-row">
                   <label htmlFor="new-tab-page" className="settings-setting-meta">
@@ -1257,11 +1292,11 @@ export default function Settings() {
                     </label>
                   </>
                 </SettingsVisibility>
-              </section>
+              </SettingsGroup>
 
-              <section className="theme-panel settings-card">
+              <SettingsGroup>
                 <div className="settings-card-header">
-                  <h2 className="settings-card-title">Tab Sleep</h2>
+                  <h3 className="settings-card-title">Tab Sleep</h3>
                 </div>
                 <div className="settings-setting-row">
                   <label htmlFor="tab-sleep-value" className="settings-setting-meta">
@@ -1324,11 +1359,11 @@ export default function Settings() {
                     <option value="discard">Discard (save more memory)</option>
                   </select>
                 </div>
-              </section>
+              </SettingsGroup>
 
-              <section className="theme-panel settings-card">
+              <SettingsGroup>
                 <div className="settings-card-header">
-                  <h2 className="settings-card-title">Browsing</h2>
+                  <h3 className="settings-card-title">Browsing</h3>
                 </div>
                 <label htmlFor="ad-block-enabled" className="settings-setting-row">
                   <span className="settings-setting-meta">
@@ -1367,15 +1402,15 @@ export default function Settings() {
                     }}
                   />
                 </label>
-              </section>
+              </SettingsGroup>
             </>
           )}
 
           {activeSection === 'search' && (
             <>
-              <section className="theme-panel settings-card">
+              <SettingsGroup>
                 <div className="settings-card-header">
-                  <h2 className="settings-card-title">Search Engine</h2>
+                  <h3 className="settings-card-title">Search Engine</h3>
                 </div>
                 <div className="settings-setting-row">
                   <label htmlFor="search-engine" className="settings-setting-meta">
@@ -1402,6 +1437,11 @@ export default function Settings() {
                       </option>
                     ))}
                   </select>
+                </div>
+              </SettingsGroup>
+              <SettingsGroup>
+                <div className="settings-card-header">
+                  <h3 className="settings-card-title">Engine shortcuts</h3>
                 </div>
                 <label htmlFor="search-engine-shortcuts-enabled" className="settings-setting-row">
                   <span className="settings-setting-meta">
@@ -1482,15 +1522,15 @@ export default function Settings() {
                     </div>
                   </>
                 </SettingsVisibility>
-              </section>
+              </SettingsGroup>
             </>
           )}
 
           {activeSection === 'appearance' && (
             <>
-              <section className="theme-panel settings-card">
+              <SettingsGroup>
                 <div className="settings-card-header">
-                  <h2 className="settings-card-title">Theme</h2>
+                  <h3 className="settings-card-title">Theme</h3>
                 </div>
                 <div className="settings-setting-row">
                   <label htmlFor="theme-dropdown-button" className="settings-setting-meta">
@@ -1627,11 +1667,11 @@ export default function Settings() {
                     }}
                   />
                 </label>
-              </section>
+              </SettingsGroup>
 
-              <section className="theme-panel settings-card">
+              <SettingsGroup>
                 <div className="settings-card-header">
-                  <h2 className="settings-card-title">Animations</h2>
+                  <h3 className="settings-card-title">Animations</h3>
                 </div>
                 <label htmlFor="animations-enabled" className="settings-setting-row">
                   <span className="settings-setting-meta">
@@ -1649,7 +1689,7 @@ export default function Settings() {
                     }}
                   />
                 </label>
-              </section>
+              </SettingsGroup>
 
               {!!importMessage && (
                 <div className="theme-text2 settings-inline-message">{importMessage}</div>
@@ -1659,9 +1699,9 @@ export default function Settings() {
 
           {activeSection === 'layout' && (
             <>
-              <section className="theme-panel settings-card">
+              <SettingsGroup>
                 <div className="settings-card-header">
-                  <h2 className="settings-card-title">Layout</h2>
+                  <h3 className="settings-card-title">Layout profile</h3>
                 </div>
                 <div className="settings-setting-row">
                   <label htmlFor="layout-dropdown-button" className="settings-setting-meta">
@@ -1774,6 +1814,11 @@ export default function Settings() {
                     Open Layout Creator
                   </button>
                 </div>
+              </SettingsGroup>
+              <SettingsGroup>
+                <div className="settings-card-header">
+                  <h3 className="settings-card-title">Tabs and toolbar</h3>
+                </div>
                 <div className="settings-setting-row">
                   <label htmlFor="tab-strip-position" className="settings-setting-meta">
                     <span className="settings-setting-label">Tab strip position</span>
@@ -1843,7 +1888,7 @@ export default function Settings() {
                     }}
                   />
                 </div>
-              </section>
+              </SettingsGroup>
 
               {!!importMessage && (
                 <div className="theme-text2 settings-inline-message">{importMessage}</div>
@@ -1852,335 +1897,118 @@ export default function Settings() {
           )}
 
           {activeSection === 'privacy-security' && (
-            <>
+            <div className="privacy-content">
               {!privacySecuritySubsection && (
-                /* Main Privacy & Security landing page */
-                <section className="theme-panel settings-card">
-                  <div className="settings-card-header">
-                    <h2 className="settings-card-title">Privacy & Security</h2>
-                  </div>
-                  <div className="settings-privacy-security-menu">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPrivacySecuritySubsection('site-permissions');
-                        const baseUrl = activeTabUrl ? activeTabUrl.split('#')[0] : 'mira://Settings';
-                        navigate(`${baseUrl}#section=privacy-security&subsection=site-permissions`);
-                      }}
-                      className="theme-btn theme-btn-nav settings-privacy-security-menu-btn"
-                    >
-                      <div className="settings-privacy-security-menu-btn-content">
-                        <span className="settings-privacy-security-menu-btn-title">Site Permissions</span>
-                        <span className="settings-privacy-security-menu-btn-desc">
-                          Manage permissions for individual websites
-                        </span>
-                      </div>
-                      <ChevronRight size={20} />
+                <SettingsGroup>
+                  <div className="settings-card-header"><h3 className="settings-card-title">Sites</h3></div>
+                  <div className="privacy-navigation">
+                    <button type="button" className="privacy-navigation-row" onClick={() => openPrivacySubsection('site-permissions')}>
+                      <Shield size={20} aria-hidden="true" />
+                      <span><strong>Site permissions</strong><small>Control what websites can access.</small></span>
+                      <ChevronRight size={17} aria-hidden="true" />
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPrivacySecuritySubsection('cookies');
-                        const baseUrl = activeTabUrl ? activeTabUrl.split('#')[0] : 'mira://Settings';
-                        navigate(`${baseUrl}#section=privacy-security&subsection=cookies`);
-                      }}
-                      className="theme-btn theme-btn-nav settings-privacy-security-menu-btn"
-                    >
-                      <div className="settings-privacy-security-menu-btn-content">
-                        <span className="settings-privacy-security-menu-btn-title">Cookies and Site Data</span>
-                        <span className="settings-privacy-security-menu-btn-desc">
-                          Manage cookies and stored site data
-                        </span>
-                      </div>
-                      <ChevronRight size={20} />
+                    <button type="button" className="privacy-navigation-row" onClick={() => openPrivacySubsection('cookies')}>
+                      <Cookie size={20} aria-hidden="true" />
+                      <span><strong>Cookies and site data</strong><small>Manage data stored by websites.</small></span>
+                      <ChevronRight size={17} aria-hidden="true" />
                     </button>
                   </div>
-                </section>
+                </SettingsGroup>
               )}
 
               {privacySecuritySubsection === 'cookies' && (
-                <section className="theme-panel settings-card">
-                  <div className="settings-card-header">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPrivacySecuritySubsection(null as unknown as PrivacySecuritySubsection);
-                        const baseUrl = activeTabUrl ? activeTabUrl.split('#')[0] : 'mira://Settings';
-                        navigate(`${baseUrl}#section=privacy-security`);
-                      }}
-                      className="theme-btn theme-btn-nav settings-permission-back-btn"
-                      style={{ marginBottom: '12px' }}
-                    >
-                      ← Back to Privacy & Security
-                    </button>
-                    <h2 className="settings-card-title">Cookies and Site Data</h2>
-                  </div>
-                  
-                  {/* Cookie Settings */}
-                  <label htmlFor="cookies-enabled" className="settings-setting-row">
-                    <span className="settings-setting-meta">
-                      <span className="settings-setting-label">Allow cookies</span>
-                      <span className="settings-setting-description">
-                        Allow websites to store cookies and site data.
-                      </span>
-                    </span>
-                    <input
-                      id="cookies-enabled"
-                      type="checkbox"
-                      className="settings-toggle settings-setting-control"
-                      checked={cookiesEnabled}
-                      onChange={(e) => {
-                        setCookiesEnabled(e.currentTarget.checked);
-                        setSaveStatus('saving');
-                      }}
-                    />
-                  </label>
-
-                  {/* Sites with Cookies */}
-                  <div className="settings-setting-row" style={{ marginTop: '16px' }}>
-                    <div className="settings-setting-meta">
-                      <span className="settings-setting-label">Sites with cookies</span>
-                      <span className="settings-setting-description">
-                        Manage stored cookies and site data for individual websites.
-                      </span>
-                    </div>
-                    <div className="settings-actions-row settings-setting-control settings-setting-control-grow settings-setting-control-right">
-                      <button
-                        type="button"
-                        onClick={loadCookies}
-                        className="theme-btn theme-btn-nav settings-btn-pad"
-                        disabled={isLoadingCookies}
-                      >
-                        {isLoadingCookies ? 'Loading...' : 'Refresh'}
-                      </button>
-                      {cookiesData.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={deleteAllCookies}
-                          className="theme-btn theme-btn-nav settings-btn-pad"
-                        >
-                          Clear All
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  
-                  {!!cookiesStatus && (
-                    <div className="theme-text2 settings-status">{cookiesStatus}</div>
-                  )}
-                  
-                  {cookiesData.length === 0 && !isLoadingCookies && !cookiesStatus && (
-                    <div className="settings-permissions-empty-state">
-                      <div className="settings-permissions-empty-title">No Cookies</div>
-                      <div className="settings-permissions-empty-description">
-                        No cookies or site data stored yet. Visit websites to store cookies.
+                <>
+                  <button type="button" className="privacy-back" onClick={() => openPrivacySubsection(null)}><ChevronLeft size={16} aria-hidden="true" />Back</button>
+                  <SettingsGroup>
+                    <div className="settings-card-header"><h3 className="settings-card-title">Cookies</h3></div>
+                    <label htmlFor="cookies-enabled" className="settings-setting-row">
+                      <span className="settings-setting-meta"><span className="settings-setting-label">Allow cookies</span><span className="settings-setting-description">Let sites store cookies and site data.</span></span>
+                      <input id="cookies-enabled" type="checkbox" className="settings-toggle settings-setting-control" checked={cookiesEnabled} onChange={(event) => { setCookiesEnabled(event.currentTarget.checked); setSaveStatus('saving'); }} />
+                    </label>
+                  </SettingsGroup>
+                  <SettingsGroup>
+                    <div className="settings-card-header privacy-group-heading">
+                      <h3 className="settings-card-title">Stored cookies</h3>
+                      <div className="privacy-toolbar">
+                        <button type="button" className="theme-btn theme-btn-nav privacy-action" onClick={loadCookies} disabled={isLoadingCookies} title="Refresh site data" aria-label="Refresh site data"><RefreshCw size={15} /></button>
+                        <button type="button" className="theme-btn theme-btn-nav privacy-action" onClick={() => { void deleteAllCookies(); }} disabled={isLoadingCookies || !cookiesData.length}>Clear all</button>
                       </div>
                     </div>
-                  )}
-                  
-                  {cookiesData.length > 0 && (
-                    <div className="settings-permissions-list-full" style={{ marginTop: '12px' }}>
-                      {cookiesData.map((site) => (
-                        <div
-                          key={site.origin}
-                          className="settings-permission-site-row"
-                        >
-                          <div className="settings-permission-site-row-info">
-                            <div className="settings-permission-site-row-label">{site.siteLabel}</div>
-                            <div className="settings-permission-site-row-origin">{site.origin.replace(/^https?:\/\//, '')}</div>
-                          </div>
-                          <div className="settings-permission-site-row-actions">
-                            <span className="settings-permission-site-row-count">
-                              {site.cookieCount} cookie{site.cookieCount !== 1 ? 's' : ''}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => deleteSiteCookies(site.origin)}
-                              className="theme-btn theme-btn-nav settings-btn-pad"
-                            >
-                              Delete
-                            </button>
-                          </div>
+                    {(cookiesData.length > 0 || cookiesFilter) && <div className="privacy-search"><Search size={15} aria-hidden="true" /><input type="search" aria-label="Search stored site data" placeholder="Search sites" value={cookiesFilter} onChange={(event) => setCookiesFilter(event.target.value)} /></div>}
+                    {isLoadingCookies && <p className="privacy-empty" role="status">Loading site data…</p>}
+                    {!isLoadingCookies && filteredCookieSites.length === 0 && !cookiesStatus && <p className="privacy-empty">{cookiesFilter ? 'No matching sites.' : 'No stored cookies.'}</p>}
+                    <div className="privacy-site-list">
+                      {filteredCookieSites.map((site) => (
+                        <div className="privacy-site-row" key={site.origin}>
+                          <Cookie size={18} className="privacy-site-icon" aria-hidden="true" />
+                          <span className="privacy-site-name">{site.siteLabel}</span>
+                          <span className="privacy-site-count">{site.cookieCount} cookie{site.cookieCount === 1 ? '' : 's'}</span>
+                          <button type="button" className="theme-btn theme-btn-nav privacy-action" aria-label={`Delete cookies for ${site.siteLabel}`} title={`Delete cookies for ${site.siteLabel}`} onClick={() => { void deleteSiteCookies(site.origin); }}><Trash2 size={15} /></button>
                         </div>
                       ))}
                     </div>
-                  )}
-                </section>
+                    {cookiesStatus && <p className="privacy-notice" role="status">{cookiesStatus}</p>}
+                  </SettingsGroup>
+                </>
               )}
 
               {privacySecuritySubsection === 'site-permissions' && (
-                <section className="theme-panel settings-card">
-                  <div className="settings-card-header">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPrivacySecuritySubsection(null as unknown as PrivacySecuritySubsection);
-                        const baseUrl = activeTabUrl ? activeTabUrl.split('#')[0] : 'mira://Settings';
-                        navigate(`${baseUrl}#section=privacy-security`);
-                      }}
-                      className="theme-btn theme-btn-nav settings-permission-back-btn"
-                      style={{ marginBottom: '12px' }}
-                    >
-                      ← Back to Privacy & Security
-                    </button>
-                    <h2 className="settings-card-title">Site Permissions</h2>
-                  </div>
-                  
-                  {/* Detail view for selected site */}
+                <>
+                  <button type="button" className="privacy-back" onClick={() => selectedSiteOrigin ? navigateToSitePermission(null) : openPrivacySubsection(null)}><ChevronLeft size={16} aria-hidden="true" />{selectedSiteOrigin ? 'All sites' : 'Back'}</button>
                   {selectedSiteOrigin ? (
-                    (() => {
-                      // Normalize for comparison - strip protocol if present
-                      const normalizedSelected = selectedSiteOrigin.replace(/^https?:\/\//, '');
-                      const site = sitePermissions.find(s => 
-                        s.origin === selectedSiteOrigin || 
-                        s.origin.replace(/^https?:\/\//, '') === normalizedSelected
-                      );
-                      if (!site) {
-                        return (
-                          <div className="settings-permission-detail-empty">
-                            <div className="theme-text2 settings-status">Site not found.</div>
-                            <button
-                              type="button"
-                              onClick={() => navigateToSitePermission(null)}
-                              className="theme-btn theme-btn-nav settings-btn-pad"
-                            >
-                              Back to List
-                            </button>
-                          </div>
-                        );
-                      }
-                      return (
-                        <div className="settings-permission-detail-full">
-                          <div className="settings-permission-detail-header">
-                            <button
-                              type="button"
-                              onClick={() => navigateToSitePermission(null)}
-                              className="theme-btn theme-btn-nav settings-permission-back-btn"
-                            >
-                              ← Back
-                            </button>
-                            <div className="settings-permission-detail-title-group">
-                              <div className="settings-permission-detail-title">{site.siteLabel}</div>
-                              <div className="settings-permission-detail-origin">{site.origin.replace(/^https?:\/\//, '')}</div>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => deleteSitePermission(site.origin)}
-                              className="theme-btn theme-btn-nav settings-btn-pad"
-                            >
-                              Remove All
-                            </button>
-                          </div>
-                          <div className="settings-permission-detail-list">
-                            {(() => {
-                              // Build complete permission list with site data
-                              const sitePermissionMap = new Map(site.permissions.map(p => [p.id, p.decision]));
-                              const allPermissions = ALL_SITE_PERMISSIONS.map(perm => ({
-                                ...perm,
-                                decision: sitePermissionMap.get(perm.id) ?? 'ask',
-                              }));
-                              return allPermissions.map((perm) => (
-                                <div key={perm.id} className="settings-permission-detail-row">
-                                  <span className="settings-permission-detail-label">{perm.label}</span>
-                                  <div className="settings-permission-detail-actions">
-                                    {(['allow', 'ask', 'block'] as const).map((decision) => (
-                                      <button
-                                        key={decision}
-                                        type="button"
-                                        className={`theme-btn site-settings-choice ${
-                                          perm.decision === decision ? 'site-settings-choice-active' : ''
-                                        }`}
-                                        onClick={() => updateSitePermission(site.origin, perm.id, decision)}
-                                      >
-                                        {decision === 'allow'
-                                          ? 'Allow'
-                                          : decision === 'block'
-                                            ? 'Block'
-                                            : 'Ask'}
-                                      </button>
-                                    ))}
-                                  </div>
-                                </div>
-                              ));
-                            })()}
-                          </div>
+                    <SettingsGroup>
+                      <div className="settings-card-header privacy-group-heading">
+                        <div className="privacy-site-heading"><Globe size={18} aria-hidden="true" /><h3 className="settings-card-title">{selectedPermissionSite?.siteLabel ?? normalizedSelectedSite}</h3></div>
+                        <button type="button" className="theme-btn theme-btn-nav privacy-action" disabled={!selectedPermissionSite || isLoadingSitePermissions} onClick={() => { if (selectedPermissionSite) void deleteSitePermission(selectedPermissionSite.origin); }}>Reset permissions</button>
+                      </div>
+                      {isLoadingSitePermissions ? <p className="privacy-empty" role="status">Loading permissions…</p> : !selectedPermissionSite ? <p className="privacy-empty">No saved permissions for this site.</p> : (
+                        <div className="privacy-permission-list">
+                          {ALL_SITE_PERMISSIONS.map((permission) => {
+                            const value = selectedPermissionSite.permissions.find((item) => item.id === permission.id)?.decision ?? 'ask';
+                            return <div className="privacy-permission-row" key={permission.id}>
+                              <span className="settings-setting-label">{permission.label}</span>
+                              <div className="privacy-decision-group" role="group" aria-label={`${permission.label} permission`}>
+                                {(['allow', 'ask', 'block'] as const).map((decision) => <button key={decision} type="button" className="privacy-decision" aria-pressed={value === decision} onClick={() => { void updateSitePermission(selectedPermissionSite.origin, permission.id, decision); }}>{decision === 'allow' ? 'Allow' : decision === 'block' ? 'Block' : 'Ask'}</button>)}
+                              </div>
+                            </div>;
+                          })}
                         </div>
-                      );
-                    })()
+                      )}
+                      {sitePermissionStatus && <p className="privacy-notice" role="status">{sitePermissionStatus}</p>}
+                    </SettingsGroup>
                   ) : (
-                    /* List view */
-                    <>
-                      <div className="settings-setting-row">
-                        <div className="settings-setting-meta">
-                          <span className="settings-setting-label">Manage site permissions</span>
-                          <span className="settings-setting-description">
-                            Click a site to manage its permissions. Each domain has separate permissions.
-                          </span>
-                        </div>
-                        <div className="settings-actions-row settings-setting-control settings-setting-control-grow settings-setting-control-right">
-                          <button
-                            type="button"
-                            onClick={loadSitePermissions}
-                            className="theme-btn theme-btn-nav settings-btn-pad"
-                            disabled={isLoadingSitePermissions}
-                          >
-                            {isLoadingSitePermissions ? 'Loading...' : 'Refresh'}
-                          </button>
-                          {sitePermissions.length > 0 && (
-                            <button
-                              type="button"
-                              onClick={deleteAllSitePermissions}
-                              className="theme-btn theme-btn-nav settings-btn-pad"
-                            >
-                              Clear All
-                            </button>
-                          )}
+                    <SettingsGroup>
+                      <div className="settings-card-header privacy-group-heading">
+                        <h3 className="settings-card-title">Site permissions</h3>
+                        <div className="privacy-toolbar">
+                          <button type="button" className="theme-btn theme-btn-nav privacy-action" onClick={loadSitePermissions} disabled={isLoadingSitePermissions} title="Refresh site permissions" aria-label="Refresh site permissions"><RefreshCw size={15} /></button>
+                          <button type="button" className="theme-btn theme-btn-nav privacy-action" onClick={() => { void deleteAllSitePermissions(); }} disabled={!sitePermissions.length || isLoadingSitePermissions}>Reset all</button>
                         </div>
                       </div>
-                      {!!sitePermissionStatus && (
-                        <div className="theme-text2 settings-status">{sitePermissionStatus}</div>
-                      )}
-                      {sitePermissions.length === 0 && !isLoadingSitePermissions && !sitePermissionStatus && (
-                        <div className="settings-permissions-empty-state">
-                          <Shield className="settings-permissions-empty-icon" size={48} />
-                          <div className="settings-permissions-empty-title">No Site Permissions</div>
-                          <div className="settings-permissions-empty-description">
-                            Visit websites and manage permissions from the site settings button in the address bar.
-                          </div>
-                        </div>
-                      )}
-                      {sitePermissions.length > 0 && (
-                        <div className="settings-permissions-list-full">
-                          {sitePermissions.map((site) => (
-                            <button
-                              key={site.origin}
-                              type="button"
-                              onClick={() => navigateToSitePermission(site.origin.replace(/^https?:\/\//, ''))}
-                              className="settings-permission-site-row"
-                            >
-                              <div className="settings-permission-site-row-info">
-                                <div className="settings-permission-site-row-label">{site.siteLabel}</div>
-                                <div className="settings-permission-site-row-origin">{site.origin.replace(/^https?:\/\//, '')}</div>
-                              </div>
-                              <div className="settings-permission-site-row-count">
-                                {site.permissions.length} permission{site.permissions.length !== 1 ? 's' : ''}
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </>
+                      {(sitePermissions.length > 0 || permissionsFilter) && <div className="privacy-search"><Search size={15} aria-hidden="true" /><input type="search" aria-label="Search site permissions" placeholder="Search sites" value={permissionsFilter} onChange={(event) => setPermissionsFilter(event.target.value)} /></div>}
+                      {isLoadingSitePermissions && <p className="privacy-empty" role="status">Loading permissions…</p>}
+                      {!isLoadingSitePermissions && !filteredPermissionSites.length && !sitePermissionStatus && <p className="privacy-empty">{permissionsFilter ? 'No matching sites.' : 'No saved site permissions.'}</p>}
+                      <div className="privacy-site-list">
+                        {filteredPermissionSites.map((site) => <button type="button" key={site.origin} className="privacy-site-row privacy-site-link" onClick={() => navigateToSitePermission(site.origin.replace(/^https?:\/\//, ''))}>
+                          <Globe size={18} className="privacy-site-icon" aria-hidden="true" />
+                          <span className="privacy-site-name">{site.siteLabel}</span>
+                          <span className="privacy-site-count">{site.permissions.length} saved</span>
+                          <ChevronRight size={16} aria-hidden="true" />
+                        </button>)}
+                      </div>
+                      {sitePermissionStatus && <p className="privacy-notice" role="status">{sitePermissionStatus}</p>}
+                    </SettingsGroup>
                   )}
-                </section>
+                </>
               )}
-            </>
+            </div>
           )}
 
           {activeSection === 'app' && (
             <>
-              <section className="theme-panel settings-card">
+              <SettingsGroup>
                 <div className="settings-card-header">
-                  <h2 className="settings-card-title">Dev Tools</h2>
+                  <h3 className="settings-card-title">Dev Tools</h3>
                 </div>
                 <div className="settings-setting-row">
                   <label htmlFor="devtools-open-mode" className="settings-setting-meta">
@@ -2205,11 +2033,11 @@ export default function Settings() {
                     <option value="window">Separate window</option>
                   </select>
                 </div>
-              </section>
+              </SettingsGroup>
 
-              <section className="theme-panel settings-card">
+              <SettingsGroup>
                 <div className="settings-card-header">
-                  <h2 className="settings-card-title">Context Menu</h2>
+                  <h3 className="settings-card-title">Context Menu</h3>
                 </div>
                 <label htmlFor="native-text-field-context-menu" className="settings-setting-row">
                   <span className="settings-setting-meta">
@@ -2230,11 +2058,11 @@ export default function Settings() {
                     }}
                   />
                 </label>
-              </section>
+              </SettingsGroup>
 
-              <section className="theme-panel settings-card">
+              <SettingsGroup>
                 <div className="settings-card-header">
-                  <h2 className="settings-card-title">Startup</h2>
+                  <h3 className="settings-card-title">Startup</h3>
                 </div>
                 <div className="settings-setting-row">
                   <label htmlFor="startup-restore-behavior" className="settings-setting-meta">
@@ -2292,11 +2120,11 @@ export default function Settings() {
                     )}
                   </>
                 )}
-              </section>
+              </SettingsGroup>
 
-              <section className="theme-panel settings-card">
+              <SettingsGroup>
                 <div className="settings-card-header">
-                  <h2 className="settings-card-title">Default Browser</h2>
+                  <h3 className="settings-card-title">Default Browser</h3>
                 </div>
                 <div className="settings-setting-row">
                   <div className="settings-setting-meta">
@@ -2338,11 +2166,11 @@ export default function Settings() {
                 {!!defaultBrowserStatus && (
                   <div className="theme-text2 settings-status">{defaultBrowserStatus}</div>
                 )}
-              </section>
+              </SettingsGroup>
 
-              <section className="theme-panel settings-card">
+              <SettingsGroup>
                 <div className="settings-card-header">
-                  <h2 className="settings-card-title">Updates</h2>
+                  <h3 className="settings-card-title">Updates</h3>
                 </div>
                 <label htmlFor="include-prerelease-updates" className="settings-setting-row">
                   <span className="settings-setting-meta">
@@ -2427,15 +2255,15 @@ export default function Settings() {
                 {!!updateStatus && (
                   <div className="theme-text2 settings-status">{updateStatus}</div>
                 )}
-              </section>
+              </SettingsGroup>
             </>
           )}
 
           {isDevSettingsEnabled && activeSection === 'dev' && (
             <>
-              <section className="theme-panel settings-card">
+              <SettingsGroup>
                 <div className="settings-card-header">
-                  <h2 className="settings-card-title">Diagnostics</h2>
+                  <h3 className="settings-card-title">Diagnostics</h3>
                 </div>
                 <label htmlFor="show-perf-overlay" className="settings-setting-row">
                   <span className="settings-setting-meta">
@@ -2479,11 +2307,11 @@ export default function Settings() {
                     </button>
                   </div>
                 </div>
-              </section>
+              </SettingsGroup>
 
-              <section className="theme-panel settings-card">
+              <SettingsGroup>
                 <div className="settings-card-header">
-                  <h2 className="settings-card-title">App Data</h2>
+                  <h3 className="settings-card-title">App Data</h3>
                 </div>
                 <div className="settings-setting-row">
                   <div className="settings-setting-meta">
@@ -2506,11 +2334,11 @@ export default function Settings() {
                 {!!appDataResetStatus && (
                   <div className="theme-text2 settings-status">{appDataResetStatus}</div>
                 )}
-              </section>
+              </SettingsGroup>
 
-              <section className="theme-panel settings-card">
+              <SettingsGroup>
                 <div className="settings-card-header">
-                  <h2 className="settings-card-title">Onboarding</h2>
+                  <h3 className="settings-card-title">Onboarding</h3>
                 </div>
                 <div className="settings-setting-row">
                   <div className="settings-setting-meta">
@@ -2533,7 +2361,7 @@ export default function Settings() {
                 {!!onboardingResetStatus && (
                   <div className="theme-text2 settings-status">{onboardingResetStatus}</div>
                 )}
-              </section>
+              </SettingsGroup>
             </>
           )}
         </div>
