@@ -734,9 +734,7 @@ export default function Bookmarks() {
   };
 
   const handleDelete = (id: string) => {
-    if (window.confirm('Delete this bookmark?')) {
-      deleteBookmark(id);
-    }
+    void deleteBookmark(id);
   };
 
   const handleEdit = (bookmark: Bookmark) => {

@@ -15,7 +15,6 @@ import { v4 as uuidv4 } from 'uuid';
 import type {
   DownloadItem,
   MenuItemConstructorOptions,
-  MessageBoxSyncOptions,
   WebContents,
 } from 'electron';
 import { appendFileSync, promises as fs, readFileSync, statSync, unlinkSync, writeFileSync } from 'fs';
@@ -25,7 +24,7 @@ import { setupDeviceConnections } from './deviceConnections.ts';
 import { setupPageZoom } from './pageZoom.ts';
 import {
   setupSiteInteractions, consumeUnloadDecision, confirmContentsClose, allowContentsClose,
-  requestWindowClose, canCloseWindow, confirmWindowClose, allowWindowClose, markWindowCloseAllowed,
+  requestWindowClose, canCloseWindow, confirmWindowClose, allowWindowClose, markWindowCloseAllowed, requestAppDialog, requestUnloadDialog,
 } from './siteInteractions.ts';
 import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
@@ -1741,16 +1740,6 @@ function describeSitePermissionRequest(permissionIds: SitePermissionId[]): strin
   }
 }
 
-function showMessageBoxSyncForWindow(
-  targetWindow: BrowserWindow | null,
-  options: MessageBoxSyncOptions,
-): number {
-  if (targetWindow && !targetWindow.isDestroyed()) {
-    return dialog.showMessageBoxSync(targetWindow, options);
-  }
-  return dialog.showMessageBoxSync(options);
-}
-
 async function loadPersistedSitePermissions(): Promise<void> {
   try {
     const raw = await fs.readFile(getSitePermissionsFilePath(), 'utf-8');
@@ -2741,6 +2730,12 @@ function prepareWebviewHistoryRestore(params: { src?: string }): void {
 
 function setupWebviewTabOpenHandler() {
   app.on('web-contents-created', (_, contents) => {
+    let unloadTargetUrl = '';
+    let checkingUnload = false;
+    contents.on('did-start-navigation', (_event, url, isInPlace, isMainFrame) => {
+      if (isMainFrame && !isInPlace) unloadTargetUrl = url;
+    });
+    contents.on('did-navigate', () => { unloadTargetUrl = ''; });
     if (contents.getType() === 'webview') {
       let pendingUrl = '';
       let startedAt = 0;
@@ -2812,21 +2807,38 @@ function setupWebviewTabOpenHandler() {
 
     contents.on('will-prevent-unload', (event) => {
       const hostWindow = getHostWindowForContents(contents);
-      const siteLabel = getSiteDisplayLabel(contents.getURL());
       const decision = consumeUnloadDecision(contents);
-      const response = decision === 'allow' ? 0 : decision === 'stay' ? 1 : showMessageBoxSyncForWindow(hostWindow, {
-        type: 'question',
-        buttons: ['Leave', 'Stay'],
-        defaultId: 1,
-        cancelId: 1,
-        noLink: true,
-        title: 'Leave Site?',
-        message: 'Leave this site?',
-        detail: `${siteLabel} says changes you made may not be saved.`,
-      });
-      const allowUnload = response === 0;
-      if (allowUnload) {
-        event.preventDefault();
+      const allowUnload = decision === 'allow';
+      if (allowUnload) event.preventDefault();
+      if (decision === undefined && !checkingUnload) {
+        checkingUnload = true;
+        const targetUrl = unloadTargetUrl;
+        const sourceUrl = contents.getURL();
+        const pendingClose = pendingWebviewCloseRequestsByWebContentsId.get(contents.id);
+        void (async () => {
+          const accepted = await requestUnloadDialog(contents);
+          if (!accepted || contents.isDestroyed() || contents.getURL() !== sourceUrl) {
+            if (pendingClose) {
+              pendingWebviewCloseRequestsByWebContentsId.delete(contents.id);
+              if (pendingClose.type === 'tab' && hostWindow && !hostWindow.isDestroyed()) {
+                hostWindow.webContents.send('webview-close-result', { tabId: pendingClose.tabId, closed: false });
+              }
+            }
+            return;
+          }
+          await allowContentsClose(contents);
+          if (contents.isDestroyed()) return;
+          if (pendingClose && hostWindow && !hostWindow.isDestroyed()) {
+            if (pendingClose.type === 'tab') {
+              pendingWebviewCloseRequestsByWebContentsId.delete(contents.id);
+              hostWindow.webContents.send('webview-close-result', { tabId: pendingClose.tabId, closed: true });
+            } else hostWindow.close();
+          } else if (targetUrl && targetUrl !== sourceUrl) {
+            await contents.loadURL(targetUrl).catch(() => undefined);
+          } else if (targetUrl) contents.reload();
+          else contents.close({ waitForBeforeUnload: true });
+        })().catch(() => undefined).finally(() => { checkingUnload = false; });
+        return;
       }
 
       const pendingCloseRequest = pendingWebviewCloseRequestsByWebContentsId.get(contents.id);
@@ -3907,45 +3919,42 @@ function setupUpdateHandlers() {
     },
   );
 
-  app.on('before-quit', async (event) => {
-    if (event.defaultPrevented) return;
-    if (hasAttemptedCloseAutoUpdate) return;
-    if (
-      configuredAutoUpdateMode !== 'ask-on-close'
-      && configuredAutoUpdateMode !== 'auto-on-close'
-    ) {
-      return;
+}
+
+async function runCloseAutoUpdate(): Promise<void> {
+  if (hasAttemptedCloseAutoUpdate) return;
+  if (
+    configuredAutoUpdateMode !== 'ask-on-close'
+    && configuredAutoUpdateMode !== 'auto-on-close'
+  ) {
+    return;
+  }
+
+  hasAttemptedCloseAutoUpdate = true;
+
+  try {
+    const result = await checkForUpdates(configuredAutoUpdateIncludePrerelease);
+    if (!result || !result.hasUpdate) return;
+
+    if (configuredAutoUpdateMode === 'ask-on-close') {
+      const host = getFirstBrowserWindow();
+      if (!host) return;
+      const response = await requestAppDialog(host, {
+        title: 'Update available',
+        message: `Mira ${result.latestVersion} is ready to install.`,
+        confirmLabel: 'Install update', cancelLabel: 'Skip',
+      });
+      if (!response.accepted) return;
     }
 
-    hasAttemptedCloseAutoUpdate = true;
+    if (result.mode !== 'installer') return;
 
-    try {
-      const result = await checkForUpdates(configuredAutoUpdateIncludePrerelease);
-      if (!result || !result.hasUpdate) return;
-
-      if (configuredAutoUpdateMode === 'ask-on-close') {
-        const { dialog } = await import('electron');
-        const response = await dialog.showMessageBox({
-          type: 'question',
-          buttons: ['Install update', 'Skip'],
-          defaultId: 0,
-          cancelId: 1,
-          title: 'Mira Update Available',
-          message: `Mira v${result.latestVersion} is available. Install now?`,
-          detail: `You are currently on v${result.currentVersion}.`,
-        });
-        if (response.response !== 0) return;
-      }
-
-      if (result.mode !== 'installer') return;
-
-      const downloadedPath = await downloadAssetToDownloads(result.downloadUrl, result.assetName);
-      const openError = await shell.openPath(downloadedPath);
-      if (openError) return;
-    } catch {
-      // Swallow close-time update errors to avoid blocking shutdown.
-    }
-  });
+    const downloadedPath = await downloadAssetToDownloads(result.downloadUrl, result.assetName);
+    const openError = await shell.openPath(downloadedPath);
+    if (openError) return;
+  } catch {
+    // Swallow close-time update errors to avoid blocking shutdown.
+  }
 }
 
 function triggerNewWindowFromShortcut(sourceWindow: BrowserWindow): void {
@@ -5935,7 +5944,10 @@ app.whenReady().then(async () => {
   setupVersionHandlers();
   setupPerformanceHandlers();
   setupSessionHandlers();
-  setupSiteInteractions(getHostWindowForContents);
+  setupSiteInteractions(getHostWindowForContents, async (win) => {
+    const remainingWindows = BrowserWindow.getAllWindows().filter((candidate) => !candidate.isDestroyed() && candidate.id !== win.id);
+    if ((!isMacOS || quitOnLastWindowClose) && remainingWindows.length === 0) await runCloseAutoUpdate();
+  });
   setupDeviceConnections(getHostWindowForContents);
   setupPageZoom(getHostWindowForContents, (host) => activeWebContentsByWindow.get(host.id));
   setupSitePermissionHandlers();
@@ -5995,6 +6007,7 @@ app.on('before-quit', (event) => {
         for (const win of windows) {
           if (!win.isDestroyed() && !await confirmWindowClose(win, false)) return;
         }
+        await runCloseAutoUpdate();
         for (const win of windows) {
           if (!win.isDestroyed()) {
             await allowWindowClose(win);

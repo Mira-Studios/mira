@@ -1,3 +1,4 @@
+import { confirmDialog } from '../components/appDialogs';
 import { useEffect, useMemo, useState } from 'react';
 import { useTabs } from '../features/tabs/TabsProvider';
 import {
@@ -86,7 +87,7 @@ export default function History() {
 
   const onClearAll = async () => {
     if (!items.length || isClearing) return;
-    if (!window.confirm('Clear all browsing history?')) return;
+    if (!await confirmDialog({ title: 'Clear browsing history?', confirmLabel: 'Clear all' })) return;
 
     setIsClearing(true);
     const cleared = await clearHistoryEntries().catch(() => false);

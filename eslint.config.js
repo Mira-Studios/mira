@@ -63,5 +63,21 @@ export default [
       },
     },
   },
+  {
+    files: ['apps/desktop/src/**/*.{ts,tsx,js,jsx}'],
+    rules: {
+      'no-alert': 'error',
+    },
+  },
+  {
+    files: ['apps/desktop/electron/**/*.{ts,js}'],
+    rules: {
+      'no-restricted-properties': ['error',
+        { object: 'dialog', property: 'showMessageBox', message: 'Use requestAppDialog so confirmations use Mira UI.' },
+        { object: 'dialog', property: 'showMessageBoxSync', message: 'Use Mira site interactions for page dialogs.' },
+        { object: 'dialog', property: 'showErrorBox', message: 'Use requestAppDialog so alerts use Mira UI.' },
+      ],
+    },
+  },
   prettier,
 ];

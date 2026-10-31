@@ -13,6 +13,7 @@ const unloadDecisions = new Map<number, 'allow' | 'stay'>();
 const allowedWindows = new Set<number>();
 const closingWindows = new Map<number, Promise<boolean>>();
 let resolveWindow: (contents: WebContents) => BrowserWindow | null;
+let beforeWindowClose: ((win: BrowserWindow) => Promise<void>) | undefined;
 
 function hostFor(contents: WebContents): BrowserWindow | null {
   let host = resolveWindow?.(contents) ?? BrowserWindow.fromWebContents(contents);
@@ -50,15 +51,31 @@ function ask(source: WebContents, kind: Kind, data: Record<string, unknown>, rep
     message: typeof data.message === 'string' ? data.message.slice(0, 4000) : '',
     defaultValue: typeof data.defaultValue === 'string' ? data.defaultValue.slice(0, 4000) : '',
     intent: data.intent === 'create' ? 'create' : 'get',
+    app: data.app === true,
+    title: data.app === true && typeof data.title === 'string' ? data.title.slice(0, 200) : undefined,
+    confirmLabel: data.app === true && typeof data.confirmLabel === 'string' ? data.confirmLabel.slice(0, 60) : undefined,
+    cancelLabel: data.app === true && typeof data.cancelLabel === 'string' ? data.cancelLabel.slice(0, 60) : undefined,
   };
   pending.set(requestId, { source, hostId: host.id, kind, reply, clientId, payload });
   host.webContents.send('site-interaction-request', payload);
+}
+
+export function requestAppDialog(win: BrowserWindow, options: {
+  kind?: 'alert' | 'confirm' | 'prompt'; title: string; message?: string;
+  confirmLabel?: string; cancelLabel?: string; defaultValue?: string;
+}): Promise<Answer> {
+  if (win.isDestroyed() || win.webContents.isDestroyed()) return Promise.resolve({ accepted: false });
+  return new Promise((resolve) => ask(win.webContents, options.kind ?? 'confirm', { ...options, app: true }, resolve));
 }
 
 export function consumeUnloadDecision(contents: WebContents): 'allow' | 'stay' | undefined {
   const decision = unloadDecisions.get(contents.id);
   unloadDecisions.delete(contents.id);
   return decision;
+}
+
+export function requestUnloadDialog(contents: WebContents): Promise<boolean> {
+  return new Promise((resolve) => ask(contents, 'beforeunload', {}, (answer) => resolve(answer.accepted)));
 }
 
 export async function confirmContentsClose(contents: WebContents): Promise<boolean> {
@@ -123,7 +140,10 @@ export function requestWindowClose(win: BrowserWindow): Promise<boolean> {
   const current = closingWindows.get(win.id);
   if (current) return current;
   const closing = (async () => {
-    if (!await confirmWindowClose(win)) return false;
+    if (!await confirmWindowClose(win, false)) return false;
+    await beforeWindowClose?.(win);
+    if (win.isDestroyed()) return true;
+    await allowWindowClose(win);
     if (!win.isDestroyed()) { allowedWindows.add(win.id); win.close(); }
     return true;
   })().finally(() => closingWindows.delete(win.id));
@@ -131,8 +151,22 @@ export function requestWindowClose(win: BrowserWindow): Promise<boolean> {
   return closing;
 }
 
-export function setupSiteInteractions(getWindow: typeof resolveWindow): void {
+export function setupSiteInteractions(getWindow: typeof resolveWindow, onBeforeWindowClose?: typeof beforeWindowClose): void {
   resolveWindow = getWindow;
+  beforeWindowClose = onBeforeWindowClose;
+  ipcMain.handle('app-dialog-request', (event, raw: unknown) => {
+    const win = hostFor(event.sender);
+    if (!win || win.webContents !== event.sender || !raw || typeof raw !== 'object') return { accepted: false };
+    const data = raw as Record<string, unknown>;
+    if (!['alert', 'confirm', 'prompt'].includes(String(data.kind)) || typeof data.title !== 'string') return { accepted: false };
+    return requestAppDialog(win, {
+      kind: data.kind as 'alert' | 'confirm' | 'prompt', title: data.title,
+      message: typeof data.message === 'string' ? data.message : undefined,
+      confirmLabel: typeof data.confirmLabel === 'string' ? data.confirmLabel : undefined,
+      cancelLabel: typeof data.cancelLabel === 'string' ? data.cancelLabel : undefined,
+      defaultValue: typeof data.defaultValue === 'string' ? data.defaultValue : undefined,
+    });
+  });
   ipcMain.handle('site-interactions-ready', (event) => {
     const hostId = BrowserWindow.fromWebContents(event.sender)?.id;
     for (const request of pending.values()) {
@@ -143,7 +177,7 @@ export function setupSiteInteractions(getWindow: typeof resolveWindow): void {
     const data = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
     const kind = data.type as Kind;
     if (!['alert', 'confirm', 'prompt', 'beforeunload'].includes(kind)) { event.returnValue = null; return; }
-    ask(event.sender, kind, { ...data, url: event.senderFrame?.url }, (answer) => {
+    ask(event.sender, kind, { ...data, app: false, url: event.senderFrame?.url }, (answer) => {
       if (kind === 'beforeunload' && data.trusted === true && !answer.accepted) unloadDecisions.set(event.sender.id, 'stay');
       event.returnValue = kind === 'prompt' ? (answer.accepted ? answer.value ?? '' : null) : answer.accepted;
     });
@@ -151,7 +185,7 @@ export function setupSiteInteractions(getWindow: typeof resolveWindow): void {
   ipcMain.handle('webview-passkey-request', (event, raw: unknown) => {
     const data = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
     if (typeof data.clientId !== 'string') return false;
-    return new Promise<boolean>((resolve) => ask(event.sender, 'passkey', { ...data, url: event.senderFrame?.url }, (answer) => resolve(answer.accepted)));
+    return new Promise<boolean>((resolve) => ask(event.sender, 'passkey', { ...data, app: false, url: event.senderFrame?.url }, (answer) => resolve(answer.accepted)));
   });
   ipcMain.on('webview-passkey-cancel', (event, clientId: unknown) => {
     for (const [id, request] of pending) {

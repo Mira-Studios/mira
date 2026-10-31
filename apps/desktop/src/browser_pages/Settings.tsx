@@ -1,3 +1,4 @@
+import { confirmDialog } from '../components/appDialogs';
 import { Children, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import { AppWindow, Check, ChevronLeft, Cookie, Globe, RefreshCw, Trash2, ChevronDown, ChevronRight, ChevronUp, Code2, Palette, PanelsTopLeft, Search, Settings2, Shield } from 'lucide-react';
 import './Settings.css';
@@ -410,7 +411,7 @@ export default function Settings() {
   };
 
   const deleteAllSitePermissions = async () => {
-    const confirmed = window.confirm('This will clear all site permissions. Continue?');
+    const confirmed = await confirmDialog({ title: 'Reset all site permissions?', message: 'All sites will return to Ask.', confirmLabel: 'Reset all' });
     if (!confirmed) return;
 
     if (!electron?.ipcRenderer) return;
@@ -480,7 +481,7 @@ export default function Settings() {
   };
 
   const deleteAllCookies = async () => {
-    if (!electron?.ipcRenderer || !window.confirm('Clear cookies for all sites?')) return;
+    if (!electron?.ipcRenderer || !await confirmDialog({ title: 'Clear all cookies?', message: 'You may be signed out of websites.', confirmLabel: 'Clear all' })) return;
     setIsLoadingCookies(true);
     setCookiesStatus('');
     try {
@@ -897,9 +898,7 @@ export default function Settings() {
   };
 
   const resetAppData = async () => {
-    const confirmed = window.confirm(
-      'This will clear history, session, downloads, and settings for this profile. Continue?',
-    );
+    const confirmed = await confirmDialog({ title: 'Reset app data?', message: 'Clear history, saved sessions, download history, and settings for this profile.', confirmLabel: 'Reset data' });
     if (!confirmed) return;
 
     setIsResettingAppData(true);

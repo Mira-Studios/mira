@@ -1,4 +1,5 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
+import { createContext, useContext, useState, useCallback, useRef, type ReactNode } from 'react';
+import { confirmDialog } from '../../components/appDialogs';
 
 export type Bookmark = {
   id: string;
@@ -14,7 +15,7 @@ export type Bookmark = {
 type BookmarksContextType = {
   bookmarks: Bookmark[];
   addBookmark: (bookmark: Omit<Bookmark, 'id' | 'createdAt' | 'updatedAt'>) => void;
-  deleteBookmark: (id: string) => void;
+  deleteBookmark: (id: string) => Promise<void>;
   updateBookmark: (bookmark: Bookmark) => void;
   getBookmarkById: (id: string) => Bookmark | undefined;
   moveBookmark: (id: string, toIndex: number) => void;
@@ -246,6 +247,7 @@ function addBookmarkToTree(
 
 export function BookmarksProvider({ children }: { children: ReactNode }) {
   const [bookmarks, setBookmarks] = useState<Bookmark[]>(() => loadBookmarksFromStorage());
+  const pendingDeletions = useRef(new Set<string>());
 
   const addBookmark = useCallback((bookmark: Omit<Bookmark, 'id' | 'createdAt' | 'updatedAt'>) => {
     setBookmarks(prev => {
@@ -255,13 +257,26 @@ export function BookmarksProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const deleteBookmark = useCallback((id: string) => {
-    setBookmarks(prev => {
-      const updated = deleteBookmarkFromTree(prev, id);
-      saveBookmarksToStorage(updated);
-      return updated;
-    });
-  }, []);
+  const deleteBookmark = useCallback(async (id: string) => {
+    const bookmark = findBookmarkById(bookmarks, id);
+    if (!bookmark || pendingDeletions.current.has(id)) return;
+    pendingDeletions.current.add(id);
+    try {
+      const confirmed = await confirmDialog({
+        title: bookmark.type === 'folder' ? 'Delete this folder?' : 'Delete this bookmark?',
+        message: bookmark.type === 'folder' ? `${bookmark.title} and its bookmarks will be deleted.` : bookmark.title,
+        confirmLabel: 'Delete',
+      });
+      if (!confirmed) return;
+      setBookmarks(prev => {
+        const updated = deleteBookmarkFromTree(prev, id);
+        saveBookmarksToStorage(updated);
+        return updated;
+      });
+    } finally {
+      pendingDeletions.current.delete(id);
+    }
+  }, [bookmarks]);
 
   const updateBookmark = useCallback((bookmark: Bookmark) => {
     setBookmarks(prev => {

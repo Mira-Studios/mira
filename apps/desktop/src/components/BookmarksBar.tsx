@@ -372,11 +372,6 @@ export default function BookmarksBar() {
     () => getBrowserSettings().nativeTextFieldContextMenu,
   );
 
-  // Delete confirmation dialog state
-  const [deleteDialog, setDeleteDialog] = useState<{
-    open: boolean;
-    bookmark: Bookmark | null;
-  }>({ open: false, bookmark: null });
 
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const folderRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -787,7 +782,7 @@ export default function BookmarksBar() {
           break;
         case 'delete':
           if (bookmark) {
-            setDeleteDialog({ open: true, bookmark });
+            void deleteBookmark(bookmark.id);
           }
           break;
       }
@@ -872,7 +867,7 @@ export default function BookmarksBar() {
       label: 'Delete',
       onSelect: () => {
         closeParentFolder();
-        setDeleteDialog({ open: true, bookmark });
+        void deleteBookmark(bookmark.id);
       },
     });
 
@@ -1004,67 +999,7 @@ export default function BookmarksBar() {
         minWidth={150}
       />
 
-      {/* Delete Confirmation Dialog */}
-      {deleteDialog.open && deleteDialog.bookmark && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'color-mix(in srgb, var(--bg) 70%, transparent)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 2000,
-          }}
-          onClick={() => setDeleteDialog({ open: false, bookmark: null })}
-        >
-          <div
-            className="theme-panel"
-            style={{
-              width: 360,
-              maxWidth: 'calc(100vw - 32px)',
-              borderRadius: 10,
-              padding: 16,
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 style={{ margin: '0 0 8px 0' }} className="theme-text1">
-              Delete Bookmark?
-            </h3>
-            <p style={{ margin: '0 0 14px 0', fontSize: 13, lineHeight: 1.4 }} className="theme-text2">
-              Are you sure you want to delete "{deleteDialog.bookmark.title}"?
-            </p>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-              <button
-                onClick={() => setDeleteDialog({ open: false, bookmark: null })}
-                className="theme-btn theme-btn-nav"
-                style={{ padding: '7px 12px' }}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  if (deleteDialog.bookmark) {
-                    deleteBookmark(deleteDialog.bookmark.id);
-                  }
-                  setDeleteDialog({ open: false, bookmark: null });
-                }}
-                className="theme-btn"
-                style={{
-                  padding: '7px 12px',
-                  background: 'var(--windowCloseButtonBgHover, #e81123)',
-                  border: '1px solid var(--windowCloseButtonBgHover, #e81123)',
-                  color: 'var(--windowCloseButtonText, #ffffff)',
-                  borderRadius: 'var(--layoutControlRadius, 6px)',
-                  cursor: 'pointer',
-                }}
-              >
-                Delete
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+
     </div>
   );
 }

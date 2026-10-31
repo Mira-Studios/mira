@@ -1,3 +1,4 @@
+import { usePromptPresence } from '../hooks/usePromptPresence';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Bookmark,
@@ -232,6 +233,7 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
   const activeTab = tabs.find((t) => t.id === activeId);
   const activePageInfo = readSiteSettingsPageInfo(activeTab?.url);
   const activePermissionRequest = permissionRequests[0] ?? null;
+  const { displayed: displayedPermissionRequest, closing: permissionClosing, animated: permissionAnimated } = usePromptPresence(activePermissionRequest);
 
   const isSupportedProtocol = (value: string) => {
     const schemeMatch = value.match(/^([a-z][a-z0-9+.-]*:)/i);
@@ -388,8 +390,8 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
 
   const respondToPermissionRequest = useCallback(
     async (decision: 'allow' | 'block' | 'dismiss') => {
-      const pendingRequest = activePermissionRequest;
-      if (!pendingRequest) return;
+      const pendingRequest = displayedPermissionRequest;
+      if (!pendingRequest || permissionClosing || pendingRequest.requestId !== activePermissionRequest?.requestId) return;
 
       const ipc = electron?.ipcRenderer;
       setPermissionRequests((current) => current.filter((entry) => entry.requestId !== pendingRequest.requestId));
@@ -406,7 +408,7 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
         // Ignore request-response failures. The request has already been removed from the queue.
       }
     },
-    [activePermissionRequest],
+    [activePermissionRequest, displayedPermissionRequest, permissionClosing],
   );
 
   useEffect(() => {
@@ -921,9 +923,10 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
         )}
       </div>
 
-      {activePermissionRequest && (
+      {displayedPermissionRequest && (
+        <div key={displayedPermissionRequest.requestId} className={`site-permission-anchor ${permissionAnimated ? permissionClosing ? 'prompt-motion-out' : 'prompt-motion-in' : ''}`} inert={permissionClosing} aria-hidden={permissionClosing || undefined}>
         <div
-          className="theme-panel site-permission-prompt"
+          className="theme-panel site-permission-prompt prompt-motion-panel"
           role="dialog"
           aria-labelledby="site-permission-prompt-title"
           aria-describedby="site-permission-prompt-message"
@@ -931,11 +934,11 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
           <div className="site-permission-prompt-title-row">
             <div className="site-permission-prompt-heading">
               <div id="site-permission-prompt-title" className="site-permission-prompt-title">
-                {activePermissionRequest.siteLabel}
+                {displayedPermissionRequest.siteLabel}
               </div>
-              {activePermissionRequest.topLevelOrigin && activePermissionRequest.topLevelOrigin !== activePermissionRequest.origin && (
+              {displayedPermissionRequest.topLevelOrigin && displayedPermissionRequest.topLevelOrigin !== displayedPermissionRequest.origin && (
                 <div className="site-permission-prompt-origin">
-                  On {activePermissionRequest.topLevelOrigin}
+                  On {displayedPermissionRequest.topLevelOrigin}
                 </div>
               )}
             </div>
@@ -949,9 +952,9 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
             </button>
           </div>
           <div id="site-permission-prompt-message" className="site-permission-prompt-message">
-            {activePermissionRequest.permissionIds.includes('storage-access')
+            {displayedPermissionRequest.permissionIds.includes('storage-access')
               ? 'Use cross-site cookies?'
-              : `${activePermissionRequest.label}?`}
+              : `${displayedPermissionRequest.label}?`}
           </div>
           <div className="site-permission-prompt-actions">
             <button
@@ -968,11 +971,12 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
               onClick={() => {
                 void respondToPermissionRequest('allow');
               }}
-              className="theme-btn theme-btn-go site-permission-prompt-btn"
+              className="theme-btn theme-btn-nav site-permission-prompt-btn site-permission-prompt-btn-primary"
             >
               Allow
             </button>
           </div>
+        </div>
         </div>
       )}
     </div>
