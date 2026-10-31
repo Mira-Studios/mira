@@ -103,7 +103,7 @@ type SetDefaultBrowserResponse = {
   };
 };
 
-type SettingsSectionId = 'general' | 'search' | 'appearance' | 'privacy-security' | 'app' | 'dev';
+type SettingsSectionId = 'general' | 'search' | 'appearance' | 'layout' | 'privacy-security' | 'app' | 'dev';
 
 type PrivacySecuritySubsection = 'site-permissions' | 'cookies';
 
@@ -122,6 +122,10 @@ const SETTINGS_SECTION_TABS: Array<{
   {
     id: 'appearance',
     label: 'Appearance',
+  },
+  {
+    id: 'layout',
+    label: 'Layout',
   },
   {
     id: 'privacy-security',
@@ -1626,6 +1630,36 @@ export default function Settings() {
 
               <section className="theme-panel settings-card">
                 <div className="settings-card-header">
+                  <h2 className="settings-card-title">Animations</h2>
+                </div>
+                <label htmlFor="animations-enabled" className="settings-setting-row">
+                  <span className="settings-setting-meta">
+                    <span className="settings-setting-label">Animations</span>
+                    <span className="settings-setting-description">Enable animations.</span>
+                  </span>
+                  <input
+                    id="animations-enabled"
+                    type="checkbox"
+                    className="settings-toggle settings-setting-control"
+                    checked={animationsEnabled}
+                    onChange={(e) => {
+                      setAnimationsEnabled(e.currentTarget.checked);
+                      setSaveStatus('saving');
+                    }}
+                  />
+                </label>
+              </section>
+
+              {!!importMessage && (
+                <div className="theme-text2 settings-inline-message">{importMessage}</div>
+              )}
+            </>
+          )}
+
+          {activeSection === 'layout' && (
+            <>
+              <section className="theme-panel settings-card">
+                <div className="settings-card-header">
                   <h2 className="settings-card-title">Layout</h2>
                 </div>
                 <div className="settings-setting-row">
@@ -1808,28 +1842,6 @@ export default function Settings() {
                     }}
                   />
                 </div>
-              </section>
-
-              <section className="theme-panel settings-card">
-                <div className="settings-card-header">
-                  <h2 className="settings-card-title">Animations</h2>
-                </div>
-                <label htmlFor="animations-enabled" className="settings-setting-row">
-                  <span className="settings-setting-meta">
-                    <span className="settings-setting-label">Animations</span>
-                    <span className="settings-setting-description">Enable animations.</span>
-                  </span>
-                  <input
-                    id="animations-enabled"
-                    type="checkbox"
-                    className="settings-toggle settings-setting-control"
-                    checked={animationsEnabled}
-                    onChange={(e) => {
-                      setAnimationsEnabled(e.currentTarget.checked);
-                      setSaveStatus('saving');
-                    }}
-                  />
-                </label>
               </section>
 
               {!!importMessage && (
