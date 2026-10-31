@@ -8,6 +8,7 @@ import BookmarksBar from './components/BookmarksBar';
 import FindBar from './components/FindBar';
 import TopBar from './components/TopBar';
 import RestoreTabsPrompt from './components/RestoreTabsPrompt';
+import SiteInteractionPrompts from './components/SiteInteractionPrompts';
 import UpdatePrompt, { type UpdateCheckPayload } from './components/UpdatePrompt';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import DownloadProvider from './features/downloads/DownloadProvider';
@@ -483,6 +484,7 @@ function Browser() {
       </div>
 
       <RestoreTabsPrompt />
+      <SiteInteractionPrompts />
       <UpdatePrompt
         open={!!pendingUpdate && !restorePromptOpen}
         update={pendingUpdate}

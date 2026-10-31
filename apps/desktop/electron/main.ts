@@ -21,6 +21,10 @@ import type {
 import { appendFileSync, promises as fs, readFileSync, statSync, unlinkSync, writeFileSync } from 'fs';
 import os from 'node:os';
 import { isExplicitPopupRequest } from './popupPolicy.ts';
+import {
+  setupSiteInteractions, consumeUnloadDecision, confirmContentsClose, allowContentsClose,
+  requestWindowClose, canCloseWindow, confirmWindowClose, allowWindowClose, markWindowCloseAllowed,
+} from './siteInteractions.ts';
 import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 
@@ -1724,15 +1728,6 @@ function describeSitePermissionRequest(permissionIds: SitePermissionId[]): strin
   }
 }
 
-function normalizeDialogMessage(value: unknown): string {
-  const normalized = typeof value === 'string'
-    ? value
-    : value == null
-      ? ''
-      : String(value);
-  return normalized.trim().slice(0, 4000);
-}
-
 function showMessageBoxSyncForWindow(
   targetWindow: BrowserWindow | null,
   options: MessageBoxSyncOptions,
@@ -2805,7 +2800,8 @@ function setupWebviewTabOpenHandler() {
     contents.on('will-prevent-unload', (event) => {
       const hostWindow = getHostWindowForContents(contents);
       const siteLabel = getSiteDisplayLabel(contents.getURL());
-      const response = showMessageBoxSyncForWindow(hostWindow, {
+      const decision = consumeUnloadDecision(contents);
+      const response = decision === 'allow' ? 0 : decision === 'stay' ? 1 : showMessageBoxSyncForWindow(hostWindow, {
         type: 'question',
         buttons: ['Leave', 'Stay'],
         defaultId: 1,
@@ -3568,41 +3564,7 @@ function setupSitePermissionHandlers() {
     activeMediaStreamsByWebContents.delete(sourceContents.id);
   });
 
-  ipcMain.on('webview-site-dialog-sync', (event, payload: unknown) => {
-    const sourceContents = event.sender;
-    const hostWindow = getHostWindowForContents(sourceContents);
-    const siteLabel = getSiteDisplayLabel(sourceContents.getURL());
-
-    const candidate = isObjectRecord(payload) ? payload : {};
-    const dialogType = candidate.type === 'confirm' ? 'confirm' : 'alert';
-    const dialogMessage = normalizeDialogMessage(candidate.message);
-    const options: MessageBoxSyncOptions = dialogType === 'confirm'
-      ? {
-          type: 'question',
-          buttons: ['OK', 'Cancel'],
-          defaultId: 0,
-          cancelId: 1,
-          noLink: true,
-          title: 'Confirm',
-          message: `${siteLabel} says`,
-          detail: dialogMessage || ' ',
-        }
-      : {
-          type: 'info',
-          buttons: ['OK'],
-          defaultId: 0,
-          cancelId: 0,
-          noLink: true,
-          title: 'Alert',
-          message: `${siteLabel} says`,
-          detail: dialogMessage || ' ',
-        };
-
-    const response = showMessageBoxSyncForWindow(hostWindow, options);
-    event.returnValue = dialogType === 'confirm' ? response === 0 : true;
-  });
-
-  ipcMain.handle('webview-request-close-tab', (event, payload: unknown) => {
+  ipcMain.handle('webview-request-close-tab', async (event, payload: unknown) => {
     if (!isObjectRecord(payload)) return false;
 
     const tabId = typeof payload.tabId === 'string' ? payload.tabId.trim() : '';
@@ -3619,6 +3581,9 @@ function setupSitePermissionHandlers() {
     if (!host || host.isDestroyed() || host.id !== event.sender.id) return false;
 
     const hostWindow = BrowserWindow.fromWebContents(host);
+    if (!await confirmContentsClose(target)) return false;
+    if (target.isDestroyed()) return true;
+    await allowContentsClose(target);
     pendingWebviewCloseRequestsByWebContentsId.set(webContentsId, {
       type: 'tab',
       tabId,
@@ -3628,29 +3593,7 @@ function setupSitePermissionHandlers() {
     return true;
   });
 
-  ipcMain.handle('webview-request-close-window', (event, payload: unknown) => {
-    if (!isObjectRecord(payload)) return false;
 
-    const webContentsId =
-      typeof payload.webContentsId === 'number' && Number.isFinite(payload.webContentsId)
-        ? Math.floor(payload.webContentsId)
-        : -1;
-    if (webContentsId <= 0) return false;
-
-    const target = electronWebContents.fromId(webContentsId);
-    if (!target || target.isDestroyed()) return false;
-
-    const host = target.hostWebContents;
-    if (!host || host.isDestroyed() || host.id !== event.sender.id) return false;
-
-    const hostWindow = BrowserWindow.fromWebContents(host);
-    pendingWebviewCloseRequestsByWebContentsId.set(webContentsId, {
-      type: 'window',
-      hostWindowId: hostWindow && !hostWindow.isDestroyed() ? hostWindow.id : null,
-    });
-    target.close({ waitForBeforeUnload: true });
-    return true;
-  });
 }
 
 function setupSessionHandlers() {
@@ -3934,7 +3877,8 @@ function setupUpdateHandlers() {
     },
   );
 
-  app.on('before-quit', async () => {
+  app.on('before-quit', async (event) => {
+    if (event.defaultPrevented) return;
     if (hasAttemptedCloseAutoUpdate) return;
     if (
       configuredAutoUpdateMode !== 'ask-on-close'
@@ -5030,8 +4974,7 @@ function setupWindowControlsHandlers() {
   ipcMain.handle('window-close', (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win || win.isDestroyed()) return false;
-    win.close();
-    return true;
+    return requestWindowClose(win);
   });
 
   ipcMain.handle('window-toggle-devtools', (event) => {
@@ -5651,6 +5594,12 @@ function createWindow(
     }
   });
 
+  win.on('close', (event) => {
+    if (canCloseWindow(win)) return;
+    event.preventDefault();
+    void requestWindowClose(win);
+  });
+
   win.on('closed', () => {
     stopDetachedWindowDragSession(win.id);
     for (const [requestId, pendingRequest] of pendingSitePermissionRequests.entries()) {
@@ -5955,6 +5904,7 @@ app.whenReady().then(async () => {
   setupVersionHandlers();
   setupPerformanceHandlers();
   setupSessionHandlers();
+  setupSiteInteractions(getHostWindowForContents);
   setupSitePermissionHandlers();
   setupUpdateHandlers();
   setupWebviewTabOpenHandler();
@@ -5999,7 +5949,31 @@ app.on('window-all-closed', () => {
   }
 });
 
-app.on('before-quit', () => {
+let quitConfirmed = false;
+let checkingQuit = false;
+app.on('before-quit', (event) => {
+  const windows = BrowserWindow.getAllWindows().filter((win) => !win.isDestroyed());
+  if (!quitConfirmed && windows.length) {
+    event.preventDefault();
+    if (checkingQuit) return;
+    checkingQuit = true;
+    void (async () => {
+      try {
+        for (const win of windows) {
+          if (!win.isDestroyed() && !await confirmWindowClose(win, false)) return;
+        }
+        for (const win of windows) {
+          if (!win.isDestroyed()) {
+            await allowWindowClose(win);
+            markWindowCloseAllowed(win);
+          }
+        }
+        quitConfirmed = true;
+        app.quit();
+      } finally { checkingQuit = false; }
+    })();
+    return;
+  }
   isQuitting = true;
   for (const pendingRequest of pendingSitePermissionRequests.values()) {
     pendingRequest.callback(false);

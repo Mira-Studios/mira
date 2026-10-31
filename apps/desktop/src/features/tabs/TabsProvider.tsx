@@ -1192,45 +1192,13 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
     });
   };
 
-  const closeWindow = useCallback(() => {
-    const ipc = electron?.ipcRenderer;
-    const activeTab = tabsRef.current.find((tab) => tab.id === activeIdRef.current);
-    const activeWebContentsId = getWebContentsIdForTab(activeIdRef.current);
-
-    if (
-      ipc
-      && tabsRef.current.length === 1
-      && activeTab
-      && !activeTab.url.startsWith('mira://')
-      && activeWebContentsId !== undefined
-    ) {
-      ipc
-        .invoke<boolean>('webview-request-close-window', {
-          webContentsId: activeWebContentsId,
-        })
-        .then((started) => {
-          if (started) return;
-          ipc.invoke('window-close').catch(() => undefined);
-        })
-        .catch(() => {
-          ipc.invoke('window-close').catch(() => undefined);
-        });
-      return;
-    }
-
-    if (ipc) {
-      ipc.invoke('session-save-window', null).catch(() => undefined);
-      ipc.invoke('window-close').catch(() => undefined);
-      return;
-    }
-
-    try {
-      localStorage.removeItem(SESSION_STORAGE_KEY);
-    } catch {
-      // Ignore storage failures.
+  const closeWindow = useCallback(async () => {
+    if (electron?.ipcRenderer) {
+      return electron.ipcRenderer.invoke<boolean>('window-close').catch(() => false);
     }
     window.close();
-  }, [getWebContentsIdForTab]);
+    return true;
+  }, []);
 
   const clearTabRuntimeState = useCallback(
     (id: string) => {
@@ -1294,99 +1262,35 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
     });
   }, [clearTabRuntimeState, closeWindow, rememberRecentlyClosedTabs]);
 
-  const closeTab = useCallback((id: string) => {
+  const closeTab = useCallback(async (id: string): Promise<boolean> => {
     const currentTabs = tabsRef.current;
-    const shouldCloseWindow = currentTabs.length === 1 && currentTabs[0]?.id === id;
-    if (shouldCloseWindow) {
-      closeWindow();
-      return;
-    }
-
+    if (currentTabs.length === 1 && currentTabs[0]?.id === id) return closeWindow();
     const tabToClose = currentTabs.find((tab) => tab.id === id);
+    if (!tabToClose) return true;
     const webContentsId = getWebContentsIdForTab(id);
-    if (
-      tabToClose
-      && !tabToClose.url.startsWith('mira://')
-      && webContentsId !== undefined
-      && electron?.ipcRenderer
-    ) {
-      electron.ipcRenderer
-        .invoke<boolean>('webview-request-close-tab', {
-          tabId: id,
-          webContentsId,
-        })
-        .then((started) => {
-          if (started) return;
-          finalizeTabClose(id);
-        })
-        .catch(() => {
-          finalizeTabClose(id);
-        });
-      return;
+    if (!tabToClose.url.startsWith('mira://') && webContentsId !== undefined && electron?.ipcRenderer) {
+      return electron.ipcRenderer.invoke<boolean>('webview-request-close-tab', {
+        tabId: id, webContentsId,
+      }).catch(() => false);
     }
-
     finalizeTabClose(id);
+    return true;
   }, [closeWindow, finalizeTabClose, getWebContentsIdForTab]);
 
-  const closeOtherTabs = useCallback(
-    (id: string) => {
-      if (!id) return;
-      const tabToKeep = tabs.find((tab) => tab.id === id);
-      if (!tabToKeep) return;
+  const closeOtherTabs = useCallback(async (id: string) => {
+    if (!tabsRef.current.some((tab) => tab.id === id)) return;
+    for (const tab of tabsRef.current.filter((tab) => tab.id !== id)) {
+      if (!await closeTab(tab.id)) break;
+    }
+  }, [closeTab]);
 
-      const tabsToClose = tabs.filter((tab) => tab.id !== id);
-      if (!tabsToClose.length) return;
-
-      rememberRecentlyClosedTabs(tabsToClose);
-      tabsToClose.forEach((tab) => {
-        clearTabRuntimeState(tab.id);
-      });
-
-      const now = Date.now();
-      setTabs([
-        {
-          ...tabToKeep,
-          isSleeping: false,
-          lastActiveAt: now,
-        },
-      ]);
-      setActiveId(id);
-    },
-    [tabs, clearTabRuntimeState, rememberRecentlyClosedTabs],
-  );
-
-  const closeTabsToRight = useCallback(
-    (id: string) => {
-      if (!id) return;
-
-      const currentIndex = tabs.findIndex((tab) => tab.id === id);
-      if (currentIndex < 0) return;
-
-      const tabsToClose = tabs.slice(currentIndex + 1);
-      if (!tabsToClose.length) return;
-
-      rememberRecentlyClosedTabs(tabsToClose);
-      const tabsToCloseIds = new Set(tabsToClose.map((tab) => tab.id));
-      tabsToClose.forEach((tab) => {
-        clearTabRuntimeState(tab.id);
-      });
-
-      const activeTabWillClose = tabsToCloseIds.has(activeId);
-      const now = Date.now();
-      setTabs((currentTabs) => {
-        const nextTabs = currentTabs.filter((tab) => !tabsToCloseIds.has(tab.id));
-        if (!activeTabWillClose) return nextTabs;
-        return nextTabs.map((tab) =>
-          tab.id === id ? { ...tab, isSleeping: false, lastActiveAt: now } : tab,
-        );
-      });
-
-      if (activeTabWillClose) {
-        setActiveId(id);
-      }
-    },
-    [tabs, activeId, clearTabRuntimeState, rememberRecentlyClosedTabs],
-  );
+  const closeTabsToRight = useCallback(async (id: string) => {
+    const index = tabsRef.current.findIndex((tab) => tab.id === id);
+    if (index < 0) return;
+    for (const tab of tabsRef.current.slice(index + 1)) {
+      if (!await closeTab(tab.id)) break;
+    }
+  }, [closeTab]);
 
   const reopenLastClosedTab = useCallback(() => {
     const now = Date.now();
