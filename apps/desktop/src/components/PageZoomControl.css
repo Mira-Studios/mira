@@ -1,0 +1,124 @@
+.page-zoom-control {
+  position: relative;
+  flex: 0 0 auto;
+  width: 0;
+  margin-left: -4px;
+  height: var(--layoutNavButtonHeight, 30px);
+  -webkit-app-region: no-drag;
+}
+.page-zoom-control-visible {
+  width: var(--layoutNavButtonHeight, 30px);
+  margin-left: 0;
+}
+.page-zoom-control[data-animate='true'] {
+  transition:
+    width 180ms ease,
+    margin-left 180ms ease;
+}
+.page-zoom-trigger {
+  display: grid;
+  place-items: center;
+  height: var(--layoutNavButtonHeight, 30px);
+  opacity: 1;
+}
+.page-zoom-control:not(.page-zoom-control-visible) .page-zoom-trigger {
+  opacity: 0;
+  pointer-events: none;
+}
+.page-zoom-control[data-animate='true'] .page-zoom-trigger {
+  transition: opacity 150ms ease;
+}
+.page-zoom-popover.theme-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0;
+  border-radius: 999px;
+  overflow: hidden;
+  z-index: 1450;
+}
+.page-zoom-step {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  padding: 0;
+  border-radius: 999px;
+}
+.page-zoom-popover .theme-btn {
+  border: none;
+  border-radius: 999px;
+  padding: 0;
+}
+.page-zoom-step {
+  background: transparent;
+}
+.page-zoom-popover .theme-btn:focus-visible {
+  outline: 2px solid var(--accentPrimary);
+  outline-offset: -2px;
+}
+.page-zoom-percent {
+  min-width: 42px;
+  text-align: center;
+  color: var(--text1);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.page-zoom-reset {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 28px;
+  padding: 0;
+  border-radius: 999px;
+  font-size: 11px;
+}
+.page-zoom-popover .page-zoom-reset:not(:hover):not(:active),
+.page-zoom-popover .page-zoom-reset:disabled {
+  background: transparent;
+}
+.page-zoom-control[data-animate='true'] .page-zoom-popover {
+  animation: page-zoom-in 150ms ease-out;
+  transform-origin: top right;
+}
+.page-zoom-popover-closing {
+  opacity: 0;
+  pointer-events: none;
+}
+.page-zoom-control[data-animate='true'] .page-zoom-popover-closing {
+  animation: page-zoom-out 150ms ease-in forwards;
+}
+@keyframes page-zoom-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes page-zoom-out {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .page-zoom-control[data-animate='true'],
+  .page-zoom-control[data-animate='true'] .page-zoom-trigger {
+    transition: none;
+  }
+  .page-zoom-control[data-animate='true'] .page-zoom-popover {
+    animation: none;
+  }
+}

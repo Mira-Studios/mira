@@ -26,7 +26,7 @@ function finish(id: string, answer: Answer): void {
   pending.delete(id);
   try { request.reply(answer); } catch { /* The requesting frame may have navigated. */ }
   const host = BrowserWindow.fromId(request.hostId);
-  if (host && !host.isDestroyed()) host.webContents.send('site-interaction-cancel', id);
+  if (host && !host.isDestroyed() && !host.webContents.isDestroyed()) host.webContents.send('site-interaction-cancel', id);
 }
 
 function cancelFor(contents: WebContents): void {
@@ -35,7 +35,7 @@ function cancelFor(contents: WebContents): void {
 
 function ask(source: WebContents, kind: Kind, data: Record<string, unknown>, reply: Pending['reply']): void {
   const host = hostFor(source);
-  if (!host || host.isDestroyed()) { reply({ accepted: false }); return; }
+  if (!host || host.isDestroyed() || host.webContents.isDestroyed()) { reply({ accepted: false }); return; }
   if (kind === 'passkey') {
     for (const [id, request] of pending) {
       if (request.source === source && request.kind === 'passkey') finish(id, { accepted: false });

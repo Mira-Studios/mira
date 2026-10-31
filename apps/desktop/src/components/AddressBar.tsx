@@ -21,6 +21,7 @@ import { useTabs } from '../features/tabs/TabsProvider';
 import { useBookmarks } from '../features/bookmarks/BookmarksProvider';
 import DownloadButton from './DownloadButton';
 import DeviceConnectionsButton from './DeviceConnectionsButton';
+import PageZoomControl from './PageZoomControl';
 import {
   BROWSER_SETTINGS_CHANGED_EVENT,
   getBrowserSettings,
@@ -745,6 +746,8 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
           </button>
         )}
       </div>
+
+      <PageZoomControl key={`zoom-${activeId}`} animationsEnabled={animationsEnabled} onOpen={closeMenusForDeviceChooser} />
 
       <DeviceConnectionsButton key={activeId} animationsEnabled={animationsEnabled}
         onOpen={closeMenusForDeviceChooser} otherMenuOpen={menuOpen || siteSettingsOpen} />

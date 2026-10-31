@@ -7,7 +7,7 @@ type Request = {
   id: string; kind: Kind; site: string; devices: Device[];
   pairing?: { kind: string; pin?: string };
 };
-type State = { source: WebContents; request?: Request; select?: (id: string, pin?: string) => void; connected: Map<string, Device> };
+type State = { source: WebContents; hostId: number | null; request?: Request; select?: (id: string, pin?: string) => void; connected: Map<string, Device> };
 const states = new Map<number, State>();
 let resolveHost: (source: WebContents) => BrowserWindow | null;
 
@@ -18,7 +18,7 @@ function hostFor(source: WebContents): BrowserWindow | null {
 }
 function stateFor(source: WebContents): State {
   let state = states.get(source.id);
-  if (!state) { state = { source, connected: new Map() }; states.set(source.id, state); }
+  if (!state) { state = { source, hostId: hostFor(source)?.id ?? null, connected: new Map() }; states.set(source.id, state); }
   return state;
 }
 function snapshot(hostId: number) {
@@ -28,7 +28,20 @@ function snapshot(hostId: number) {
 function publish(source: WebContents): void {
   if (source.isDestroyed()) return;
   const host = hostFor(source);
-  if (host && !host.isDestroyed()) host.webContents.send('device-connections-changed', snapshot(host.id));
+  if (host) {
+    const state = states.get(source.id);
+    if (state) state.hostId = host.id;
+    sendSnapshot(host);
+  }
+}
+function sendSnapshot(host: BrowserWindow): void {
+  if (host.isDestroyed() || host.webContents.isDestroyed()) return;
+  try {
+    host.webContents.send('device-connections-changed', snapshot(host.id));
+  } catch (error) {
+    // A closing window can outlive its renderer during guest teardown.
+    if (!host.isDestroyed() && !host.webContents.isDestroyed()) throw error;
+  }
 }
 function cancel(state: State): void {
   const callback = state.select;
@@ -105,11 +118,11 @@ export function setupDeviceConnections(getHost: typeof resolveHost): void {
     source.on('render-process-gone', clear);
     source.once('destroyed', () => {
       const state = states.get(source.id);
-      if (state) cancel(state);
+      if (!state) return;
+      cancel(state);
       states.delete(source.id);
-      for (const win of BrowserWindow.getAllWindows()) {
-        if (!win.isDestroyed()) win.webContents.send('device-connections-changed', snapshot(win.id));
-      }
+      const host = state.hostId === null ? null : BrowserWindow.fromId(state.hostId);
+      if (host) sendSnapshot(host);
     });
   });
   ipcMain.handle('device-connections-state', (event) => {

@@ -22,6 +22,7 @@ import { appendFileSync, promises as fs, readFileSync, statSync, unlinkSync, wri
 import os from 'node:os';
 import { isExplicitPopupRequest } from './popupPolicy.ts';
 import { setupDeviceConnections } from './deviceConnections.ts';
+import { setupPageZoom } from './pageZoom.ts';
 import {
   setupSiteInteractions, consumeUnloadDecision, confirmContentsClose, allowContentsClose,
   requestWindowClose, canCloseWindow, confirmWindowClose, allowWindowClose, markWindowCloseAllowed,
@@ -3965,7 +3966,7 @@ function getHostWebContents(target: WebContents): WebContents | null {
 
 function getHostWindowForContents(target: WebContents): BrowserWindow | null {
   const host = getHostWebContents(target);
-  if (!host) return null;
+  if (!host || host.isDestroyed()) return null;
   const hostWindow = BrowserWindow.fromWebContents(host);
   return hostWindow && !hostWindow.isDestroyed() ? hostWindow : null;
 }
@@ -5935,6 +5936,7 @@ app.whenReady().then(async () => {
   setupSessionHandlers();
   setupSiteInteractions(getHostWindowForContents);
   setupDeviceConnections(getHostWindowForContents);
+  setupPageZoom(getHostWindowForContents, (host) => activeWebContentsByWindow.get(host.id));
   setupSitePermissionHandlers();
   setupUpdateHandlers();
   setupWebviewTabOpenHandler();

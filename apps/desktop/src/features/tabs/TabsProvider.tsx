@@ -11,6 +11,7 @@ import { addHistoryEntry, updateHistoryEntryTitle } from '../history/clientHisto
 import { useBookmarks } from '../bookmarks/BookmarksProvider';
 import miraLogo from '../../assets/mira_logo.png';
 import { type Tab } from './types';
+import { nextPageZoom, type PageZoomAction } from '../../../electron/pageZoomPolicy';
 import { getNavigationMetadata, getUpdatedFavicon, type NavigationMetadata } from './tabMetadata';
 import {
   captureTabState,
@@ -52,7 +53,7 @@ type WebviewElement = {
   stop?: () => void;
   executeJavaScript?: (code: string, userGesture?: boolean) => Promise<unknown>;
   setZoomFactor?: (factor: number) => void;
-  getZoomFactor?: (callback: (factor: number) => void) => void;
+  getZoomFactor?: () => number;
   findInPage: (text: string, options?: FindInPageOptions) => number;
   stopFindInPage?: (action: 'clearSelection' | 'keepSelection' | 'activateSelection') => void;
   openDevTools: () => void;
@@ -186,9 +187,6 @@ const MAX_RECENTLY_CLOSED_TABS = 25;
 const REOPEN_CLOSED_TAB_DEDUPE_WINDOW_MS = 400;
 const REOPEN_CLOSED_TAB_ACTIVATE_DELAY_MS = 120;
 const IPC_OPEN_TAB_ACTIVATE_DELAY_MS = 110;
-const ZOOM_STEP = 0.1;
-const MIN_ZOOM_FACTOR = 0.25;
-const MAX_ZOOM_FACTOR = 5;
 
 /**
  * Checks whether a URL points to the configured new-tab experience.
@@ -1666,22 +1664,13 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
     tabsRef.current = tabs;
     activeIdRef.current = activeId;
 
-    // Notify main process of active webContents for dev tools
+    // Clear stale guests when switching to an internal or deferred tab.
     const ipc = electron?.ipcRenderer;
     if (ipc && activeId) {
-      const wv = webviewMap.current[activeId];
-      if (wv && typeof wv.getWebContentsId === 'function') {
-        try {
-          const webContentsId = wv.getWebContentsId();
-          if (typeof webContentsId === 'number' && Number.isFinite(webContentsId)) {
-            void ipc.invoke('tab-set-active-webcontents', webContentsId).catch(() => undefined);
-          }
-        } catch {
-          // Ignore errors from getWebContentsId
-        }
-      }
+      const webContentsId = getWebContentsIdForTab(activeId);
+      void ipc.invoke('tab-set-active-webcontents', webContentsId ?? null).catch(() => undefined);
     }
-  }, [tabs, activeId]);
+  }, [tabs, activeId, getWebContentsIdForTab]);
 
   useEffect(() => {
     if (!tabs.length) {
@@ -1981,57 +1970,26 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
     newTab(`view-source:${sourceUrl}`);
   }, [tabs, activeId, newTab]);
 
-  const applyZoomFactor = useCallback(
-    (nextFactor: number) => {
-      const wv = webviewMap.current[activeId];
-      if (!wv || typeof wv.setZoomFactor !== 'function') return;
+  const changePageZoom = useCallback((action: PageZoomAction) => {
+    const tabId = activeIdRef.current;
+    const webContentsId = getWebContentsIdForTab(tabId);
+    if (electron?.ipcRenderer && webContentsId !== undefined) {
+      void electron.ipcRenderer.invoke('page-zoom-change', { webContentsId, action }).catch(() => undefined);
+      return;
+    }
+    const webview = webviewMap.current[tabId];
+    if (!webview?.setZoomFactor) return;
+    try {
+      const current = webview.getZoomFactor?.() ?? zoomFactorByTabRef.current[tabId] ?? 1;
+      const next = nextPageZoom(current, action);
+      webview.setZoomFactor(next);
+      zoomFactorByTabRef.current[tabId] = next;
+    } catch { /* The guest may still be attaching. */ }
+  }, [getWebContentsIdForTab]);
 
-      const bounded = Math.max(MIN_ZOOM_FACTOR, Math.min(nextFactor, MAX_ZOOM_FACTOR));
-      wv.setZoomFactor(bounded);
-      zoomFactorByTabRef.current[activeId] = bounded;
-    },
-    [activeId],
-  );
-
-  const withCurrentZoomFactor = useCallback(
-    (onRead: (factor: number) => void) => {
-      const fallback = zoomFactorByTabRef.current[activeId] ?? 1;
-      const wv = webviewMap.current[activeId];
-      if (!wv || typeof wv.getZoomFactor !== 'function') {
-        onRead(fallback);
-        return;
-      }
-
-      try {
-        wv.getZoomFactor((rawFactor) => {
-          const normalized =
-            typeof rawFactor === 'number' && Number.isFinite(rawFactor) && rawFactor > 0
-              ? rawFactor
-              : fallback;
-          onRead(normalized);
-        });
-      } catch {
-        onRead(fallback);
-      }
-    },
-    [activeId],
-  );
-
-  const zoomIn = useCallback(() => {
-    withCurrentZoomFactor((factor) => {
-      applyZoomFactor(factor + ZOOM_STEP);
-    });
-  }, [applyZoomFactor, withCurrentZoomFactor]);
-
-  const zoomOut = useCallback(() => {
-    withCurrentZoomFactor((factor) => {
-      applyZoomFactor(factor - ZOOM_STEP);
-    });
-  }, [applyZoomFactor, withCurrentZoomFactor]);
-
-  const resetZoom = useCallback(() => {
-    applyZoomFactor(1);
-  }, [applyZoomFactor]);
+  const zoomIn = useCallback(() => changePageZoom('in'), [changePageZoom]);
+  const zoomOut = useCallback(() => changePageZoom('out'), [changePageZoom]);
+  const resetZoom = useCallback(() => changePageZoom('reset'), [changePageZoom]);
 
   const toggleFullScreen = useCallback(() => {
     const ipc = electron?.ipcRenderer;
