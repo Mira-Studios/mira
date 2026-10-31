@@ -67,6 +67,7 @@ export type BrowserSettings = {
   tabSleepMode: TabSleepMode;
   devToolsOpenMode: DevToolsOpenMode;
   adBlockEnabled: boolean;
+  youtubeAdBlockBetaEnabled: boolean;
   trackerBlockEnabled: boolean;
   quitOnLastWindowClose: boolean;
   showNewTabBranding: boolean;
@@ -100,6 +101,7 @@ export const DEFAULT_BROWSER_SETTINGS: BrowserSettings = {
   tabSleepMode: 'freeze',
   devToolsOpenMode: 'side',
   adBlockEnabled: false,
+  youtubeAdBlockBetaEnabled: false,
   trackerBlockEnabled: false,
   quitOnLastWindowClose: false,
   showNewTabBranding: false,
@@ -456,6 +458,7 @@ export function normalizeBrowserSettings(value: unknown): BrowserSettings {
     tabSleepMode: normalizeTabSleepMode(candidate.tabSleepMode),
     devToolsOpenMode: normalizeDevToolsOpenMode(candidate.devToolsOpenMode),
     adBlockEnabled: normalizeAdBlockEnabled(candidate.adBlockEnabled),
+    youtubeAdBlockBetaEnabled: candidate.youtubeAdBlockBetaEnabled === true,
     trackerBlockEnabled: normalizeTrackerBlockEnabled(
       candidate.trackerBlockEnabled,
       normalizeAdBlockEnabled(candidate.adBlockEnabled),

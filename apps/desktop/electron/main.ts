@@ -22,6 +22,7 @@ import os from 'node:os';
 import { isExplicitPopupRequest } from './popupPolicy.ts';
 import { setupDeviceConnections } from './deviceConnections.ts';
 import { setupPageZoom } from './pageZoom.ts';
+import { installYoutubeAdBeta } from './youtubeAdBeta.js';
 import {
   setupSiteInteractions, consumeUnloadDecision, confirmContentsClose, allowContentsClose,
   requestWindowClose, canCloseWindow, confirmWindowClose, allowWindowClose, markWindowCloseAllowed, requestAppDialog, requestUnloadDialog,
@@ -213,6 +214,7 @@ const pendingClosedWindowCleanupTimers = new Map<number, NodeJS.Timeout>();
 const onboardingWindowIds = new Set<number>();
 let isQuitting = false;
 let adBlockEnabled = true;
+let youtubeAdBetaEnabled = false;
 let trackerBlockEnabled = false;
 let quitOnLastWindowClose = false;
 let hasAttemptedLaunchAutoUpdate = false;
@@ -2727,8 +2729,20 @@ function prepareWebviewHistoryRestore(params: { src?: string }): void {
   if (params.src === 'about:blank#mira-restore-history') params.src = '';
 }
 
+async function applyYoutubeAdBeta(contents: WebContents): Promise<void> {
+  if (contents.isDestroyed()) return;
+  try {
+    const url = new URL(contents.getURL());
+    if (!(url.hostname === 'youtube.com' || url.hostname.endsWith('.youtube.com'))) return;
+    await contents.executeJavaScript(`(${installYoutubeAdBeta.toString()})(${youtubeAdBetaEnabled})`);
+  } catch { /* A page may navigate while its settings are being updated. */ }
+}
+
 function setupWebviewTabOpenHandler() {
   app.on('web-contents-created', (_, contents) => {
+    if (contents.getType() === 'webview') {
+      contents.on('dom-ready', () => { void applyYoutubeAdBeta(contents); });
+    }
     let unloadTargetUrl = '';
     let checkingUnload = false;
     contents.on('did-start-navigation', (_event, url, isInPlace, isMainFrame) => {
@@ -4056,6 +4070,16 @@ function setupAdBlocker() {
     adBlockEnabled = enabled !== false;
     if (!adBlockEnabled) trackedYoutubeAdCpns.clear();
     return adBlockEnabled;
+  });
+
+  ipcMain.handle('settings-set-youtube-ad-beta-enabled', async (_, enabled: unknown) => {
+    const nextEnabled = enabled === true;
+    if (youtubeAdBetaEnabled === nextEnabled) return youtubeAdBetaEnabled;
+    youtubeAdBetaEnabled = nextEnabled;
+    await Promise.all(electronWebContents.getAllWebContents()
+      .filter((contents) => contents.getType() === 'webview' && !contents.isDestroyed())
+      .map(applyYoutubeAdBeta));
+    return youtubeAdBetaEnabled;
   });
 
   ipcMain.handle('settings-set-tracker-block-enabled', async (_, enabled: unknown) => {

@@ -337,6 +337,7 @@ function Browser() {
 
       void Promise.allSettled([
         electron.ipcRenderer.invoke('settings-set-ad-block-enabled', settings.adBlockEnabled),
+        electron.ipcRenderer.invoke('settings-set-youtube-ad-beta-enabled', settings.youtubeAdBlockBetaEnabled),
         electron.ipcRenderer.invoke(
           'settings-set-tracker-block-enabled',
           settings.trackerBlockEnabled,

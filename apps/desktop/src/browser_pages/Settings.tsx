@@ -275,6 +275,7 @@ export default function Settings() {
   const [tabSleepMode, setTabSleepMode] = useState(() => initialSettings.tabSleepMode);
   const [devToolsOpenMode, setDevToolsOpenMode] = useState(() => initialSettings.devToolsOpenMode);
   const [adBlockEnabled, setAdBlockEnabled] = useState(() => initialSettings.adBlockEnabled);
+  const [youtubeAdBlockBetaEnabled, setYoutubeAdBlockBetaEnabled] = useState(() => initialSettings.youtubeAdBlockBetaEnabled);
   const [trackerBlockEnabled, setTrackerBlockEnabled] = useState(
     () => initialSettings.trackerBlockEnabled,
   );
@@ -630,6 +631,7 @@ export default function Settings() {
         tabSleepMode,
         devToolsOpenMode,
         adBlockEnabled,
+        youtubeAdBlockBetaEnabled,
         trackerBlockEnabled,
         quitOnLastWindowClose,
         showNewTabBranding,
@@ -671,6 +673,7 @@ export default function Settings() {
     tabSleepMode,
     devToolsOpenMode,
     adBlockEnabled,
+    youtubeAdBlockBetaEnabled,
     trackerBlockEnabled,
     quitOnLastWindowClose,
     showNewTabBranding,
@@ -1382,6 +1385,14 @@ export default function Settings() {
                   />
                 </label>
 
+                <label htmlFor="youtube-ad-beta-enabled" className="settings-setting-row">
+                  <span className="settings-setting-meta">
+                    <span className="settings-setting-label">Block YouTube ads (beta)</span>
+                    <span className="settings-setting-description">Try skipping detected video ads.</span>
+                  </span>
+                  <input id="youtube-ad-beta-enabled" type="checkbox" className="settings-toggle settings-setting-control"
+                    checked={youtubeAdBlockBetaEnabled} onChange={(event) => { setYoutubeAdBlockBetaEnabled(event.currentTarget.checked); setSaveStatus('saving'); }} />
+                </label>
                 <label htmlFor="tracker-block-enabled" className="settings-setting-row">
                   <span className="settings-setting-meta">
                     <span className="settings-setting-label">Enable tracker blocking</span>
