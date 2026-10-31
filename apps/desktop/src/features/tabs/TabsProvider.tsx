@@ -167,6 +167,7 @@ type TabsContextType = {
   toggleFullScreen: () => void;
   scrollPage: (command: ScrollPageCommand) => void;
   registerWebview: (id: string, el: WebviewElement) => void;
+  getWebContentsIdForTab: (id: string) => number | undefined;
   setActive: (id: string) => void;
   restorePromptOpen: boolean;
   restoreTabCount: number;
@@ -2431,6 +2432,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
         toggleFullScreen,
         scrollPage,
         registerWebview,
+        getWebContentsIdForTab,
         setActive,
         restorePromptOpen,
         restoreTabCount: pendingSession?.tabs.length ?? restoreTabCountState,

@@ -20,6 +20,7 @@ import {
 import { useTabs } from '../features/tabs/TabsProvider';
 import { useBookmarks } from '../features/bookmarks/BookmarksProvider';
 import DownloadButton from './DownloadButton';
+import DeviceConnectionsButton from './DeviceConnectionsButton';
 import {
   BROWSER_SETTINGS_CHANGED_EVENT,
   getBrowserSettings,
@@ -210,6 +211,11 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
       siteSettingsCloseTimerRef.current = null;
     }, MENU_ANIMATION_MS);
   }, [siteSettingsOpen, animationsEnabled, clearSiteSettingsCloseTimer]);
+
+  const closeMenusForDeviceChooser = useCallback(() => {
+    closeMenu();
+    closeSiteSettings();
+  }, [closeMenu, closeSiteSettings]);
 
   useEffect(() => {
     const activeTab = tabs.find((t) => t.id === activeId);
@@ -739,6 +745,9 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
           </button>
         )}
       </div>
+
+      <DeviceConnectionsButton key={activeId} animationsEnabled={animationsEnabled}
+        onOpen={closeMenusForDeviceChooser} otherMenuOpen={menuOpen || siteSettingsOpen} />
 
       <div ref={siteSettingsRef} style={{ position: 'relative' }}>
         <button

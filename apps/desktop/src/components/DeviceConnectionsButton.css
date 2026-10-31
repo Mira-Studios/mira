@@ -1,0 +1,258 @@
+.device-connection-slot {
+  position: relative;
+  flex: 0 0 auto;
+  width: 0;
+  height: var(--layoutNavButtonHeight, 30px);
+  margin-left: -4px;
+  -webkit-app-region: no-drag;
+}
+.device-connection-slot-visible {
+  width: var(--layoutNavButtonHeight, 30px);
+  margin-left: 0;
+}
+.device-connection-slot[data-animate='true'] {
+  transition:
+    width 180ms ease,
+    margin-left 180ms ease;
+}
+.device-connection-trigger {
+  position: relative;
+  display: grid;
+  place-items: center;
+  height: var(--layoutNavButtonHeight, 30px);
+  opacity: 0;
+  transform: scale(0.85);
+  pointer-events: none;
+}
+.device-connection-slot-visible .device-connection-trigger {
+  opacity: 1;
+  transform: scale(1);
+  pointer-events: auto;
+}
+.device-connection-slot:not(.device-connection-slot-visible) .device-connection-trigger {
+  /* Keep the shared disabled-button opacity from leaving a ghost icon behind. */
+  opacity: 0;
+}
+.device-connection-slot[data-animate='true'] .device-connection-trigger {
+  transition:
+    opacity 150ms ease,
+    transform 180ms ease;
+}
+.device-connection-trigger-open {
+  background: var(--navButtonBgActive);
+}
+.device-connection-dot {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accentPrimary);
+}
+.device-connection-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: min(360px, calc(100vw - 130px));
+  overflow: hidden;
+  padding: 16px;
+  border-radius: 14px;
+  z-index: 1400;
+}
+.device-connection-header {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.device-connection-body {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--surfaceBorder, #555) transparent;
+  scrollbar-gutter: stable;
+}
+.device-connection-header strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+.device-connection-close {
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--text2);
+  border-radius: 8px;
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+}
+.device-connection-close:hover {
+  background: var(--navButtonBgHover);
+}
+.device-connection-site {
+  color: var(--text2);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  margin: 6px 0 14px;
+}
+.device-connection-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.device-connection-option {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.device-connection-option span {
+  flex: 1;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.device-connection-option svg {
+  flex-shrink: 0;
+}
+.device-connection-option input {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+}
+.device-connection-option:has(input:focus-visible) {
+  outline: 2px solid var(--accentPrimary);
+  outline-offset: -2px;
+}
+.device-connection-option:hover {
+  background: var(--navButtonBgHover);
+}
+.device-connection-option-selected {
+  background: color-mix(in srgb, var(--accentPrimary) 10%, transparent);
+  border-color: color-mix(in srgb, var(--accentPrimary) 40%, transparent);
+}
+.device-connection-actions {
+  display: flex;
+  flex-shrink: 0;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--surfaceBorder);
+}
+.device-connection-actions button {
+  min-height: 32px;
+  padding: 6px 14px;
+  border-radius: 9px;
+  font-size: 12px;
+}
+.device-connected-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+}
+.device-connection-caption {
+  color: var(--text2);
+  font-size: 11px;
+}
+.device-connected-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+.device-connected-row > span {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.device-connected-row strong {
+  display: block;
+  font-weight: 500;
+}
+.device-connected-row small {
+  display: block;
+  margin-top: 3px;
+  color: var(--text2);
+  font-size: 11px;
+}
+.device-connected-row button {
+  display: grid;
+  place-items: center;
+  padding: 7px;
+  border-radius: 8px;
+}
+.device-connection-empty,
+.device-connection-error {
+  color: var(--text2);
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 16px 0 4px;
+}
+.device-connection-pairing {
+  font-size: 13px;
+}
+.device-connection-pairing input {
+  width: 100%;
+  padding: 9px 12px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .device-connection-slot[data-animate='true'],
+  .device-connection-slot[data-animate='true'] .device-connection-trigger {
+    transition: none;
+  }
+}
+.device-connection-slot[data-animate='true'] .device-connection-menu {
+  animation: device-menu-in 150ms ease-out;
+  transform-origin: top right;
+}
+.device-connection-menu-closing {
+  opacity: 0;
+  pointer-events: none;
+}
+.device-connection-slot[data-animate='true'] .device-connection-menu-closing {
+  animation: device-menu-out 150ms ease-in forwards;
+}
+@keyframes device-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes device-menu-out {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .device-connection-slot[data-animate='true'] .device-connection-menu {
+    animation: none;
+  }
+}

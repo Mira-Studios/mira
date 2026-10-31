@@ -21,6 +21,7 @@ import type {
 import { appendFileSync, promises as fs, readFileSync, statSync, unlinkSync, writeFileSync } from 'fs';
 import os from 'node:os';
 import { isExplicitPopupRequest } from './popupPolicy.ts';
+import { setupDeviceConnections } from './deviceConnections.ts';
 import {
   setupSiteInteractions, consumeUnloadDecision, confirmContentsClose, allowContentsClose,
   requestWindowClose, canCloseWindow, confirmWindowClose, allowWindowClose, markWindowCloseAllowed,
@@ -3223,6 +3224,8 @@ function setupSitePermissionHandlers() {
   const ses = session.defaultSession;
 
   ses.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => {
+    // This enables the chooser API; only an explicit chooser selection grants a device.
+    if (['usb', 'hid', 'serial', 'bluetooth'].includes(permission)) return true;
     const origin = extractPermissionOrigin(webContents, {
       requestingUrl: details.requestingUrl,
       securityOrigin: details.securityOrigin || requestingOrigin,
@@ -3242,6 +3245,7 @@ function setupSitePermissionHandlers() {
   });
 
   ses.setPermissionRequestHandler((webContents, permission, callback, details) => {
+    if (['usb', 'hid', 'serial', 'bluetooth'].includes(permission)) { callback(true); return; }
     const origin = extractPermissionOrigin(webContents, {
       requestingUrl: details.requestingUrl,
       securityOrigin: 'securityOrigin' in details ? details.securityOrigin : undefined,
@@ -5905,6 +5909,7 @@ app.whenReady().then(async () => {
   setupPerformanceHandlers();
   setupSessionHandlers();
   setupSiteInteractions(getHostWindowForContents);
+  setupDeviceConnections(getHostWindowForContents);
   setupSitePermissionHandlers();
   setupUpdateHandlers();
   setupWebviewTabOpenHandler();

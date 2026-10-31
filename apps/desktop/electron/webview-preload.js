@@ -106,3 +106,68 @@ contextBridge.executeInMainWorld({ func: () => {
     };
   }
 } });
+
+// Observe page-owned device connections without opening or granting a device ourselves.
+contextBridge.exposeInMainWorld('__miraDeviceBridge', {
+  update: (data) => ipcRenderer.send('device-connection-update', data),
+});
+contextBridge.executeInMainWorld({ func: () => {
+  const bridge = window.__miraDeviceBridge;
+  const ids = new WeakMap();
+  const connected = new Map();
+  const nameFor = (device, kind) => {
+    if (device.productName || device.name || device.device?.name) return device.productName || device.name || device.device.name;
+    if (kind === 'serial') {
+      const info = device.getInfo?.() ?? {};
+      const vendor = info.usbVendorId?.toString(16).padStart(4, '0');
+      const product = info.usbProductId?.toString(16).padStart(4, '0');
+      return vendor ? `Serial device (${vendor}:${product ?? '0000'})` : 'Serial device';
+    }
+    return kind === 'bluetooth' ? 'Bluetooth device' : kind === 'hid' ? 'HID device' : 'USB device';
+  };
+  const report = (device, kind, active) => {
+    let id = ids.get(device);
+    if (!id) { if (!active) return; id = crypto.randomUUID(); ids.set(device, id); }
+    if (active) connected.set(id, { device, kind });
+    else connected.delete(id);
+    bridge.update({ id, kind, name: nameFor(device, kind), connected: active });
+  };
+  const wrap = (prototype, method, kind, active, sync = false) => {
+    const original = prototype?.[method];
+    if (typeof original !== 'function') return;
+    prototype[method] = sync ? function (...args) {
+      const result = original.apply(this, args);
+      report(this, kind, active);
+      return result;
+    } : async function (...args) {
+      const result = await original.apply(this, args);
+      report(this, kind, active);
+      if (kind === 'bluetooth' && active) {
+        this.device?.addEventListener('gattserverdisconnected', () => report(this, kind, false), { once: true });
+      }
+      return result;
+    };
+  };
+  for (const [type, kind] of [['USBDevice', 'usb'], ['HIDDevice', 'hid'], ['SerialPort', 'serial']]) {
+    const prototype = window[type]?.prototype;
+    wrap(prototype, 'open', kind, true);
+    wrap(prototype, 'close', kind, false);
+    wrap(prototype, 'forget', kind, false);
+  }
+  wrap(window.BluetoothRemoteGATTServer?.prototype, 'connect', 'bluetooth', true);
+  wrap(window.BluetoothRemoteGATTServer?.prototype, 'disconnect', 'bluetooth', false, true);
+  for (const kind of ['usb', 'hid', 'serial']) {
+    navigator[kind]?.addEventListener('disconnect', (event) => report(event.device ?? event.port ?? event.target, kind, false));
+  }
+  Object.defineProperty(window, '__miraDevices', { value: Object.freeze({
+    disconnect: async (id) => {
+      const entry = connected.get(id);
+      if (!entry) return false;
+      try {
+        if (entry.kind === 'bluetooth') entry.device.disconnect();
+        else await entry.device.close();
+        return true;
+      } catch { return false; }
+    },
+  }) });
+} });

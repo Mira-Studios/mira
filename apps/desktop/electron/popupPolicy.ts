@@ -16,6 +16,15 @@ export function isExplicitPopupRequest({ features = '', disposition = '' }: Popu
   if (options.has('popup')) return enabled(options.get('popup')!);
   // Older sites request popup windows using size/position or hidden browser chrome.
   if (['width', 'height', 'left', 'top'].some((name) => options.has(name))) return true;
-  return ['toolbar', 'menubar', 'location', 'status', 'resizable', 'scrollbars']
-    .some((name) => options.has(name) && !enabled(options.get(name)!));
+  // With legacy window features, omitted chrome defaults to hidden. In particular,
+  // "resizable,scrollbars,status" requests a popup even though all three are enabled.
+  // Privacy/referrer features alone do not request a different window layout.
+  const layoutOptions = [...options.keys()].filter((name) =>
+    !['noopener', 'noreferrer', 'attributionsrc'].includes(name));
+  if (!layoutOptions.length) return false;
+  const shown = (name: string, fallback = false) => options.has(name)
+    ? enabled(options.get(name)!) : fallback;
+  return (!shown('location') && !shown('toolbar'))
+    || !shown('menubar') || !shown('resizable', true)
+    || !shown('scrollbars') || !shown('status');
 }
