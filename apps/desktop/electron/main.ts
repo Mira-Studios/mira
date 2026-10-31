@@ -4136,7 +4136,9 @@ function setupMainFrameHttpErrorReporter() {
     }
 
     if (typeof details.webContentsId !== 'number' || details.webContentsId <= 0) return;
-    if (typeof details.statusCode !== 'number' || details.statusCode < 400) return;
+    // Preserve server-provided authentication, verification, and error pages.
+    // Only a missing page receives Mira's HTTP error overlay.
+    if (details.statusCode !== 404) return;
 
     const target = electronWebContents.fromId(details.webContentsId);
     if (!target || target.isDestroyed()) return;

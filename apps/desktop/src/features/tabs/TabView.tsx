@@ -109,6 +109,8 @@ interface WebviewElement extends HTMLElement {
   didNavigateHandler?: (e: WebviewNavigationEvent) => void;
   didNavigateInPageHandler?: (e: WebviewInPageNavigationEvent) => void;
   didStartLoadingHandler?: () => void;
+  didStartNavigationHandler?: (e: WebviewInPageNavigationEvent) => void;
+  didRedirectNavigationHandler?: (e: WebviewInPageNavigationEvent) => void;
   didFailLoadHandler?: (e: WebviewDidFailLoadEvent) => void;
   domReadyHandler?: () => void;
   didPageTitleUpdatedHandler?: (e: WebviewPageTitleUpdatedEvent) => void;
@@ -348,6 +350,14 @@ function detachWebviewListeners(webview: WebviewElement) {
     );
     delete webview.didStartLoadingHandler;
   }
+  if (webview.didStartNavigationHandler) {
+    webview.removeEventListener('did-start-navigation', webview.didStartNavigationHandler as EventListener);
+    delete webview.didStartNavigationHandler;
+  }
+  if (webview.didRedirectNavigationHandler) {
+    webview.removeEventListener('did-redirect-navigation', webview.didRedirectNavigationHandler as EventListener);
+    delete webview.didRedirectNavigationHandler;
+  }
   if (webview.didFailLoadHandler) {
     webview.removeEventListener('did-fail-load', webview.didFailLoadHandler as EventListener);
     delete webview.didFailLoadHandler;
@@ -485,6 +495,7 @@ export default function TabView() {
     [renderOrderTabIds, tabsById],
   );
   const webviewMap = useRef<Record<string, WebviewElement>>({});
+  const navigationUrlByTabIdRef = useRef<Record<string, string>>({});
   const webviewRefCallbacks = useRef<Record<string, (el: Element | null) => void>>({});
   const completedDetachedTransferIdsRef = useRef<Record<string, true>>({});
   const pendingDetachedTransferIdsRef = useRef<Record<string, true>>({});
@@ -649,12 +660,7 @@ export default function TabView() {
       const next: Record<string, ExternalErrorState> = {};
       for (const [tabId, errorState] of Object.entries(current)) {
         const tab = tabById.get(tabId);
-        if (!tab) {
-          changed = true;
-          continue;
-        }
-        const tabUrlComparable = normalizeComparableUrl(tab.url);
-        if (errorState.failedUrlComparable && errorState.failedUrlComparable !== tabUrlComparable) {
+        if (!tab || isInternal(tab.url)) {
           changed = true;
           continue;
         }
@@ -696,6 +702,8 @@ export default function TabView() {
     const trackedSrc = webview.getAttribute(WEBVIEW_TRACKED_SRC_ATTR) ?? '';
     const nextSrc = normalizeComparableUrl(tab.url);
     if (trackedSrc !== nextSrc) {
+      navigationUrlByTabIdRef.current[tabId] = nextSrc;
+      clearExternalErrorForTab(tabId);
       webview.setAttribute(WEBVIEW_TRACKED_SRC_ATTR, nextSrc);
       webview.src = tab.url;
     }
@@ -704,6 +712,7 @@ export default function TabView() {
   const handleDidNavigate = React.useEffectEvent(
     (tabId: string, webview: WebviewElement, event: Event) => {
       const webviewEvent = event as WebviewNavigationEvent;
+      navigationUrlByTabIdRef.current[tabId] = normalizeComparableUrl(webviewEvent.url);
       webview.setAttribute(WEBVIEW_TRACKED_SRC_ATTR, normalizeComparableUrl(webviewEvent.url));
       clearPendingHttpsUpgradeForTab(tabId);
       clearExternalErrorForTab(tabId);
@@ -742,6 +751,13 @@ export default function TabView() {
     clearExternalErrorForTab(tabId);
   });
 
+  const handleNavigationStarted = React.useEffectEvent((tabId: string, event: Event) => {
+    const navigation = event as WebviewInPageNavigationEvent;
+    if (navigation.isMainFrame === false || !navigation.url) return;
+    navigationUrlByTabIdRef.current[tabId] = normalizeComparableUrl(navigation.url);
+    clearExternalErrorForTab(tabId);
+  });
+
   const handleDidFailLoad = React.useEffectEvent((tabId: string, event: Event) => {
     const webviewEvent = event as WebviewDidFailLoadEvent;
     if (!webviewEvent.isMainFrame) return;
@@ -751,6 +767,8 @@ export default function TabView() {
     const currentTab = tabsById.get(tabId);
     const failedUrl = webviewEvent.validatedURL || currentTab?.url || '';
     const failedComparable = normalizeComparableUrl(failedUrl);
+    const currentNavigationUrl = navigationUrlByTabIdRef.current[tabId];
+    if (currentNavigationUrl && failedComparable !== currentNavigationUrl) return;
     const pendingHttpsUpgrade = pendingHttpsUpgradeByTabIdRef.current[tabId];
 
     if (
@@ -1020,6 +1038,9 @@ export default function TabView() {
     const didStartLoadingHandler = () => {
       handleDidStartLoading(tabId);
     };
+    const navigationStartedHandler = (event: Event) => {
+      handleNavigationStarted(tabId, event);
+    };
     const didFailLoadHandler = (event: Event) => {
       handleDidFailLoad(tabId, event);
     };
@@ -1048,6 +1069,8 @@ export default function TabView() {
       e: WebviewInPageNavigationEvent,
     ) => void;
     webview.didStartLoadingHandler = didStartLoadingHandler;
+    webview.didStartNavigationHandler = navigationStartedHandler;
+    webview.didRedirectNavigationHandler = navigationStartedHandler;
     webview.didFailLoadHandler = didFailLoadHandler as (e: WebviewDidFailLoadEvent) => void;
     webview.domReadyHandler = domReadyHandler;
     webview.didPageTitleUpdatedHandler = didPageTitleUpdatedHandler as (
@@ -1064,6 +1087,8 @@ export default function TabView() {
     webview.addEventListener('did-navigate', didNavigateHandler);
     webview.addEventListener('did-navigate-in-page', didNavigateInPageHandler);
     webview.addEventListener('did-start-loading', didStartLoadingHandler);
+    webview.addEventListener('did-start-navigation', navigationStartedHandler);
+    webview.addEventListener('did-redirect-navigation', navigationStartedHandler);
     webview.addEventListener('did-fail-load', didFailLoadHandler);
     webview.addEventListener('dom-ready', domReadyHandler);
     webview.addEventListener('page-title-updated', didPageTitleUpdatedHandler);
@@ -1076,6 +1101,7 @@ export default function TabView() {
   const handleWebviewRefChange = React.useEffectEvent((tabId: string, node: Element | null) => {
     const existing = webviewMap.current[tabId] ?? null;
     if (!node) {
+      delete navigationUrlByTabIdRef.current[tabId];
       clearPendingHttpsUpgradeForTab(tabId);
       if (!existing) return;
       detachWebviewListeners(existing);
@@ -1171,17 +1197,21 @@ export default function TabView() {
         typeof candidate.statusCode === 'number' && Number.isFinite(candidate.statusCode)
           ? Math.floor(candidate.statusCode)
           : 0;
-      if (statusCode < 400) return;
+      // Other HTTP errors can contain login, verification, or recovery pages.
+      // They are server responses, not failed network connections.
+      if (statusCode !== 404) return;
 
       const tabId = getTabIdForWebContentsId(webContentsId);
       if (!tabId) return;
       const errorUrl = typeof candidate.url === 'string' ? candidate.url.trim() : '';
+      const failedComparable = normalizeComparableUrl(errorUrl);
+      if (!failedComparable || navigationUrlByTabIdRef.current[tabId] !== failedComparable) return;
 
       setExternalErrorByTabId((current) => ({
         ...current,
         [tabId]: {
-          route: statusCode === 404 ? 'errors/external-404' : 'errors/external-network',
-          failedUrlComparable: normalizeComparableUrl(errorUrl),
+          route: 'errors/external-404',
+          failedUrlComparable: failedComparable,
         },
       }));
     };
