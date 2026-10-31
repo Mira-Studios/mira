@@ -2775,6 +2775,11 @@ function shouldOpenAsNativePopup(details: {
   return popupFeatureRequest && normalizedDisposition !== 'background-tab';
 }
 
+function prepareWebviewHistoryRestore(params: { src?: string }): void {
+  // History must be imported before even an about:blank page is committed.
+  if (params.src === 'about:blank#mira-restore-history') params.src = '';
+}
+
 function setupWebviewTabOpenHandler() {
   app.on('web-contents-created', (_, contents) => {
     if (contents.getType() === 'webview') {
@@ -2813,7 +2818,8 @@ function setupWebviewTabOpenHandler() {
     }
 
     if (contents.getType() === 'window') {
-      contents.on('will-attach-webview', (_event, webPreferences) => {
+      contents.on('will-attach-webview', (_event, webPreferences, params) => {
+        prepareWebviewHistoryRestore(params);
         // Lock guest pages to our trusted preload and current sandbox defaults.
         webPreferences.preload = path.join(__dirname, 'webview-preload.js');
         webPreferences.nodeIntegration = false;
@@ -4337,6 +4343,37 @@ function setupWindowControlsHandlers() {
     if (event.sender.isDestroyed()) return false;
     event.sender.send('open-url-in-new-tab', normalizedUrl);
     return true;
+  });
+
+  const ownedNavigationTarget = (sender: WebContents, id: unknown) => {
+    if (typeof id !== 'number' || !Number.isSafeInteger(id)) return null;
+    const target = electronWebContents.fromId(id);
+    if (!target || target.isDestroyed() || target.hostWebContents?.id !== sender.id) return null;
+    return target;
+  };
+
+  ipcMain.handle('tab-navigation-history', (event, id: unknown) => {
+    const target = ownedNavigationTarget(event.sender, id);
+    if (!target) return null;
+    return {
+      history: target.navigationHistory.getAllEntries().map((entry) => entry.url),
+      index: target.navigationHistory.getActiveIndex(),
+    };
+  });
+
+  ipcMain.handle('tab-navigation-restore', (event, payload: unknown) => {
+    if (!isObjectRecord(payload)) return false;
+    const target = ownedNavigationTarget(event.sender, payload.webContentsId);
+    const history = payload.history;
+    const index = payload.index;
+    if (!target || !Array.isArray(history) || !history.length
+      || history.some((url) => typeof url !== 'string' || !/^(https?:|file:|about:|view-source:|data:)/i.test(url))
+      || typeof index !== 'number' || !Number.isInteger(index) || index < 0 || index >= history.length) return false;
+    void target.navigationHistory.restore({
+      entries: history.map((url) => ({ url, title: url })), index,
+    }).catch(() => undefined);
+    return target.navigationHistory.length() === history.length
+      && target.navigationHistory.getActiveIndex() === index;
   });
 
   ipcMain.handle('tab-set-active-webcontents', (event, webContentsId: unknown) => {

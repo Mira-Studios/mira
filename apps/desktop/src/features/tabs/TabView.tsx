@@ -109,6 +109,7 @@ interface WebviewElement extends HTMLElement {
   didNavigateHandler?: (e: WebviewNavigationEvent) => void;
   didNavigateInPageHandler?: (e: WebviewInPageNavigationEvent) => void;
   didStartLoadingHandler?: () => void;
+  didAttachHandler?: () => void;
   didStartNavigationHandler?: (e: WebviewInPageNavigationEvent) => void;
   didRedirectNavigationHandler?: (e: WebviewInPageNavigationEvent) => void;
   didFailLoadHandler?: (e: WebviewDidFailLoadEvent) => void;
@@ -332,6 +333,10 @@ function applyRawFileDarkModeStyle(webview: WebviewElement, shouldApply: boolean
 }
 
 function detachWebviewListeners(webview: WebviewElement) {
+  if (webview.didAttachHandler) {
+    webview.removeEventListener('did-attach', webview.didAttachHandler);
+    delete webview.didAttachHandler;
+  }
   if (webview.willNavigateHandler) {
     webview.removeEventListener('will-navigate', webview.willNavigateHandler as EventListener);
     delete webview.willNavigateHandler;
@@ -458,6 +463,7 @@ export default function TabView() {
     activeId,
     navigate,
     updateTabMetadata,
+    syncNavigationHistory,
     registerWebview,
     updateFindInPageMatches,
     newTabToRight,
@@ -500,6 +506,10 @@ export default function TabView() {
   );
   const webviewMap = useRef<Record<string, WebviewElement>>({});
   const navigationUrlByTabIdRef = useRef<Record<string, string>>({});
+  const stateUrlByTabIdRef = useRef<Record<string, string>>({});
+  const nativeHistoryOffsetRef = useRef<Record<string, number>>({});
+  const historySyncSequenceRef = useRef<Record<string, number>>({});
+  const pendingHistoryRestoreRef = useRef<Record<string, { history: string[]; index: number; attachAttempts?: number }>>({});
   const webviewRefCallbacks = useRef<Record<string, (el: Element | null) => void>>({});
   const completedDetachedTransferIdsRef = useRef<Record<string, true>>({});
   const pendingDetachedTransferIdsRef = useRef<Record<string, true>>({});
@@ -705,7 +715,10 @@ export default function TabView() {
 
     const trackedSrc = webview.getAttribute(WEBVIEW_TRACKED_SRC_ATTR) ?? '';
     const nextSrc = normalizeComparableUrl(tab.url);
+    if (stateUrlByTabIdRef.current[tabId] === nextSrc) return;
+    stateUrlByTabIdRef.current[tabId] = nextSrc;
     if (trackedSrc !== nextSrc) {
+      historySyncSequenceRef.current[tabId] = (historySyncSequenceRef.current[tabId] ?? 0) + 1;
       navigationUrlByTabIdRef.current[tabId] = nextSrc;
       clearExternalErrorForTab(tabId);
       webview.setAttribute(WEBVIEW_TRACKED_SRC_ATTR, nextSrc);
@@ -713,14 +726,41 @@ export default function TabView() {
     }
   });
 
+  const syncNativeHistory = React.useEffectEvent(async (tabId: string, webview: WebviewElement, url: string) => {
+    const ipc = electron?.ipcRenderer;
+    if (!ipc) {
+      navigate(url, tabId, { fromWebview: true });
+      return;
+    }
+    const sequence = (historySyncSequenceRef.current[tabId] ?? 0) + 1;
+    historySyncSequenceRef.current[tabId] = sequence;
+    try {
+      const snapshot = await ipc.invoke<{ history: string[]; index: number } | null>(
+        'tab-navigation-history', webview.getWebContentsId?.(),
+      );
+      if (webviewMap.current[tabId] !== webview || historySyncSequenceRef.current[tabId] !== sequence) return;
+      if (!snapshot || !Array.isArray(snapshot.history) || !snapshot.history[snapshot.index]) return;
+      const currentUrl = snapshot.history[snapshot.index];
+      webview.setAttribute(WEBVIEW_TRACKED_SRC_ATTR, normalizeComparableUrl(currentUrl));
+      navigationUrlByTabIdRef.current[tabId] = normalizeComparableUrl(currentUrl);
+      syncNavigationHistory(tabId, snapshot.history, snapshot.index, nativeHistoryOffsetRef.current[tabId] ?? 0);
+    } catch {
+      // Keep navigation usable when running against an older main process.
+      if (webviewMap.current[tabId] === webview && historySyncSequenceRef.current[tabId] === sequence) {
+        navigate(url, tabId, { fromWebview: true });
+      }
+    }
+  });
+
   const handleDidNavigate = React.useEffectEvent(
     (tabId: string, webview: WebviewElement, event: Event) => {
       const webviewEvent = event as WebviewNavigationEvent;
+      if (webviewEvent.url === 'about:blank' && tabsById.get(tabId)?.url !== 'about:blank') return;
       navigationUrlByTabIdRef.current[tabId] = normalizeComparableUrl(webviewEvent.url);
       webview.setAttribute(WEBVIEW_TRACKED_SRC_ATTR, normalizeComparableUrl(webviewEvent.url));
       clearPendingHttpsUpgradeForTab(tabId);
       clearExternalErrorForTab(tabId);
-      navigate(webviewEvent.url, tabId, { fromWebview: true });
+      void syncNativeHistory(tabId, webview, webviewEvent.url);
       applyRawFileDarkModeStyle(webview, shouldApplyRawFileDarkMode);
       maybeReturnFromAuthFlow(tabId, webviewEvent.url);
     },
@@ -758,6 +798,7 @@ export default function TabView() {
   const handleNavigationStarted = React.useEffectEvent((tabId: string, event: Event) => {
     const navigation = event as WebviewInPageNavigationEvent;
     if (navigation.isMainFrame === false || !navigation.url) return;
+    historySyncSequenceRef.current[tabId] = (historySyncSequenceRef.current[tabId] ?? 0) + 1;
     navigationUrlByTabIdRef.current[tabId] = normalizeComparableUrl(navigation.url);
     clearExternalErrorForTab(tabId);
   });
@@ -815,7 +856,40 @@ export default function TabView() {
     }));
   });
 
+  const restoreNativeHistory = React.useEffectEvent((webview: WebviewElement) => {
+    const tabId = webview.getAttribute(WEBVIEW_TAB_ID_ATTR) ?? '';
+    const restore = pendingHistoryRestoreRef.current[tabId];
+    if (restore) {
+      const fallback = () => {
+        if (webviewMap.current[tabId] === webview) webview.src = tabsById.get(tabId)?.url ?? 'about:blank';
+      };
+      let webContentsId: number | undefined;
+      try {
+        webContentsId = webview.getWebContentsId?.();
+        if (!webContentsId) throw new Error('Guest is still attaching');
+      } catch {
+        restore.attachAttempts = (restore.attachAttempts ?? 0) + 1;
+        if (restore.attachAttempts < 60) {
+          window.setTimeout(() => {
+            if (webviewMap.current[tabId] === webview) restoreNativeHistory(webview);
+          }, 16);
+        } else {
+          delete pendingHistoryRestoreRef.current[tabId];
+          fallback();
+        }
+        return;
+      }
+      delete pendingHistoryRestoreRef.current[tabId];
+      void electron?.ipcRenderer.invoke<boolean>('tab-navigation-restore', {
+        webContentsId, history: restore.history, index: restore.index,
+      }).then((ok) => { if (!ok) fallback(); }).catch(fallback);
+    }
+  });
+
   const handleDomReady = React.useEffectEvent((webview: WebviewElement) => {
+    const tabId = webview.getAttribute(WEBVIEW_TAB_ID_ATTR) ?? '';
+    const currentTab = tabsById.get(tabId);
+    if (currentTab) void syncNativeHistory(tabId, webview, currentTab.url);
     applyRawFileDarkModeStyle(webview, shouldApplyRawFileDarkMode);
     // Inject script to handle data-link attributes
     const dataLinkScript = `(() => {
@@ -1042,6 +1116,7 @@ export default function TabView() {
     const didStartLoadingHandler = () => {
       handleDidStartLoading(tabId);
     };
+    const didAttachHandler = () => restoreNativeHistory(webview);
     const navigationStartedHandler = (event: Event) => {
       handleNavigationStarted(tabId, event);
     };
@@ -1073,6 +1148,7 @@ export default function TabView() {
       e: WebviewInPageNavigationEvent,
     ) => void;
     webview.didStartLoadingHandler = didStartLoadingHandler;
+    webview.didAttachHandler = didAttachHandler;
     webview.didStartNavigationHandler = navigationStartedHandler;
     webview.didRedirectNavigationHandler = navigationStartedHandler;
     webview.didFailLoadHandler = didFailLoadHandler as (e: WebviewDidFailLoadEvent) => void;
@@ -1091,6 +1167,7 @@ export default function TabView() {
     webview.addEventListener('did-navigate', didNavigateHandler);
     webview.addEventListener('did-navigate-in-page', didNavigateInPageHandler);
     webview.addEventListener('did-start-loading', didStartLoadingHandler);
+    webview.addEventListener('did-attach', didAttachHandler);
     webview.addEventListener('did-start-navigation', navigationStartedHandler);
     webview.addEventListener('did-redirect-navigation', navigationStartedHandler);
     webview.addEventListener('did-fail-load', didFailLoadHandler);
@@ -1106,6 +1183,10 @@ export default function TabView() {
     const existing = webviewMap.current[tabId] ?? null;
     if (!node) {
       delete navigationUrlByTabIdRef.current[tabId];
+      delete stateUrlByTabIdRef.current[tabId];
+      delete nativeHistoryOffsetRef.current[tabId];
+      delete pendingHistoryRestoreRef.current[tabId];
+      historySyncSequenceRef.current[tabId] = (historySyncSequenceRef.current[tabId] ?? 0) + 1;
       clearPendingHttpsUpgradeForTab(tabId);
       if (!existing) return;
       detachWebviewListeners(existing);
@@ -1161,7 +1242,20 @@ export default function TabView() {
     webviewMap.current[tabId] = webview;
     registerWebview(tabId, webview);
     attachWebview(tabId, webview);
-    syncWebviewSource(tabId, webview);
+    let start = tab?.historyIndex ?? 0;
+    let end = start + 1;
+    while (start > 0 && !tab?.history[start - 1].startsWith('mira://')) start--;
+    while (tab && end < tab.history.length && !tab.history[end].startsWith('mira://')) end++;
+    nativeHistoryOffsetRef.current[tabId] = start;
+    if (tab && electron?.ipcRenderer && !transferredGuestInstance && end - start > 1) {
+      pendingHistoryRestoreRef.current[tabId] = { history: tab.history.slice(start, end), index: tab.historyIndex - start };
+      const currentUrl = normalizeComparableUrl(tab.url);
+      stateUrlByTabIdRef.current[tabId] = currentUrl;
+      webview.setAttribute(WEBVIEW_TRACKED_SRC_ATTR, currentUrl);
+      webview.src = 'about:blank#mira-restore-history';
+    } else {
+      syncWebviewSource(tabId, webview);
+    }
   });
 
   const getWebviewRefCallback = useCallback((tabId: string) => {

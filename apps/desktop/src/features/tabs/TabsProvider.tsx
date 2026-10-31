@@ -44,6 +44,8 @@ type WebviewElement = {
   loadURL?: (url: string, options?: unknown) => void;
   goBack?: () => void;
   goForward?: () => void;
+  canGoBack?: () => boolean;
+  canGoForward?: () => boolean;
   reload: () => void;
   reloadIgnoringCache?: () => void;
   stop?: () => void;
@@ -153,6 +155,7 @@ type TabsContextType = {
   ) => void;
   toggleDevTools: () => void;
   updateTabMetadata: (id: string, metadata: { title?: string; favicon?: string | null }) => void;
+  syncNavigationHistory: (id: string, history: string[], index: number, offset: number) => void;
   printPage: () => void;
   savePage: () => void;
   openFile: () => void;
@@ -1692,6 +1695,29 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
     [],
   );
 
+  const syncNavigationHistory = useCallback((id: string, history: string[], index: number, offset: number) => {
+    if (!history.length || index < 0 || index >= history.length) return;
+    if (!history[index].startsWith('mira://')) {
+      void addHistoryEntry(history[index], history[index]).catch(() => undefined);
+    }
+    setTabs((current) => current.map((tab) => {
+      if (tab.id !== id) return tab;
+      let end = offset;
+      while (end < tab.history.length && !tab.history[end].startsWith('mira://')) end++;
+      const previous = tab.history.slice(offset, end);
+      const sameEntries = previous.length === history.length && previous.every((url, i) => url === history[i]);
+      const nextHistory = tab.history.slice(0, offset).concat(history, sameEntries ? tab.history.slice(end) : []);
+      const nextIndex = offset + index;
+      const url = history[index];
+      if (sameEntries && tab.historyIndex === nextIndex && tab.url === url) return tab;
+      return {
+        ...tab, url, history: nextHistory, historyIndex: nextIndex,
+        title: url === tab.url ? tab.title : url,
+        favicon: url === tab.url ? tab.favicon : undefined,
+      };
+    }));
+  }, []);
+
   const navigate = useCallback(
     (url: string, tabId?: string, options?: { fromWebview?: boolean }) => {
       const targetTabId = tabId ?? activeId;
@@ -1784,10 +1810,13 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
       && !activeTab.url.startsWith('mira://')
       && activeWebview
       && typeof activeWebview.goBack === 'function'
+      && activeTab.history[activeTab.historyIndex - 1]?.startsWith('mira://') !== true
     ) {
       try {
-        activeWebview.goBack();
-        return;
+        if (activeWebview.canGoBack?.()) {
+          activeWebview.goBack();
+          return;
+        }
       } catch {
         // Fall through to state-based history below.
       }
@@ -1819,10 +1848,13 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
       && !activeTab.url.startsWith('mira://')
       && activeWebview
       && typeof activeWebview.goForward === 'function'
+      && activeTab.history[activeTab.historyIndex + 1]?.startsWith('mira://') !== true
     ) {
       try {
-        activeWebview.goForward();
-        return;
+        if (activeWebview.canGoForward?.()) {
+          activeWebview.goForward();
+          return;
+        }
       } catch {
         // Fall through to state-based history below.
       }
@@ -2486,6 +2518,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
         updateFindInPageMatches,
         toggleDevTools,
         updateTabMetadata,
+        syncNavigationHistory,
         printPage,
         savePage,
         openFile,
