@@ -138,6 +138,8 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
     goBack,
     goForward,
     reload,
+    stopLoading,
+    isPageLoading,
     newTab,
     openHistory,
     openDownloads,
@@ -666,8 +668,9 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
       </button>
 
       <button
-        onClick={reload}
-        title="Refresh"
+        onClick={isPageLoading ? stopLoading : reload}
+        title={isPageLoading ? 'Stop loading' : 'Reload'}
+        aria-label={isPageLoading ? 'Stop loading' : 'Reload'}
         className="theme-btn theme-btn-nav nav-icon-btn"
         style={{
           padding: '4px 8px',
@@ -677,7 +680,7 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
           justifyContent: 'center',
         }}
       >
-        <ReloadIcon />
+        {isPageLoading ? <X size={16} strokeWidth={1.9} aria-hidden="true" /> : <ReloadIcon />}
       </button>
 
       <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>

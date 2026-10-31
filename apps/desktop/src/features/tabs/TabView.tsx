@@ -107,10 +107,12 @@ interface WebviewElement extends HTMLElement {
   isDevToolsOpened: () => boolean;
   getWebContentsId?: () => number;
   getTitle?: () => string;
+  isLoading?: () => boolean;
   willNavigateHandler?: (e: WebviewWillNavigateEvent) => void;
   didNavigateHandler?: (e: WebviewNavigationEvent) => void;
   didNavigateInPageHandler?: (e: WebviewInPageNavigationEvent) => void;
   didStartLoadingHandler?: () => void;
+  didStopLoadingHandler?: () => void;
   didAttachHandler?: () => void;
   didStartNavigationHandler?: (e: WebviewInPageNavigationEvent) => void;
   didRedirectNavigationHandler?: (e: WebviewInPageNavigationEvent) => void;
@@ -335,6 +337,11 @@ function applyRawFileDarkModeStyle(webview: WebviewElement, shouldApply: boolean
 }
 
 function detachWebviewListeners(webview: WebviewElement) {
+  if (webview.didStopLoadingHandler) {
+    webview.removeEventListener('did-stop-loading', webview.didStopLoadingHandler);
+    webview.removeEventListener('render-process-gone', webview.didStopLoadingHandler);
+    delete webview.didStopLoadingHandler;
+  }
   if (webview.didAttachHandler) {
     webview.removeEventListener('did-attach', webview.didAttachHandler);
     delete webview.didAttachHandler;
@@ -467,6 +474,7 @@ export default function TabView() {
     updateTabMetadata,
     syncNavigationHistory,
     registerWebview,
+    setTabLoading,
     updateFindInPageMatches,
     newTabToRight,
     goBack,
@@ -796,6 +804,7 @@ export default function TabView() {
   });
 
   const handleDidStartLoading = React.useEffectEvent((tabId: string) => {
+    setTabLoading(tabId, true);
     clearExternalErrorForTab(tabId);
   });
 
@@ -1109,6 +1118,7 @@ export default function TabView() {
     const didStartLoadingHandler = () => {
       handleDidStartLoading(tabId);
     };
+    const didStopLoadingHandler = () => setTabLoading(tabId, false);
     const didAttachHandler = () => restoreNativeHistory(webview);
     const navigationStartedHandler = (event: Event) => {
       handleNavigationStarted(tabId, event);
@@ -1117,6 +1127,7 @@ export default function TabView() {
       handleDidFailLoad(tabId, event);
     };
     const domReadyHandler = () => {
+      setTabLoading(tabId, webview.isLoading?.() ?? false);
       handleDomReady(webview);
     };
     const didPageTitleUpdatedHandler = (event: Event) => {
@@ -1141,6 +1152,7 @@ export default function TabView() {
       e: WebviewInPageNavigationEvent,
     ) => void;
     webview.didStartLoadingHandler = didStartLoadingHandler;
+    webview.didStopLoadingHandler = didStopLoadingHandler;
     webview.didAttachHandler = didAttachHandler;
     webview.didStartNavigationHandler = navigationStartedHandler;
     webview.didRedirectNavigationHandler = navigationStartedHandler;
@@ -1160,6 +1172,8 @@ export default function TabView() {
     webview.addEventListener('did-navigate', didNavigateHandler);
     webview.addEventListener('did-navigate-in-page', didNavigateInPageHandler);
     webview.addEventListener('did-start-loading', didStartLoadingHandler);
+    webview.addEventListener('did-stop-loading', didStopLoadingHandler);
+    webview.addEventListener('render-process-gone', didStopLoadingHandler);
     webview.addEventListener('did-attach', didAttachHandler);
     webview.addEventListener('did-start-navigation', navigationStartedHandler);
     webview.addEventListener('did-redirect-navigation', navigationStartedHandler);

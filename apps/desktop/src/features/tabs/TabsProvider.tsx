@@ -113,6 +113,8 @@ type MailtoDispatchResponse = {
 
 type TabsContextType = {
   tabs: Tab[];
+  isPageLoading: boolean;
+  setTabLoading: (id: string, loading: boolean) => void;
   activeId: string;
   newTab: (url?: string, options?: { activate?: boolean; activateDelayMs?: number }) => void;
   newTabToRight: (id: string, url?: string, options?: NewTabToRightOptions) => string | undefined;
@@ -409,6 +411,16 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
   const initialTabRef = useRef<Tab>(createInitialTab(initialTabUrlRef.current));
   const [tabs, setTabs] = useState<Tab[]>([initialTabRef.current]);
   const [activeId, setActiveId] = useState(initialTabRef.current.id);
+  const [loadingTabIds, setLoadingTabIds] = useState<Set<string>>(() => new Set());
+  const setTabLoading = useCallback((id: string, loading: boolean) => {
+    setLoadingTabIds((current) => {
+      if (current.has(id) === loading) return current;
+      const next = new Set(current);
+      if (loading) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }, []);
   const [tabSleepAfterMs, setTabSleepAfterMs] = useState(() =>
     getTabSleepAfterMs(getBrowserSettings()),
   );
@@ -772,6 +784,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
       webviewMap.current[id] = el;
     } else {
       delete webviewMap.current[id];
+      setTabLoading(id, false);
     }
   };
 
@@ -2390,6 +2403,8 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
         toggleFullScreen,
         scrollPage,
         registerWebview,
+        isPageLoading: loadingTabIds.has(activeId),
+        setTabLoading,
         getWebContentsIdForTab,
         setActive,
         restorePromptOpen,
