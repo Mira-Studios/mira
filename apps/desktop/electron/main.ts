@@ -1063,6 +1063,15 @@ function logDefaultBrowserDebug(message: string, details?: Record<string, unknow
   logDebug('default-browser', message, details);
 }
 
+function navigationLogUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    return `${url.origin}${url.pathname}`;
+  } catch {
+    return '';
+  }
+}
+
 function getSafeUserDataPath(): string {
   try {
     return app.getPath('userData');
@@ -2768,6 +2777,33 @@ function shouldOpenAsNativePopup(details: {
 
 function setupWebviewTabOpenHandler() {
   app.on('web-contents-created', (_, contents) => {
+    if (contents.getType() === 'webview') {
+      let pendingUrl = '';
+      let startedAt = 0;
+      contents.on('did-start-navigation', (_event, url, isInPlace, isMainFrame) => {
+        if (!isMainFrame || isInPlace) return;
+        pendingUrl = url;
+        startedAt = Date.now();
+      });
+      contents.on('did-redirect-navigation', (_event, url, _isInPlace, isMainFrame) => {
+        if (isMainFrame) pendingUrl = url;
+      });
+      contents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame, frameProcessId, frameRoutingId) => {
+        if (!isMainFrame || errorCode === 0 || errorCode === -3) return;
+        logDebug('navigation', 'main-frame-failed-load', {
+          webContentsId: contents.id,
+          frameProcessId,
+          frameRoutingId,
+          errorCode,
+          errorDescription,
+          failedUrl: navigationLogUrl(validatedURL),
+          pendingUrl: navigationLogUrl(pendingUrl),
+          committedUrl: navigationLogUrl(contents.getURL()),
+          elapsedMs: startedAt ? Date.now() - startedAt : null,
+          isLoading: contents.isLoadingMainFrame(),
+        });
+      });
+    }
     if (contents.getType() !== 'devtools') {
       const currentUserAgent = contents.getUserAgent();
       const sanitized = buildMiraUserAgent(currentUserAgent);

@@ -446,9 +446,14 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
       if (!snapshot.tabs.length) return;
 
       const now = Date.now();
-      const restoredTabs = snapshot.tabs.map((tab) =>
-        tab.id === snapshot.activeId ? { ...tab, isSleeping: false, lastActiveAt: now } : tab,
-      );
+      const restoredTabs = snapshot.tabs.map((tab) => ({
+        ...tab,
+        restoreDeferred: tab.id !== snapshot.activeId,
+        // A new window has no live frozen document to resume from the old session.
+        isSleeping: false,
+        frozenState: undefined,
+        ...(tab.id === snapshot.activeId ? { lastActiveAt: now } : {}),
+      }));
 
       setTabs(restoredTabs);
       setActiveId(snapshot.activeId);
@@ -1630,6 +1635,13 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
     [activeId],
   );
 
+  useEffect(() => {
+    setTabs((currentTabs) => {
+      if (!currentTabs.some((tab) => tab.id === activeId && tab.restoreDeferred)) return currentTabs;
+      return currentTabs.map((tab) => tab.id === activeId ? { ...tab, restoreDeferred: false } : tab);
+    });
+  }, [activeId]);
+
   const updateTabMetadata = useCallback(
     (id: string, metadata: { title?: string; favicon?: string | null }) => {
       const historyTitleUpdates: Array<{ url: string; title: string }> = [];
@@ -1924,8 +1936,15 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
 
   const stopFindInPage = useCallback(() => {
     const wv = webviewMap.current[activeId];
-    if (!wv || typeof wv.stopFindInPage !== 'function') return;
-    wv.stopFindInPage('clearSelection');
+    const hadSearch = activeFindRequestIdByTabRef.current[activeId] !== undefined
+      || !!lastFindQueryByTabRef.current[activeId];
+    if (hadSearch && wv && typeof wv.stopFindInPage === 'function') {
+      try {
+        wv.stopFindInPage('clearSelection');
+      } catch {
+        // A newly selected or discarded page may not have a ready guest yet.
+      }
+    }
     delete lastFindQueryByTabRef.current[activeId];
     delete activeFindRequestIdByTabRef.current[activeId];
     clearFindInPageMatchesForTab(activeId);
@@ -2164,6 +2183,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
             return tab;
           }
 
+          if (tab.restoreDeferred) return tab;
           const shouldSleep = now - tab.lastActiveAt >= tabSleepAfterMs;
           if (shouldSleep && !tab.isSleeping) {
             changed = true;
@@ -2207,7 +2227,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
       let nextCheckInMs: number | null = null;
 
       for (const tab of tabs) {
-        if (tab.id === activeId || tab.isSleeping) continue;
+        if (tab.id === activeId || tab.isSleeping || tab.restoreDeferred) continue;
         const remainingMs = Math.max(tab.lastActiveAt + tabSleepAfterMs - now, 0);
         if (nextCheckInMs === null || remainingMs < nextCheckInMs) {
           nextCheckInMs = remainingMs;

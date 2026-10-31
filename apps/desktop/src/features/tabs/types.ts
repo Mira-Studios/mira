@@ -35,6 +35,8 @@ export type Tab = {
   reloadToken: number;
   isSleeping: boolean;
   lastActiveAt: number;
+  /** Restored background content is not mounted until the tab is selected. */
+  restoreDeferred?: boolean;
   frozenState?: FrozenTabState;
   transferredGuestInstance?: string;
   detachedTransferId?: string;

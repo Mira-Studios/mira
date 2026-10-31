@@ -324,7 +324,11 @@ function applyRawFileDarkModeStyle(webview: WebviewElement, shouldApply: boolean
   document.documentElement.style.removeProperty('color-scheme');
 })();`;
 
-  webview.executeJavaScript(script).catch(() => undefined);
+  try {
+    webview.executeJavaScript(script).catch(() => undefined);
+  } catch {
+    // Newly restored webviews may not be ready yet; dom-ready reapplies the style.
+  }
 }
 
 function detachWebviewListeners(webview: WebviewElement) {
@@ -1603,6 +1607,7 @@ export default function TabView() {
     <div style={{ flex: 1, position: 'relative', width: '100%', height: '100%', display: 'flex' }}>
       {renderTabs.map((tab) => {
         const isVisible = tab.id === activeId;
+        if (tab.restoreDeferred && !isVisible) return null;
         if (tabSleepMode === 'discard' && tab.isSleeping && !isVisible) {
           return null;
         }

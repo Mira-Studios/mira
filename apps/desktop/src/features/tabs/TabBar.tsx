@@ -49,10 +49,11 @@ function getDisplayTitle(url: string, title?: string): string {
   }
 }
 
-function getDisplayFavicon(url: string, favicon?: string): string | undefined {
+function getDisplayFavicon(url: string, favicon?: string, deferred = false): string | undefined {
   const normalizedFavicon = favicon?.trim();
   if (normalizedFavicon) return normalizedFavicon;
   if (url.startsWith('mira://')) return miraLogo;
+  if (deferred) return undefined;
 
   try {
     const parsed = new URL(url);
@@ -861,7 +862,7 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
           }}
         >
           {renderedTabs.map(({ tab, phase }) => {
-            const displayFavicon = getDisplayFavicon(tab.url, tab.favicon);
+            const displayFavicon = getDisplayFavicon(tab.url, tab.favicon, tab.restoreDeferred);
             const displayTitle = getDisplayTitle(tab.url, tab.title);
             const isInternalTab = tab.url.startsWith('mira://');
             const faviconSize = isInternalTab ? 22 : 16;
@@ -1126,7 +1127,7 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
       {draggingTabId && draggedTabPosition && !dragUsesNativeWindow && (() => {
         const draggedTab = tabs.find(tab => tab.id === draggingTabId);
         if (!draggedTab) return null;
-        const displayFavicon = getDisplayFavicon(draggedTab.url, draggedTab.favicon);
+        const displayFavicon = getDisplayFavicon(draggedTab.url, draggedTab.favicon, draggedTab.restoreDeferred);
         const displayTitle = getDisplayTitle(draggedTab.url, draggedTab.title);
         const isInternalTab = draggedTab.url.startsWith('mira://');
         const faviconSize = isInternalTab ? 22 : 16;
