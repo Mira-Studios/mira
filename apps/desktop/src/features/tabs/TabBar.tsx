@@ -138,10 +138,6 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
   const tabsRef = useRef(tabs);
 
   useEffect(() => {
-    renderedTabsRef.current = renderedTabs;
-  }, [renderedTabs]);
-
-  useEffect(() => {
     tabsRef.current = tabs;
   }, [tabs]);
 
@@ -266,6 +262,7 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
         enteringIds.push(tab.id);
         return { tab, phase: 'entering', lastKnownIndex: index };
       }
+      if (existing.phase === 'entering') enteringIds.push(tab.id);
       return {
         tab,
         phase: existing.phase === 'exiting' ? 'stable' : existing.phase,
@@ -301,15 +298,15 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
 
     for (const id of enteringIds) {
       const existingTimer = enterTimerByTabIdRef.current[id];
-      if (existingTimer) {
-        window.clearTimeout(existingTimer);
-      }
+      if (existingTimer) continue;
       enterTimerByTabIdRef.current[id] = window.setTimeout(() => {
-        setRenderedTabs((current) =>
-          current.map((item) =>
-            item.tab.id === id && item.phase === 'entering' ? { ...item, phase: 'stable' } : item,
-          ),
+        const settled = renderedTabsRef.current.map((item) =>
+          item.tab.id === id && item.phase === 'entering'
+            ? { ...item, phase: 'stable' as const }
+            : item,
         );
+        renderedTabsRef.current = settled;
+        setRenderedTabs(settled);
         delete enterTimerByTabIdRef.current[id];
       }, TAB_APPEAR_SETTLE_MS);
     }
@@ -319,7 +316,9 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
       const existingTimer = exitTimerByTabIdRef.current[id];
       if (existingTimer) continue;
       exitTimerByTabIdRef.current[id] = window.setTimeout(() => {
-        setRenderedTabs((current) => current.filter((entry) => entry.tab.id !== id));
+        const remaining = renderedTabsRef.current.filter((entry) => entry.tab.id !== id);
+        renderedTabsRef.current = remaining;
+        setRenderedTabs(remaining);
         delete exitTimerByTabIdRef.current[id];
       }, TAB_ENTER_EXIT_DURATION_MS);
     }
