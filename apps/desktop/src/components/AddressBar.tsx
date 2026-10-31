@@ -671,6 +671,74 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
         <ReloadIcon />
       </button>
 
+      <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
+        <input
+          ref={inputRef}
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onContextMenu={(e) => {
+            const settings = getBrowserSettings();
+            if (!settings.nativeTextFieldContextMenu) return;
+            const ipc = electron?.ipcRenderer;
+            if (!ipc) return;
+
+            e.preventDefault();
+            e.currentTarget.focus();
+            void ipc
+              .invoke('renderer-show-native-text-context-menu', {
+                x: e.clientX,
+                y: e.clientY,
+              })
+              .catch(() => undefined);
+          }}
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter') return;
+            go();
+            e.currentTarget.blur();
+          }}
+          placeholder="Enter URL"
+          className="theme-input"
+          style={{
+            width: '100%',
+            padding: '6px 10px',
+            minHeight: 'var(--layoutNavButtonHeight, 30px)',
+            fontSize: 16,
+            paddingRight: showBookmarkButton ? '40px' : '10px',
+          }}
+        />
+        {showBookmarkButton && (
+          <button
+            onClick={handleBookmarkCurrentPage}
+            disabled={!activeTab || !activeTab.url || activeTab.url.startsWith('mira://errors/')}
+            title={isCurrentPageBookmarked ? "Remove bookmark" : "Bookmark this page"}
+            className="theme-btn theme-btn-nav"
+            style={{
+              position: 'absolute',
+              right: '6px',
+              top: '50%',
+              transform: 'translateY(-50%)',
+              padding: '4px',
+              height: '24px',
+              width: '24px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: isCurrentPageBookmarked ? 'var(--accent)' : 'inherit',
+              background: 'transparent',
+              border: 'none',
+              borderRadius: '4px',
+            }}
+          >
+            <Bookmark
+              size={14}
+              strokeWidth={isCurrentPageBookmarked ? 2.5 : 1.9}
+              fill={isCurrentPageBookmarked ? 'currentColor' : 'none'}
+              aria-hidden="true"
+            />
+          </button>
+        )}
+      </div>
+
       <div ref={siteSettingsRef} style={{ position: 'relative' }}>
         <button
           onClick={(e) => toggleSiteSettingsPanel(e)}
@@ -744,74 +812,6 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
               </div>
             )}
           </div>
-        )}
-      </div>
-
-      <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
-        <input
-          ref={inputRef}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onContextMenu={(e) => {
-            const settings = getBrowserSettings();
-            if (!settings.nativeTextFieldContextMenu) return;
-            const ipc = electron?.ipcRenderer;
-            if (!ipc) return;
-
-            e.preventDefault();
-            e.currentTarget.focus();
-            void ipc
-              .invoke('renderer-show-native-text-context-menu', {
-                x: e.clientX,
-                y: e.clientY,
-              })
-              .catch(() => undefined);
-          }}
-          onKeyDown={(e) => {
-            if (e.key !== 'Enter') return;
-            go();
-            e.currentTarget.blur();
-          }}
-          placeholder="Enter URL"
-          className="theme-input"
-          style={{
-            width: '100%',
-            padding: '6px 10px',
-            minHeight: 'var(--layoutNavButtonHeight, 30px)',
-            fontSize: 16,
-            paddingRight: showBookmarkButton ? '40px' : '10px',
-          }}
-        />
-        {showBookmarkButton && (
-          <button
-            onClick={handleBookmarkCurrentPage}
-            disabled={!activeTab || !activeTab.url || activeTab.url.startsWith('mira://errors/')}
-            title={isCurrentPageBookmarked ? "Remove bookmark" : "Bookmark this page"}
-            className="theme-btn theme-btn-nav"
-            style={{
-              position: 'absolute',
-              right: '6px',
-              top: '50%',
-              transform: 'translateY(-50%)',
-              padding: '4px',
-              height: '24px',
-              width: '24px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: isCurrentPageBookmarked ? 'var(--accent)' : 'inherit',
-              background: 'transparent',
-              border: 'none',
-              borderRadius: '4px',
-            }}
-          >
-            <Bookmark 
-              size={14} 
-              strokeWidth={isCurrentPageBookmarked ? 2.5 : 1.9} 
-              fill={isCurrentPageBookmarked ? 'currentColor' : 'none'}
-              aria-hidden="true" 
-            />
-          </button>
         )}
       </div>
 

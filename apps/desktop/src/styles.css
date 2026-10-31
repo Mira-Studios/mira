@@ -1138,11 +1138,6 @@ textarea {
     max-width: none;
   }
 
-  .site-settings-panel {
-    left: -40px;
-    width: min(360px, calc(100vw - 20px));
-  }
-
   .site-settings-panel-row {
     flex-direction: column;
     align-items: stretch;
@@ -1468,8 +1463,8 @@ textarea {
 .site-settings-panel {
   position: absolute;
   top: calc(100% + 8px);
-  left: 0;
-  width: min(360px, calc(100vw - 24px));
+  right: 0;
+  width: min(360px, calc(100vw - 96px));
   padding: 12px;
   border-radius: var(--layoutAddressMenuPanelRadius, 12px);
   display: flex;
@@ -1477,7 +1472,7 @@ textarea {
   gap: 12px;
   z-index: 1300;
   backdrop-filter: blur(10px);
-  transform-origin: top left;
+  transform-origin: top right;
 }
 
 .site-settings-panel-header {
