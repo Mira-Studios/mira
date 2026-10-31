@@ -1610,8 +1610,8 @@ textarea {
 .site-permission-prompt {
   position: absolute;
   top: calc(100% + 10px);
-  left: 106px;
-  width: min(420px, calc(100vw - 32px));
+  left: 12px;
+  width: min(420px, calc(100% - 24px));
   padding: 12px;
   border-radius: 12px;
   box-shadow: var(--dropdownShadow);
@@ -1624,9 +1624,22 @@ textarea {
 
 .site-permission-prompt-title-row {
   display: flex;
-  align-items: baseline;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
+}
+
+.site-permission-prompt-heading {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.site-permission-prompt-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 4px;
 }
 
 .site-permission-prompt-title {
@@ -1642,7 +1655,7 @@ textarea {
   font-family: var(--fontSecondaryFamilyResolved);
   font-weight: var(--fontSecondaryWeight);
   word-break: break-all;
-  text-align: right;
+  margin-top: 4px;
 }
 
 .site-permission-prompt-message {

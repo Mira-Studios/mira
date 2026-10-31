@@ -241,7 +241,7 @@ const SITE_PERMISSION_LABELS: Record<SitePermissionId, string> = {
   'pointer-lock': 'Pointer lock',
   'screen-capture': 'Screen capture',
   midi: 'MIDI devices',
-  'storage-access': 'Storage access',
+  'storage-access': 'Cross-site cookies and site data',
   'window-management': 'Window management',
   'idle-detection': 'Idle detection',
   'speaker-selection': 'Speaker selection',
@@ -1702,7 +1702,7 @@ function describeSitePermissionRequest(permissionIds: SitePermissionId[]): strin
     case 'midi':
       return 'Use MIDI devices';
     case 'storage-access':
-      return 'Use storage access';
+      return 'Use cross-site cookies and site data';
     case 'window-management':
       return 'Manage your windows';
     case 'idle-detection':
@@ -3221,6 +3221,18 @@ function setupWebviewTabOpenHandler() {
   });
 }
 
+function isFirstPartyStorageAccess(permission: string, requestingUrl: string, topLevelUrl: string): boolean {
+  if (permission !== 'storage-access') return false;
+  try {
+    const requester = new URL(requestingUrl);
+    const topLevel = new URL(topLevelUrl);
+    return (requester.protocol === 'https:' || requester.protocol === 'http:')
+      && requester.origin === topLevel.origin;
+  } catch {
+    return false;
+  }
+}
+
 function setupSitePermissionHandlers() {
   const ses = session.defaultSession;
 
@@ -3234,7 +3246,13 @@ function setupSitePermissionHandlers() {
     const permissionIds = mapPermissionIdsFromDetails(permission, {
       mediaType: details.mediaType,
     });
-    return summarizeSitePermissionDecision(origin, permissionIds) === 'allow';
+    const decision = summarizeSitePermissionDecision(origin, permissionIds);
+    if (decision !== 'ask') return decision === 'allow';
+    return isFirstPartyStorageAccess(
+      permission,
+      details.requestingUrl || requestingOrigin,
+      webContents?.getURL() ?? '',
+    );
   });
 
   ses.setPermissionRequestHandler((webContents, permission, callback, details) => {
@@ -3267,6 +3285,14 @@ function setupSitePermissionHandlers() {
       return;
     }
 
+    const topLevelUrl = webContents.getURL();
+    const topLevelOrigin = normalizeSitePermissionOrigin(topLevelUrl);
+    if (permissionIds.includes('storage-access')) {
+      // Resolve cookie access silently without changing an unset permission.
+      callback(isFirstPartyStorageAccess(permission, details.requestingUrl, topLevelUrl));
+      return;
+    }
+
     const hostWindow = getHostWindowForContents(webContents);
     if (!hostWindow || hostWindow.isDestroyed()) {
       callback(false);
@@ -3285,6 +3311,7 @@ function setupSitePermissionHandlers() {
       requestId,
       webContentsId: webContents.id,
       origin,
+      topLevelOrigin,
       siteLabel: getSiteDisplayLabel(origin),
       label: describeSitePermissionRequest(permissionIds),
       permissionIds,
@@ -3340,17 +3367,24 @@ function setupSitePermissionHandlers() {
     };
   });
 
-  ipcMain.handle('site-permission-request-respond', async (_event, payload: unknown) => {
+  ipcMain.handle('site-permission-request-respond', async (event, payload: unknown) => {
     if (!isObjectRecord(payload)) return { ok: false };
 
     const requestId = typeof payload.requestId === 'string' ? payload.requestId.trim() : '';
-    const decision = payload.decision === 'allow' ? 'allow' : 'block';
+    const decision = payload.decision;
+    if (decision !== 'allow' && decision !== 'block' && decision !== 'dismiss') return { ok: false };
     if (!requestId) return { ok: false };
 
     const pendingRequest = pendingSitePermissionRequests.get(requestId);
     if (!pendingRequest) return { ok: false };
+    const sourceWindow = BrowserWindow.fromWebContents(event.sender);
+    if (!sourceWindow || sourceWindow.id !== pendingRequest.hostWindowId) return { ok: false };
 
     pendingSitePermissionRequests.delete(requestId);
+    if (decision === 'dismiss') {
+      pendingRequest.callback(false);
+      return { ok: true, snapshot: buildSitePermissionsSnapshot(pendingRequest.origin) };
+    }
     for (const permissionId of pendingRequest.permissionIds) {
       writeSitePermissionSetting(pendingRequest.origin, permissionId, decision);
     }

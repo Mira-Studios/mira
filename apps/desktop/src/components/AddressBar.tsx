@@ -60,6 +60,7 @@ type SitePermissionRequestPayload = {
   requestId: string;
   webContentsId: number;
   origin: string;
+  topLevelOrigin: string;
   siteLabel: string;
   label: string;
   permissionIds: string[];
@@ -379,7 +380,7 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
   };
 
   const respondToPermissionRequest = useCallback(
-    async (decision: 'allow' | 'block') => {
+    async (decision: 'allow' | 'block' | 'dismiss') => {
       const pendingRequest = activePermissionRequest;
       if (!pendingRequest) return;
 
@@ -463,6 +464,7 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
       const candidate = payload as Partial<SitePermissionRequestPayload>;
       const requestId = typeof candidate.requestId === 'string' ? candidate.requestId.trim() : '';
       const origin = typeof candidate.origin === 'string' ? candidate.origin.trim() : '';
+      const topLevelOrigin = typeof candidate.topLevelOrigin === 'string' ? candidate.topLevelOrigin.trim() : '';
       const siteLabel = typeof candidate.siteLabel === 'string' ? candidate.siteLabel.trim() : '';
       const label = typeof candidate.label === 'string' ? candidate.label.trim() : '';
       const permissionIds = Array.isArray(candidate.permissionIds)
@@ -481,6 +483,7 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
           requestId,
           webContentsId,
           origin,
+          topLevelOrigin,
           siteLabel: siteLabel || origin,
           label,
           permissionIds,
@@ -906,13 +909,36 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
       </div>
 
       {activePermissionRequest && (
-        <div className="theme-panel site-permission-prompt">
+        <div
+          className="theme-panel site-permission-prompt"
+          role="dialog"
+          aria-labelledby="site-permission-prompt-title"
+          aria-describedby="site-permission-prompt-message"
+        >
           <div className="site-permission-prompt-title-row">
-            <div className="site-permission-prompt-title">{activePermissionRequest.siteLabel}</div>
-            <div className="site-permission-prompt-origin">{activePermissionRequest.origin}</div>
+            <div className="site-permission-prompt-heading">
+              <div id="site-permission-prompt-title" className="site-permission-prompt-title">
+                {activePermissionRequest.siteLabel}
+              </div>
+              {activePermissionRequest.topLevelOrigin && activePermissionRequest.topLevelOrigin !== activePermissionRequest.origin && (
+                <div className="site-permission-prompt-origin">
+                  On {activePermissionRequest.topLevelOrigin}
+                </div>
+              )}
+            </div>
+            <button
+              type="button"
+              className="theme-btn theme-btn-nav site-permission-prompt-close"
+              aria-label="Dismiss permission request"
+              onClick={() => { void respondToPermissionRequest('dismiss'); }}
+            >
+              <X size={16} aria-hidden="true" />
+            </button>
           </div>
-          <div className="site-permission-prompt-message">
-            Wants permission to {activePermissionRequest.label.toLowerCase()}.
+          <div id="site-permission-prompt-message" className="site-permission-prompt-message">
+            {activePermissionRequest.permissionIds.includes('storage-access')
+              ? 'Use cross-site cookies?'
+              : `${activePermissionRequest.label}?`}
           </div>
           <div className="site-permission-prompt-actions">
             <button
