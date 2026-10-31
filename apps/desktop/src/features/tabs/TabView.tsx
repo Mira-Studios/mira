@@ -89,6 +89,7 @@ interface WebviewNewWindowEvent extends Event {
   url?: string;
   frameName?: string;
   disposition?: string;
+  features?: string;
 }
 
 interface WebviewElement extends HTMLElement {
@@ -1067,24 +1068,12 @@ export default function TabView() {
       return;
     }
 
-    if (shouldAllowNativePopupWindow(url, { disposition, frameName })) {
+    if (shouldAllowNativePopupWindow(url, { disposition, frameName, features: webviewEvent.features })) {
       return;
     }
 
     // Prevent the default behavior of opening in a new window
     event.preventDefault();
-
-    // Open in a new tab based on disposition
-    if (disposition === 'new-window') {
-      // Open in new window
-      const ipc = electron?.ipcRenderer;
-      if (ipc) {
-        void ipc.invoke('window-new-with-url', url).catch(() => undefined);
-      } else {
-        window.open(url, '_blank', 'noopener,noreferrer');
-      }
-      return;
-    }
 
     const shouldTrackAuthFlow = isLikelyAuthUrl(url);
     newTabToRight(

@@ -20,6 +20,7 @@ import type {
 } from 'electron';
 import { appendFileSync, promises as fs, readFileSync, statSync, unlinkSync, writeFileSync } from 'fs';
 import os from 'node:os';
+import { isExplicitPopupRequest } from './popupPolicy.ts';
 import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 
@@ -269,13 +270,6 @@ const AD_BLOCK_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const TRACKER_BLOCK_LOCAL_FILE = path.join('src', 'assets', 'trackers.txt');
 const YOUTUBE_AD_CPN_TTL_MS = 30 * 60 * 1000;
 const MAX_TRACKED_YOUTUBE_AD_CPNS = 512;
-
-const AUTH_WINDOW_URL_PATTERN =
-  /(?:^|[/?#&=_-])(login|signin|sign-in|oauth|authorize|auth|sso|consent|selectaccount|accountchooser|challenge|saml)(?:$|[/?#&=_-])/i;
-const AUTH_WINDOW_HOST_PATTERN =
-  /(^|\.)accounts\.google\.com$|(^|\.)appleid\.apple\.com$|(^|\.)login\.live\.com$|(^|\.)login\.microsoftonline\.com$/i;
-const POPUP_WINDOW_FEATURE_PATTERN =
-  /(^|,)(popup|width|height|left|top|toolbar|menubar|location|status|resizable|scrollbars)=?/i;
 
 const DEFAULT_BLOCKED_AD_HOSTS = [
   'doubleclick.net',
@@ -2732,49 +2726,6 @@ function setupVersionHandlers() {
   ipcMain.handle('app-get-version', () => getMiraVersion());
 }
 
-function isLikelyAuthPopupUrl(url: string): boolean {
-  const normalized = url.trim();
-  if (!normalized || normalized.toLowerCase() === 'about:blank') return false;
-
-  try {
-    const parsed = new URL(normalized);
-    return AUTH_WINDOW_URL_PATTERN.test(normalized) || AUTH_WINDOW_HOST_PATTERN.test(parsed.hostname);
-  } catch {
-    return AUTH_WINDOW_URL_PATTERN.test(normalized);
-  }
-}
-
-function hasPopupWindowFeatures(features: string): boolean {
-  const normalized = features.trim();
-  return !!normalized && POPUP_WINDOW_FEATURE_PATTERN.test(normalized);
-}
-
-function shouldOpenAsNativePopup(details: {
-  url: string;
-  disposition?: string;
-  features?: string;
-  frameName?: string;
-}): boolean {
-  const normalizedUrl = details.url.trim();
-  const normalizedDisposition = (details.disposition ?? '').trim().toLowerCase();
-  const normalizedFrameName = (details.frameName ?? '').trim().toLowerCase();
-  const popupFeatureRequest = hasPopupWindowFeatures(details.features ?? '');
-
-  if (isLikelyAuthPopupUrl(normalizedUrl)) {
-    return true;
-  }
-
-  if (normalizedUrl.toLowerCase() === 'about:blank') {
-    return (
-      popupFeatureRequest
-      || normalizedDisposition === 'new-window'
-      || (!!normalizedFrameName && normalizedFrameName !== '_blank')
-    );
-  }
-
-  return popupFeatureRequest && normalizedDisposition !== 'background-tab';
-}
-
 function prepareWebviewHistoryRestore(params: { src?: string }): void {
   // History must be imported before even an about:blank page is committed.
   if (params.src === 'about:blank#mira-restore-history') params.src = '';
@@ -3185,12 +3136,11 @@ function setupWebviewTabOpenHandler() {
       triggerNewWindowFromShortcut(hostWindow);
     });
 
-    contents.setWindowOpenHandler(({ url, disposition, features, frameName }) => {
+    contents.setWindowOpenHandler(({ url, disposition, features }) => {
       const host = getHostWebContents(contents);
       if (!host) return { action: 'deny' };
       const normalized = (url ?? '').trim();
       const normalizedFeatures = typeof features === 'string' ? features.trim() : '';
-      const normalizedFrameName = typeof frameName === 'string' ? frameName.trim() : '';
       const hostWindow = BrowserWindow.fromWebContents(host);
       if (!normalized) {
         return { action: 'deny' };
@@ -3207,11 +3157,9 @@ function setupWebviewTabOpenHandler() {
       }
 
       if (
-        shouldOpenAsNativePopup({
-          url: normalized,
+        isExplicitPopupRequest({
           disposition,
           features: normalizedFeatures,
-          frameName: normalizedFrameName,
         })
       ) {
         return {

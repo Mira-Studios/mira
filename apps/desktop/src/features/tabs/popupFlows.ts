@@ -1,3 +1,5 @@
+import { isExplicitPopupRequest } from '../../../electron/popupPolicy';
+
 function parseUrl(url: string): URL | null {
   try {
     return new URL(url.trim());
@@ -27,22 +29,9 @@ export function isLikelyAuthUrl(url: string): boolean {
 
 export function shouldAllowNativePopupWindow(
   url: string,
-  options?: { disposition?: string; frameName?: string },
+  options?: { disposition?: string; frameName?: string; features?: string },
 ): boolean {
-  const normalizedUrl = url.trim();
-  const normalizedDisposition = options?.disposition?.trim().toLowerCase() ?? '';
-  const normalizedFrameName = options?.frameName?.trim().toLowerCase() ?? '';
-
-  if (isLikelyAuthUrl(normalizedUrl)) {
-    return true;
-  }
-
-  if (normalizedUrl.toLowerCase() !== 'about:blank') {
-    return false;
-  }
-
-  return normalizedDisposition === 'new-window'
-    || (!!normalizedFrameName && normalizedFrameName !== '_blank');
+  return !!url.trim() && isExplicitPopupRequest(options ?? {});
 }
 
 export function shouldReturnFromAuthPopup(currentUrl: string, initialUrl: string): boolean {
