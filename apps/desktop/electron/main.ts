@@ -126,6 +126,7 @@ type SitePermissionId =
   | 'pointer-lock'
   | 'screen-capture'
   | 'midi'
+  | 'sensors'
   | 'storage-access'
   | 'window-management'
   | 'idle-detection'
@@ -144,6 +145,7 @@ interface PendingSitePermissionRequest {
   origin: string;
   permissionIds: SitePermissionId[];
   hostWindowId: number | null;
+  webContentsId: number;
 }
 
 interface PendingWebviewCloseRequest {
@@ -227,6 +229,7 @@ const SITE_SETTINGS_PERMISSION_ORDER: SitePermissionId[] = [
   'pointer-lock',
   'screen-capture',
   'midi',
+  'sensors',
   'storage-access',
   'window-management',
   'idle-detection',
@@ -247,6 +250,7 @@ const SITE_PERMISSION_LABELS: Record<SitePermissionId, string> = {
   'pointer-lock': 'Pointer lock',
   'screen-capture': 'Screen capture',
   midi: 'MIDI devices',
+  sensors: 'Motion and orientation',
   'storage-access': 'Cross-site cookies and site data',
   'window-management': 'Window management',
   'idle-detection': 'Idle detection',
@@ -1663,6 +1667,11 @@ function mapPermissionIdsFromDetails(
     case 'midiSysex':
     case 'mediaKeySystem':
       return ['midi'];
+    case 'sensors':
+    case 'accelerometer':
+    case 'gyroscope':
+    case 'magnetometer':
+      return ['sensors'];
     case 'storage-access':
     case 'top-level-storage-access':
       return ['storage-access'];
@@ -1709,6 +1718,8 @@ function describeSitePermissionRequest(permissionIds: SitePermissionId[]): strin
       return 'Capture your screen';
     case 'midi':
       return 'Use MIDI devices';
+    case 'sensors':
+      return 'Use motion and orientation sensors';
     case 'storage-access':
       return 'Use cross-site cookies and site data';
     case 'window-management':
@@ -3289,12 +3300,26 @@ function setupSitePermissionHandlers() {
       return;
     }
 
+    // Motion/orientation can request several underlying sensors at once.
+    // Ask once and resolve all of those requests with the same decision.
+    if (permissionIds.length === 1 && permissionIds[0] === 'sensors') {
+      const pending = [...pendingSitePermissionRequests.values()].find((request) =>
+        request.webContentsId === webContents.id && request.origin === origin
+        && request.permissionIds.length === 1 && request.permissionIds[0] === 'sensors');
+      if (pending) {
+        const previousCallback = pending.callback;
+        pending.callback = (granted) => { previousCallback(granted); callback(granted); };
+        return;
+      }
+    }
+
     const requestId = uuidv4();
     pendingSitePermissionRequests.set(requestId, {
       callback,
       origin,
       permissionIds,
       hostWindowId: hostWindow.id,
+      webContentsId: webContents.id,
     });
 
     hostWindow.webContents.send('site-permission-request', {

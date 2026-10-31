@@ -155,6 +155,7 @@ const ALL_SITE_PERMISSIONS: Array<{ id: string; label: string }> = [
   { id: 'pointer-lock', label: 'Pointer Lock' },
   { id: 'screen-capture', label: 'Screen Capture' },
   { id: 'midi', label: 'MIDI' },
+  { id: 'sensors', label: 'Motion and orientation' },
   { id: 'storage-access', label: 'Cross-site cookies and site data' },
   { id: 'window-management', label: 'Window Management' },
   { id: 'idle-detection', label: 'Idle Detection' },
