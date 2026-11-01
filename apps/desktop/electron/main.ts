@@ -19,7 +19,8 @@ import type {
   MenuItemConstructorOptions,
   WebContents,
 } from 'electron';
-import { appendFileSync, promises as fs, readFileSync, statSync, unlinkSync, writeFileSync } from 'fs';
+import { appendFileSync, promises as fs, readFileSync, statSync, writeFileSync } from 'fs';
+import { SessionStore } from './sessionStore.ts';
 import os from 'node:os';
 import { isExplicitPopupRequest } from './popupPolicy.ts';
 import { setupDeviceConnections, setupDeviceSession, hasWindowDeviceActivity } from './deviceConnections.ts';
@@ -276,6 +277,7 @@ const liveWindowSnapshots = new Map<number, WindowSessionSnapshot>();
 const windowSuspensionById = new Map<number, MinimizedWindowLifecycle>();
 let windowSuspensionSettings = normalizeWindowSuspensionSettings(null);
 let pendingRestoreSession: PersistedSessionSnapshot | null = null;
+const sessionStore = new SessionStore(getSessionFilePath, normalizePersistedSessionSnapshot);
 let sessionPersistTimer: NodeJS.Timeout | null = null;
 const pendingClosedWindowCleanupTimers = new Map<number, NodeJS.Timeout>();
 const onboardingWindowIds = new Set<number>();
@@ -2276,24 +2278,16 @@ async function persistSessionSnapshot(): Promise<void> {
     await clearPersistedSessionSnapshot();
     return;
   }
-  await fs.writeFile(getSessionFilePath(), JSON.stringify(snapshot, null, 2), 'utf-8');
+  await sessionStore.save(snapshot);
 }
 
 function persistSessionSnapshotSync(): void {
   const snapshot = collectPersistedSessionSnapshot();
-  if (!snapshot) {
-    try {
-      unlinkSync(getSessionFilePath());
-    } catch {
-      // Ignore missing session snapshot file.
-    }
-    return;
-  }
-
   try {
-    writeFileSync(getSessionFilePath(), JSON.stringify(snapshot, null, 2), 'utf-8');
-  } catch {
-    // Ignore sync persistence failures during shutdown.
+    if (snapshot) sessionStore.saveSync(snapshot);
+    else sessionStore.clearSync();
+  } catch (error) {
+    logDebug('session', 'shutdown-save-failed', { error: String(error) });
   }
 }
 
@@ -2302,41 +2296,37 @@ function scheduleSessionPersist(): void {
     clearTimeout(sessionPersistTimer);
   }
   sessionPersistTimer = setTimeout(() => {
-    void persistSessionSnapshot();
+    void persistSessionSnapshot().catch((error) => {
+      logDebug('session', 'save-failed', { error: String(error) });
+    });
     sessionPersistTimer = null;
   }, 300);
   sessionPersistTimer.unref();
 }
 
+function normalizePersistedSessionSnapshot(parsed: unknown): PersistedSessionSnapshot | null {
+  if (typeof parsed !== 'object' || !parsed) return null;
+  const candidate = parsed as Record<string, unknown>;
+  const windowsRaw = Array.isArray(candidate.windows) ? candidate.windows : [];
+  const windows = windowsRaw
+    .map((entry) => normalizeWindowSessionSnapshot(entry))
+    .filter((entry): entry is WindowSessionSnapshot => entry !== null);
+  if (!windows.length) return null;
+  return {
+    windows,
+    savedAt:
+      typeof candidate.savedAt === 'number' && Number.isFinite(candidate.savedAt)
+        ? candidate.savedAt
+        : Date.now(),
+  };
+}
+
 async function loadPersistedSessionSnapshot(): Promise<void> {
-  try {
-    const raw = await fs.readFile(getSessionFilePath(), 'utf-8');
-    const parsed = JSON.parse(raw) as unknown;
-    if (typeof parsed !== 'object' || !parsed) return;
-    const candidate = parsed as Record<string, unknown>;
-    const windowsRaw = Array.isArray(candidate.windows) ? candidate.windows : [];
-    const windows = windowsRaw
-      .map((entry) => normalizeWindowSessionSnapshot(entry))
-      .filter((entry): entry is WindowSessionSnapshot => entry !== null);
-    if (!windows.length) return;
-    pendingRestoreSession = {
-      windows,
-      savedAt:
-        typeof candidate.savedAt === 'number' && Number.isFinite(candidate.savedAt)
-          ? candidate.savedAt
-          : Date.now(),
-    };
-  } catch {
-    pendingRestoreSession = null;
-  }
+  pendingRestoreSession = await sessionStore.load();
 }
 
 async function clearPersistedSessionSnapshot(): Promise<void> {
-  try {
-    await fs.unlink(getSessionFilePath());
-  } catch {
-    // Ignore missing session snapshot file.
-  }
+  await sessionStore.clear();
 }
 
 function normalizeSemver(rawVersion: string): string {
