@@ -112,6 +112,7 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
   const prevTabCountRef = useRef(tabs.length);
   const tabElementRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const previousRectsRef = useRef<Record<string, DOMRect>>({});
+  const previousLayoutOrderRef = useRef<string[]>([]);
   const enterTimerByTabIdRef = useRef<Record<string, number>>({});
   const exitTimerByTabIdRef = useRef<Record<string, number>>({});
   const reorderAnimationByTabIdRef = useRef<Partial<Record<string, Animation>>>({});
@@ -321,7 +322,7 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
         renderedTabsRef.current = remaining;
         setRenderedTabs(remaining);
         delete exitTimerByTabIdRef.current[id];
-      }, TAB_ENTER_EXIT_DURATION_MS);
+      }, TAB_ENTER_EXIT_DURATION_MS + 34);
     }
 
     renderedTabsRef.current = next;
@@ -351,16 +352,87 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
     };
 
     updateOverflowHints();
+    const observer = new ResizeObserver(updateOverflowHints);
+    observer.observe(el);
+    for (const child of el.children) observer.observe(child);
     el.addEventListener('scroll', updateOverflowHints, { passive: true });
     window.addEventListener('resize', updateOverflowHints);
     const rafId = window.requestAnimationFrame(updateOverflowHints);
 
     return () => {
+      observer.disconnect();
       window.cancelAnimationFrame(rafId);
       el.removeEventListener('scroll', updateOverflowHints);
       window.removeEventListener('resize', updateOverflowHints);
     };
-  }, [tabs.length]);
+  }, [renderedTabs, orientation]);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || orientation === 'vertical') return;
+    let frame = 0;
+    let target = el.scrollLeft;
+    let lastTime = 0;
+    let direction = 0;
+    const cancel = () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      frame = 0;
+      direction = 0;
+      target = el.scrollLeft;
+    };
+    const tick = (time: number) => {
+      const elapsed = Math.min(time - lastTime, 32);
+      lastTime = time;
+      target = Math.max(0, Math.min(target, el.scrollWidth - el.clientWidth));
+      const remaining = target - el.scrollLeft;
+      if (Math.abs(remaining) <= 1) {
+        el.scrollLeft = target;
+        frame = 0;
+        direction = 0;
+        return;
+      }
+      el.scrollLeft += remaining * (1 - Math.exp(-elapsed / 40));
+      frame = window.requestAnimationFrame(tick);
+    };
+    const onWheel = (event: WheelEvent) => {
+      if (event.ctrlKey || event.metaKey || el.scrollWidth <= el.clientWidth) return;
+      const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+      if (!delta) return;
+      event.preventDefault();
+      const precise = event.deltaMode === 0 && (Math.abs(event.deltaX) > Math.abs(event.deltaY) || Math.abs(delta) < 50);
+      if (precise) {
+        cancel();
+        el.scrollLeft += delta;
+        return;
+      }
+      const tabWidth = Array.from(el.querySelectorAll('.theme-tab'))
+        .map((tab) => tab.getBoundingClientRect().width).find((width) => width > 1) ?? 100;
+      const unit = event.deltaMode === 1 ? 32 : event.deltaMode === 2 ? el.clientWidth : 1;
+      const step = Math.sign(delta) * Math.min(Math.abs(delta * unit) * 0.7, tabWidth * 0.7, 96);
+      if (!animationsEnabled || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        cancel();
+        el.scrollLeft += step;
+        return;
+      }
+      // Drop queued movement on reversal so the strip immediately follows the wheel.
+      if (!frame || direction !== Math.sign(delta)) target = el.scrollLeft;
+      direction = Math.sign(delta);
+      const maxAhead = tabWidth * 1.4;
+      target = Math.max(0, Math.min(el.scrollWidth - el.clientWidth,
+        Math.max(el.scrollLeft - maxAhead, Math.min(el.scrollLeft + maxAhead, target + step))));
+      if (!frame) {
+        lastTime = performance.now();
+        frame = window.requestAnimationFrame(tick);
+      }
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    el.addEventListener('pointerdown', cancel);
+    return () => {
+      cancel();
+      el.removeEventListener('wheel', onWheel);
+      el.removeEventListener('pointerdown', cancel);
+    };
+  }, [orientation, animationsEnabled, tabs.length]);
 
   useEffect(() => {
     const previousCount = prevTabCountRef.current;
@@ -715,6 +787,14 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
 
   useLayoutEffect(() => {
     const nextRects: Record<string, DOMRect> = {};
+    const nextOrder = renderedTabs.map((item) => item.tab.id);
+    const previousOrder = previousLayoutOrderRef.current;
+    const nextIds = new Set(nextOrder);
+    const previousIds = new Set(previousOrder);
+    const previousSurvivors = previousOrder.filter((id) => nextIds.has(id));
+    const nextSurvivors = nextOrder.filter((id) => previousIds.has(id));
+    const orderChanged = nextSurvivors.some((id, index) => id !== previousSurvivors[index]);
+    previousLayoutOrderRef.current = nextOrder;
     const releasedDragTabId = releasedDragTabIdRef.current;
     const isVertical = orientation === 'vertical';
 
@@ -745,6 +825,9 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
         continue;
       }
       nextRects[tabId] = nextRect;
+      // Branding/resizing can move the whole strip. Do not replay that movement
+      // as a tab reorder when metadata updates after the layout has settled.
+      if (!orderChanged) continue;
       if (!prevRect) continue;
       if (tabId === releasedDragTabId) continue;
       const delta = isVertical ? prevRect.top - nextRect.top : prevRect.left - nextRect.left;
@@ -838,6 +921,7 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
         userSelect: isActivelyDragging ? 'none' : 'auto', // Prevent text selection during drag
         ['--tabEnterExitMs' as string]: `${TAB_ENTER_EXIT_DURATION_MS}ms`,
         ['--tabOpacityMs' as string]: `${Math.floor(TAB_ENTER_EXIT_DURATION_MS * 0.7)}ms`,
+        ['--tabGapMarginMs' as string]: isVertical ? '0ms' : `${TAB_ENTER_EXIT_DURATION_MS}ms`,
       } as CSSProperties}
     >
       <div
@@ -845,6 +929,7 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
           flex: 1,
           minWidth: 0,
           position: 'relative',
+          height: isVertical ? undefined : '100%',
         }}
       >
         <div
@@ -857,8 +942,11 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
             overflowX: isVertical ? 'hidden' : 'auto',
             overflowY: isVertical ? 'auto' : 'hidden',
             alignItems: isVertical ? 'stretch' : 'center',
-            WebkitAppRegion: dragRegionsTemporarilyDisabled ? 'no-drag' : 'drag',
-            padding: isVertical ? 6 : 0,
+            height: isVertical ? undefined : '100%',
+            WebkitAppRegion: !isVertical && (canScrollLeft || canScrollRight)
+              ? 'no-drag'
+              : dragRegionsTemporarilyDisabled ? 'no-drag' : 'drag',
+            padding: isVertical ? 6 : '0 4px',
           }}
         >
           {renderedTabs.map(({ tab, phase }) => {
@@ -968,9 +1056,12 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
                   position: 'relative',
                   marginBottom: 0,
                   marginRight:
-                    tab.id === activeId && isVertical && !isRightSidebar
+                    !isVertical && isCollapsed
+                      ? `calc(-1 * ${TAB_STRIP_GAP})`
+                      : tab.id === activeId && isVertical && !isRightSidebar
                       ? `calc(-1 * ${borderWidth})`
                       : 0,
+                  borderWidth: isCollapsed ? 0 : borderWidth,
                   marginLeft:
                     tab.id === activeId && isVertical && isRightSidebar
                       ? `calc(-1 * ${borderWidth})`
@@ -1101,6 +1192,12 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
         </div>
         {!isVertical && (
           <>
+            {!dragRegionsTemporarilyDisabled && !isActivelyDragging && (
+              <div
+                aria-hidden="true"
+                className="tab-strip-window-drag-edge"
+              />
+            )}
             <div
               aria-hidden={true}
               className="tab-strip-fade-left"

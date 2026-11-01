@@ -1,21 +1,93 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { Copy, Minus, Square, X } from 'lucide-react';
 import { electron } from '../electronBridge';
 import appIcon from '../assets/mira_icon.png';
 import appWordmark from '../assets/mira.png';
+import {
+  BROWSER_SETTINGS_CHANGED_EVENT,
+  getBrowserSettings,
+} from '../features/settings/browserSettings';
 
 export default function TopBar({
   children,
   hideBrandWhenNarrow = false,
+  horizontalTabCount = 0,
 }: {
   children?: React.ReactNode;
   hideBrandWhenNarrow?: boolean;
+  horizontalTabCount?: number;
 }) {
+  const barRef = useRef<HTMLDivElement>(null);
+  const brandRef = useRef<HTMLDivElement>(null);
+  const brandIconRef = useRef<HTMLImageElement>(null);
+  const controlsRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const tabSizeRef = useRef<HTMLDivElement>(null);
+  const [brandWidth, setBrandWidth] = useState(0);
+  const [brandIconWidth, setBrandIconWidth] = useState(26);
+  const [brandHidden, setBrandHidden] = useState(false);
+  const [animationsEnabled, setAnimationsEnabled] = useState(
+    () => getBrowserSettings().animationsEnabled,
+  );
   const [isMaximized, setIsMaximized] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isTitleBarOverlayEnabled, setIsTitleBarOverlayEnabled] = useState(true);
   const isMacOS = electron?.isMacOS ?? false;
   const isWindows = electron?.platform === 'win32';
+
+  useLayoutEffect(() => {
+    const measure = () => {
+      const bar = barRef.current;
+      const brand = brandRef.current;
+      if (!bar || !brand) return;
+      const naturalBrandWidth = brand.getBoundingClientRect().width;
+      setBrandWidth(naturalBrandWidth);
+      const brandStyle = getComputedStyle(brand);
+      setBrandIconWidth(
+        (brandIconRef.current?.getBoundingClientRect().width ?? 16) +
+          parseFloat(brandStyle.paddingLeft) +
+          parseFloat(brandStyle.paddingRight),
+      );
+      const strip = contentRef.current?.querySelector('.tab-strip-scroll');
+      const contentStyle = contentRef.current && getComputedStyle(contentRef.current);
+      const padding = contentStyle
+        ? parseFloat(contentStyle.paddingLeft) + parseFloat(contentStyle.paddingRight)
+        : 16;
+      const availableWithBrand =
+        bar.clientWidth -
+        naturalBrandWidth -
+        (controlsRef.current?.getBoundingClientRect().width ?? 0) -
+        padding;
+      const tabWidth = tabSizeRef.current?.getBoundingClientRect().width ?? 220;
+      const gap = strip ? parseFloat(getComputedStyle(strip).columnGap) || 0 : 6;
+      const newTabWidth =
+        strip?.querySelector('.tab-new-tab-btn')?.getBoundingClientRect().width ?? 33;
+      const needed = horizontalTabCount * tabWidth + horizontalTabCount * gap + newTabWidth;
+      const stripStyle = strip && getComputedStyle(strip);
+      const edgePadding = stripStyle ? parseFloat(stripStyle.paddingLeft) + parseFloat(stripStyle.paddingRight) : 0;
+      const crowded = horizontalTabCount > 1 && needed + edgePadding > availableWithBrand;
+      setBrandHidden(crowded || (hideBrandWhenNarrow && window.innerWidth <= 800));
+    };
+    const syncSettings = () => {
+      setAnimationsEnabled(getBrowserSettings().animationsEnabled);
+      measure();
+    };
+    const observer = new ResizeObserver(measure);
+    for (const element of [
+      barRef.current,
+      brandRef.current,
+      controlsRef.current,
+      tabSizeRef.current,
+    ]) {
+      if (element) observer.observe(element);
+    }
+    measure();
+    window.addEventListener(BROWSER_SETTINGS_CHANGED_EVENT, syncSettings);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener(BROWSER_SETTINGS_CHANGED_EVENT, syncSettings);
+    };
+  }, [horizontalTabCount, hideBrandWhenNarrow, isFullscreen, isTitleBarOverlayEnabled]);
 
   useEffect(() => {
     electron?.ipcRenderer
@@ -87,20 +159,38 @@ export default function TopBar({
 
   const brandSection = (
     <div
-      className="topbar-brand"
-      style={{
-        alignItems: 'center',
-        gap: 8,
-        paddingLeft: isMacOS ? 0 : 10,
-        paddingRight: isMacOS ? 10 : 0,
-      }}
+      className={`topbar-brand${brandHidden ? ' topbar-brand-hidden' : ''}${animationsEnabled ? ' topbar-brand-animated' : ''}`}
+      style={
+        {
+          '--topbar-brand-width': brandWidth ? `${brandWidth}px` : 'auto',
+          '--topbar-brand-icon-width': `${brandIconWidth}px`,
+        } as CSSProperties
+      }
     >
-      <img src={appIcon} alt="Mira" style={{ width: 16, height: 16 }} />
-      <img
-        src={appWordmark}
-        alt="Mira"
-        style={{ height: 25, width: 'auto', marginLeft: -6, transform: 'translateY(1px)' }}
-      />
+      <div
+        ref={brandRef}
+        className="topbar-brand-content"
+        style={{
+          alignItems: 'center',
+          gap: 8,
+          paddingLeft: isMacOS ? 0 : 10,
+          paddingRight: isMacOS ? 10 : 0,
+        }}
+      >
+        <img
+          ref={brandIconRef}
+          src={appIcon}
+          alt="Mira"
+          style={{ width: 16, height: 16, flexShrink: 0 }}
+        />
+        <img
+          className="topbar-brand-wordmark"
+          src={appWordmark}
+          alt=""
+          aria-hidden="true"
+          style={{ height: 25, width: 'auto', marginLeft: -6, transform: 'translateY(1px)' }}
+        />
+      </div>
     </div>
   );
 
@@ -177,6 +267,7 @@ export default function TopBar({
 
   return (
     <div
+      ref={barRef}
       className={`browser-topbar${hideBrandWhenNarrow ? ' topbar-hide-brand-when-narrow' : ''}`}
       onDoubleClick={isMacOS ? undefined : onToggleMaximize}
       style={{
@@ -188,9 +279,27 @@ export default function TopBar({
         userSelect: 'none',
       }}
     >
-      {isMacOS ? controlsSection : brandSection}
+      <div
+        ref={tabSizeRef}
+        aria-hidden="true"
+        style={{
+          position: 'absolute',
+          visibility: 'hidden',
+          pointerEvents: 'none',
+          width: 'var(--layoutTabTargetWidth, 220px)',
+          height: 0,
+        }}
+      />
+      {isMacOS ? (
+        <div ref={controlsRef} className="topbar-controls-slot">
+          {controlsSection}
+        </div>
+      ) : (
+        brandSection
+      )}
 
       <div
+        ref={contentRef}
         style={{
           flex: 1,
           height: '100%',
@@ -213,7 +322,13 @@ export default function TopBar({
         </div>
       </div>
 
-      {isMacOS ? brandSection : controlsSection}
+      {isMacOS ? (
+        brandSection
+      ) : (
+        <div ref={controlsRef} className="topbar-controls-slot">
+          {controlsSection}
+        </div>
+      )}
     </div>
   );
 }
