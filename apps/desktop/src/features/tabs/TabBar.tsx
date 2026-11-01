@@ -1,6 +1,10 @@
+import TabGroupOutlines from './TabGroupOutlines';
+import TabConnection from './TabConnection';
+import { TAB_GROUP_COLORS, type TabGroup } from '../../../electron/tabGroups';
+import { promptDialog } from '../../components/appDialogs';
 import TabFavicon from './TabFavicon';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { Pin, Plus, Volume2, VolumeX, X } from 'lucide-react';
+import { ChevronDown, Pin, Plus, Volume2, VolumeX, X } from 'lucide-react';
 import { useTabs } from './TabsProvider';
 import type { Tab } from './types';
 import miraLogo from '../../assets/mira_logo.png';
@@ -15,9 +19,12 @@ import {
 const TAB_TARGET_WIDTH = 'var(--layoutTabTargetWidth, 220px)';
 const TAB_MIN_WIDTH = 'var(--layoutTabMinWidth, 100px)';
 const TAB_STRIP_GAP = 'var(--layoutTabGap, 6px)';
-const TAB_ROW_HEIGHT = 'var(--layoutTabHeight, 30px)';
-const TAB_SWAP_TRIGGER_RATIO = 0.1;
-const TAB_SWAP_MIN_POINTER_DELTA_PX = 10;
+const TAB_ROW_HEIGHT = 'var(--layoutTabHeight, 27px)';
+const NEW_TAB_BUTTON_SIZE = `max(20px, calc(${TAB_ROW_HEIGHT} - 4px))`;
+const TAB_SWAP_TRIGGER_RATIO = 0.5;
+const TAB_GROUP_EXIT_DISTANCE_PX = 24;
+const TAB_GROUP_ENTRY_DISTANCE_PX = 40;
+const TAB_SWAP_MIN_EDGE_DELTA_PX = 10;
 const TAB_SWAP_COOLDOWN_MS = 70;
 const TAB_APPEAR_SETTLE_MS = 24;
 const TAB_ENTER_EXIT_DURATION_MS = 180;
@@ -87,18 +94,46 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
     reloadTab,
     duplicateTab,
     toggleTabPinned,
+    createTabGroup,
+    moveTabToGroup,
+    moveTabGroup,
+    updateTabGroup,
+    ungroupTabs,
+    closeTabGroup,
     moveTabToNewWindow,
   } = useTabs();
+  const groups = useMemo(() => [...new Map(tabs.flatMap(tab => tab.group ? [[tab.group.id, tab.group] as const] : [])).values()], [tabs]);
+  const [groupMenu, setGroupMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const closeGroupMenu = useCallback(() => setGroupMenu(null), []);
+  const runGroupCommand = useCallback(async (groupId: string, command: string) => {
+    const group = groups.find(group => group.id === groupId);
+    if (!group) return;
+    if (command === 'rename') {
+      const name = await promptDialog({ title: 'Rename tab group', defaultValue: group.name, confirmLabel: 'Save' });
+      if (name !== null) updateTabGroup(groupId, { name: name.trim() });
+    } else if (command === 'toggle') updateTabGroup(groupId, { collapsed: !group.collapsed });
+    else if (command === 'close') await closeTabGroup(groupId);
+    else if (command === 'ungroup') ungroupTabs(groupId);
+    else if (command.startsWith('color:')) {
+      const color = command.slice(6) as TabGroup['color'];
+      if (Object.hasOwn(TAB_GROUP_COLORS, color)) updateTabGroup(groupId, { color });
+    }
+  }, [groups, updateTabGroup, ungroupTabs, closeTabGroup]);
   const [tabMenuState, setTabMenuState] = useState<{ tabId: string; x: number; y: number } | null>(
     null,
   );
+  const [draggingGroupId, setDraggingGroupId] = useState<string | null>(null);
+  const [groupDragPointer, setGroupDragPointer] = useState<{ x: number; y: number } | null>(null);
+  const groupDragRef = useRef<{ id: string; start: number; lastPointer: number; anchor: number; moved: boolean; lastSwap: number } | null>(null);
   const [draggingTabId, setDraggingTabId] = useState<string | null>(null);
   const [draggedTabPosition, setDraggedTabPosition] = useState<{ x: number; y: number } | null>(null);
-  const [originalTabPosition, setOriginalTabPosition] = useState<{ x: number; y: number } | null>(null);
+  const [originalTabPosition, setOriginalTabPosition] = useState<{ x: number; y: number; right: number } | null>(null);
   const [draggedTabWidth, setDraggedTabWidth] = useState<number | null>(null);
+  const [draggedTabHeight, setDraggedTabHeight] = useState<number | null>(null);
   const [dragUsesNativeWindow, setDragUsesNativeWindow] = useState(false);
   const [dragRegionsTemporarilyDisabled, setDragRegionsTemporarilyDisabled] = useState(false);
   const [transitionSuppressedTabId, setTransitionSuppressedTabId] = useState<string | null>(null);
+  const [settledActiveId, setSettledActiveId] = useState(activeId);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
   const [nativeContextMenusEnabled, setNativeContextMenusEnabled] = useState(
@@ -115,16 +150,25 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const prevTabCountRef = useRef(tabs.length);
   const tabElementRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  useLayoutEffect(() => {
+    if (settledActiveId === activeId) return;
+    // Resolve both selection states with transitions suppressed before restoring
+    // hover and reorder motion.
+    tabElementRefs.current[settledActiveId]?.getBoundingClientRect();
+    tabElementRefs.current[activeId]?.getBoundingClientRect();
+    setSettledActiveId(activeId);
+  }, [activeId, settledActiveId]);
   const previousRectsRef = useRef<Record<string, DOMRect>>({});
   const previousLayoutOrderRef = useRef<string[]>([]);
+  const previousGroupMembershipRef = useRef('');
   const enterTimerByTabIdRef = useRef<Record<string, number>>({});
   const exitTimerByTabIdRef = useRef<Record<string, number>>({});
   const reorderAnimationByTabIdRef = useRef<Partial<Record<string, Animation>>>({});
   const dragPointerToLeftRef = useRef(0);
   const dragPointerWidthRatioRef = useRef(0.5);
   const dragPointerToTopRef = useRef(0);
-  const lastSwapClientXRef = useRef<number | null>(null);
-  const lastSwapClientYRef = useRef<number | null>(null);
+  const lastSwapEdgeXRef = useRef<number | null>(null);
+  const lastSwapEdgeYRef = useRef<number | null>(null);
   const lastSwapAtRef = useRef(0);
   const dragMovedRef = useRef(false);
   const dragDetachedRef = useRef(false);
@@ -497,6 +541,12 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
         onSelect: () => toggleTabPinned(tabMenuState.tabId),
       },
       { type: 'separator' },
+      { type: 'item', label: 'New Tab Group', onSelect: () => { void createTabGroup(tabMenuState.tabId); } },
+      ...groups.filter(group => group.id !== tabs[tabIndex]?.group?.id).map(group => ({
+        type: 'item' as const, label: `Move to ${group.name || 'unnamed group'}`, onSelect: () => moveTabToGroup(tabMenuState.tabId, group.id),
+      })),
+      ...(tabs[tabIndex]?.group ? [{ type: 'item' as const, label: 'Remove from Group', onSelect: () => moveTabToGroup(tabMenuState.tabId) }] : []),
+      { type: 'separator' },
       {
         type: 'item',
         label: 'Close',
@@ -524,6 +574,9 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
     reloadTab,
     duplicateTab,
     toggleTabPinned,
+    createTabGroup,
+    moveTabToGroup,
+    groups,
     closeTab,
     closeOtherTabs,
     closeTabsToRight,
@@ -556,6 +609,9 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
         newTabToRight(tabId);
         return;
       }
+      if (command === 'group-new') { void createTabGroup(tabId); return; }
+      if (command === 'group-remove') { moveTabToGroup(tabId); return; }
+      if (command.startsWith('group-add:')) { moveTabToGroup(tabId, command.slice(10)); return; }
       if (command === 'toggle-pin') {
         toggleTabPinned(tabId);
         return;
@@ -583,11 +639,14 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
 
     ipc.on('tab-native-context-command', onNativeContextCommand);
     return () => ipc.off('tab-native-context-command', onNativeContextCommand);
-  }, [newTabToRight, reloadTab, duplicateTab, toggleTabPinned, closeTab, closeOtherTabs, closeTabsToRight, orientation]);
+  }, [newTabToRight, reloadTab, duplicateTab, toggleTabPinned, createTabGroup, moveTabToGroup, closeTab, closeOtherTabs, closeTabsToRight, orientation]);
 
   useEffect(() => {
     if (!draggingTabId) return;
     let didEndDrag = false;
+    let lastPointer = orientation === 'vertical'
+      ? (originalTabPosition?.y ?? 0) + dragPointerToTopRef.current
+      : (originalTabPosition?.x ?? 0) + dragPointerToLeftRef.current;
 
     const endDrag = () => {
       if (didEndDrag) return;
@@ -609,8 +668,9 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
       setDraggedTabPosition(null);
       setOriginalTabPosition(null);
       setDraggedTabWidth(null);
-      lastSwapClientXRef.current = null;
-      lastSwapClientYRef.current = null;
+      setDraggedTabHeight(null);
+      lastSwapEdgeXRef.current = null;
+      lastSwapEdgeYRef.current = null;
       lastSwapAtRef.current = 0;
       dragMovedRef.current = false;
       dragDetachedRef.current = false;
@@ -636,10 +696,13 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
         return;
       }
 
-      const currentTabs = tabsRef.current;
+      const currentTabs = tabsRef.current.filter(tab => !tab.group?.collapsed || tab.id === draggingTabId);
       if (!draggingTabId) return;
 
       const isVertical = orientation === 'vertical';
+      const pointerPrimary = isVertical ? event.clientY : event.clientX;
+      const direction = Math.sign(pointerPrimary - lastPointer);
+      lastPointer = pointerPrimary;
       const draggedEl = tabElementRefs.current[draggingTabId];
       const containerRect = scrollRef.current?.getBoundingClientRect();
       const draggedRect = draggedEl?.getBoundingClientRect();
@@ -709,6 +772,45 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
       if (now - lastSwapAtRef.current < TAB_SWAP_COOLDOWN_MS) return;
 
       const draggedTab = currentTabs[currentIndex];
+      const previewStart = pointerPrimary - (isVertical ? dragPointerToTopRef.current : dragPointerToLeftRef.current);
+      const previewEnd = previewStart + (isVertical ? draggedRect?.height ?? 0 : draggedRect?.width ?? 0);
+      const getGroupBounds = (groupId: string) => {
+        const header = [...(scrollRef.current?.querySelectorAll<HTMLElement>('[data-tab-group]') ?? [])]
+          .find(element => element.dataset.tabGroup === groupId);
+        const members = tabsRef.current.filter(tab => tab.group?.id === groupId)
+          .flatMap(tab => tabElementRefs.current[tab.id] ? [tabElementRefs.current[tab.id]!] : []);
+        const rects = (header ? [header, ...members] : members).flatMap(element => {
+          const rect = element.getBoundingClientRect();
+          if (rect.width <= 0.5 || rect.height <= 0.5) return [];
+          const transform = new DOMMatrixReadOnly(getComputedStyle(element).transform);
+          return [{ start: isVertical ? rect.top - transform.m42 : rect.left - transform.m41,
+            end: isVertical ? rect.bottom - transform.m42 : rect.right - transform.m41 }];
+        });
+        return rects.length ? { start: Math.min(...rects.map(rect => rect.start)), end: Math.max(...rects.map(rect => rect.end)) } : undefined;
+      };
+      if (draggedTab.group) {
+        const bounds = getGroupBounds(draggedTab.group.id);
+        const side = bounds && (direction < 0 && previewStart < bounds.start - TAB_GROUP_EXIT_DISTANCE_PX ? 'before'
+          : direction > 0 && previewEnd > bounds.end + TAB_GROUP_EXIT_DISTANCE_PX ? 'after' : undefined);
+        if (side) {
+          moveTabToGroup(draggingTabId, undefined, side);
+          lastSwapAtRef.current = now;
+          return;
+        }
+      }
+      const fullIndex = tabsRef.current.findIndex(tab => tab.id === draggingTabId);
+      const neighbor = direction ? tabsRef.current[fullIndex + direction] : undefined;
+      if (neighbor?.group && neighbor.group.id !== draggedTab.group?.id) {
+        const bounds = getGroupBounds(neighbor.group.id);
+        const entering = bounds && (direction > 0
+          ? previewEnd > bounds.start + TAB_GROUP_ENTRY_DISTANCE_PX && previewStart < bounds.end
+          : previewStart < bounds.end - TAB_GROUP_ENTRY_DISTANCE_PX && previewEnd > bounds.start);
+        if (entering) {
+          moveTabToGroup(draggingTabId, neighbor.group.id);
+          lastSwapAtRef.current = now;
+          return;
+        }
+      }
       const pinnedTabs = currentTabs.filter(tab => tab.isPinned);
       const lastPinned = pinnedTabs.at(-1);
       const pinnedRect = lastPinned ? tabElementRefs.current[lastPinned.id]?.getBoundingClientRect() : undefined;
@@ -727,64 +829,28 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
         return;
       }
 
-      const draggedCenterPrimary = isVertical ? event.clientY : event.clientX;
-      if (currentIndex > 0) {
-        const prevTab = currentTabs[currentIndex - 1];
-        const prevEl = prevTab ? tabElementRefs.current[prevTab.id] : null;
-        if (prevEl && !!prevTab.isPinned === !!draggedTab.isPinned) {
-          const prevRect = prevEl.getBoundingClientRect();
-          const prevTrigger = isVertical
-            ? prevRect.top + prevRect.height * (1 - TAB_SWAP_TRIGGER_RATIO)
-            : prevRect.left + prevRect.width * (1 - TAB_SWAP_TRIGGER_RATIO);
-          const canSwap =
-            (isVertical ? lastSwapClientYRef.current : lastSwapClientXRef.current) === null ||
-            Math.abs(
-              (isVertical ? event.clientY : event.clientX) -
-                (isVertical
-                  ? (lastSwapClientYRef.current ?? 0)
-                  : (lastSwapClientXRef.current ?? 0)),
-            ) >= TAB_SWAP_MIN_POINTER_DELTA_PX;
-          if (draggedCenterPrimary < prevTrigger && canSwap) {
-            moveTabToIndex(draggingTabId, currentIndex - 1);
-            if (isVertical) {
-              lastSwapClientYRef.current = event.clientY;
-            } else {
-              lastSwapClientXRef.current = event.clientX;
-            }
-            lastSwapAtRef.current = now;
-            return;
-          }
-        }
+      if (!direction) return;
+      const after = direction > 0;
+      const targetTab = currentTabs[currentIndex + (after ? 1 : -1)];
+      const targetElement = targetTab && tabElementRefs.current[targetTab.id];
+      if (!targetTab || !targetElement || !!targetTab.isPinned !== !!draggedTab.isPinned) return;
+      // Group membership uses its own entry/exit thresholds above.
+      if (targetTab.group?.id !== draggedTab.group?.id) return;
+      const targetRect = targetElement.getBoundingClientRect();
+      const transform = new DOMMatrixReadOnly(getComputedStyle(targetElement).transform);
+      const targetStart = isVertical ? targetRect.top - transform.m42 : targetRect.left - transform.m41;
+      const targetSize = isVertical ? targetRect.height : targetRect.width;
+      const trigger = targetStart + targetSize * (after ? TAB_SWAP_TRIGGER_RATIO : 1 - TAB_SWAP_TRIGGER_RATIO);
+      const leadingEdge = after ? previewEnd : previewStart;
+      const previousEdge = isVertical ? lastSwapEdgeYRef.current : lastSwapEdgeXRef.current;
+      const canSwap = previousEdge === null || Math.abs(leadingEdge - previousEdge) >= TAB_SWAP_MIN_EDGE_DELTA_PX;
+      if ((after ? leadingEdge > trigger : leadingEdge < trigger) && canSwap) {
+        moveTabToIndex(draggingTabId, tabsRef.current.findIndex(tab => tab.id === targetTab.id));
+        if (isVertical) lastSwapEdgeYRef.current = leadingEdge;
+        else lastSwapEdgeXRef.current = leadingEdge;
+        lastSwapAtRef.current = now;
       }
 
-      if (currentIndex < currentTabs.length - 1) {
-        const nextTab = currentTabs[currentIndex + 1];
-        const nextEl = nextTab ? tabElementRefs.current[nextTab.id] : null;
-        if (nextEl && !!nextTab.isPinned === !!draggedTab.isPinned) {
-          const nextRect = nextEl.getBoundingClientRect();
-          const nextTrigger = isVertical
-            ? nextRect.top + nextRect.height * TAB_SWAP_TRIGGER_RATIO
-            : nextRect.left + nextRect.width * TAB_SWAP_TRIGGER_RATIO;
-          const canSwap =
-            (isVertical ? lastSwapClientYRef.current : lastSwapClientXRef.current) === null ||
-            Math.abs(
-              (isVertical ? event.clientY : event.clientX) -
-                (isVertical
-                  ? (lastSwapClientYRef.current ?? 0)
-                  : (lastSwapClientXRef.current ?? 0)),
-            ) >= TAB_SWAP_MIN_POINTER_DELTA_PX;
-          if (draggedCenterPrimary > nextTrigger && canSwap) {
-            moveTabToIndex(draggingTabId, currentIndex + 1);
-            if (isVertical) {
-              lastSwapClientYRef.current = event.clientY;
-            } else {
-              lastSwapClientXRef.current = event.clientX;
-            }
-            lastSwapAtRef.current = now;
-            return;
-          }
-        }
-      }
     };
 
     window.addEventListener('mousemove', onMouseMove);
@@ -801,6 +867,7 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
     draggingTabId,
     moveTabToIndex,
     moveTabToNewWindow,
+    moveTabToGroup,
     orientation,
     originalTabPosition,
     scheduleDragRegionRefresh,
@@ -813,8 +880,10 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
     const element = tabElementRefs.current[draggingTabId];
     if (!element) return;
     const measure = () => {
-      const width = element.getBoundingClientRect().width;
+      const rect = element.getBoundingClientRect();
+      const width = rect.width;
       if (width <= 0) return;
+      setDraggedTabHeight(current => current !== null && Math.abs(current - rect.height) < 0.5 ? current : rect.height);
       dragPointerToLeftRef.current = dragPointerWidthRatioRef.current * width;
       setDraggedTabWidth(current => current !== null && Math.abs(current - width) < 0.5 ? current : width);
     };
@@ -830,7 +899,8 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
     setDraggingTabId(null);
     setDraggedTabPosition(null);
     setOriginalTabPosition(null);
-    setDraggedTabWidth(null); // Clear dragged tab width on orientation change
+    setDraggedTabWidth(null); // Clear dragged tab size on orientation change
+    setDraggedTabHeight(null);
     setDragUsesNativeWindow(false);
     dragDetachedRef.current = false;
     cancelScheduledDragRegionRefresh();
@@ -849,27 +919,42 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
     const nextSurvivors = nextOrder.filter((id) => previousIds.has(id));
     const orderChanged = nextSurvivors.some((id, index) => id !== previousSurvivors[index]);
     previousLayoutOrderRef.current = nextOrder;
+    const membership = JSON.stringify(renderedTabs.map(({ tab }) => [tab.id, tab.group?.id]));
+    const membershipChanged = previousGroupMembershipRef.current !== '' && previousGroupMembershipRef.current !== membership;
+    previousGroupMembershipRef.current = membership;
     const releasedDragTabId = releasedDragTabIdRef.current;
     const isVertical = orientation === 'vertical';
+    const layoutItems = [
+      ...renderedTabs.map(({ tab }) => ({
+        id: tab.id,
+        element: tabElementRefs.current[tab.id],
+        dragged: tab.id === draggingTabId || (!!draggingGroupId && tab.group?.id === draggingGroupId),
+      })),
+      ...Array.from(scrollRef.current?.querySelectorAll<HTMLElement>('[data-tab-group]') ?? []).map(element => ({
+        id: `group:${element.dataset.tabGroup}`,
+        element,
+        dragged: element.dataset.tabGroup === draggingGroupId,
+      })),
+    ];
 
     if (animationsEnabled) {
-      for (const item of renderedTabs) {
+      for (const item of layoutItems) {
         // Ensure measurements use layout positions, not in-flight transforms.
-        const animation = reorderAnimationByTabIdRef.current[item.tab.id];
+        const animation = reorderAnimationByTabIdRef.current[item.id];
         if (animation) {
           animation.cancel();
-          delete reorderAnimationByTabIdRef.current[item.tab.id];
+          delete reorderAnimationByTabIdRef.current[item.id];
         }
       }
     }
 
-    for (const item of renderedTabs) {
-      const tabId = item.tab.id;
-      const el = tabElementRefs.current[tabId];
+    for (const item of layoutItems) {
+      const tabId = item.id;
+      const el = item.element;
       if (!el) continue;
       const nextRect = el.getBoundingClientRect();
       const prevRect = previousRectsRef.current[tabId];
-      if (tabId === draggingTabId) {
+      if (item.dragged) {
         // Keep the pre-drag baseline rect so the drop doesn't animate from transformed geometry.
         if (prevRect) {
           nextRects[tabId] = prevRect;
@@ -881,7 +966,7 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
       nextRects[tabId] = nextRect;
       // Branding/resizing can move the whole strip. Do not replay that movement
       // as a tab reorder when metadata updates after the layout has settled.
-      if (!orderChanged) continue;
+      if (!orderChanged && !membershipChanged) continue;
       if (!prevRect) continue;
       if (tabId === releasedDragTabId) continue;
       const delta = isVertical ? prevRect.top - nextRect.top : prevRect.left - nextRect.left;
@@ -890,7 +975,7 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
 
       const deltaAbs = Math.abs(delta);
       // Loosen thresholds while dragging so surrounding tabs animate during swaps.
-      const isDeliberateReorder = draggingTabId
+      const isDeliberateReorder = draggingGroupId || membershipChanged ? deltaAbs > 2 : draggingTabId
         ? deltaAbs > 4 && deltaAbs < 600
         : deltaAbs > 10 && deltaAbs < 200;
       if (!isDeliberateReorder) continue;
@@ -925,7 +1010,7 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
     if (releasedDragTabId) {
       releasedDragTabIdRef.current = null;
     }
-  }, [renderedTabs, draggingTabId, animationsEnabled, orientation]);
+  }, [renderedTabs, draggingTabId, draggingGroupId, animationsEnabled, orientation]);
 
   useEffect(() => {
     if (dragRegionsTemporarilyDisabled) return;
@@ -936,6 +1021,9 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
         const el = tabElementRefs.current[item.tab.id];
         if (!el) continue;
         nextRects[item.tab.id] = el.getBoundingClientRect();
+      }
+      for (const header of scrollRef.current?.querySelectorAll<HTMLElement>('[data-tab-group]') ?? []) {
+        nextRects[`group:${header.dataset.tabGroup}`] = header.getBoundingClientRect();
       }
       previousRectsRef.current = nextRects;
     });
@@ -948,9 +1036,102 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
   }, [dragRegionsTemporarilyDisabled, orientation]);
 
   const isVertical = orientation === 'vertical';
-  const isActivelyDragging = draggingTabId !== null && draggedTabPosition !== null;
+  const getGroupElements = useCallback((id: string) => {
+    const header = [...(scrollRef.current?.querySelectorAll<HTMLElement>('[data-tab-group]') ?? [])]
+      .find(element => element.dataset.tabGroup === id);
+    const members = tabsRef.current.filter(tab => tab.group?.id === id)
+      .flatMap(tab => tabElementRefs.current[tab.id] ? [tabElementRefs.current[tab.id]!] : []);
+    return header ? [header, ...members] : members;
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!draggingGroupId || !groupDragPointer || !groupDragRef.current?.moved) return;
+    const elements = getGroupElements(draggingGroupId);
+    for (const element of elements) { element.style.transform = ''; element.classList.add('tab-group-is-dragging'); }
+    const rects = elements.map(element => element.getBoundingClientRect()).filter(rect => rect.width > 0.5 && rect.height > 0.5);
+    if (!rects.length) return;
+    const vertical = orientation === 'vertical';
+    const start = Math.min(...rects.map(rect => vertical ? rect.top : rect.left));
+    const pointer = vertical ? groupDragPointer.y : groupDragPointer.x;
+    const delta = pointer - groupDragRef.current.anchor - start;
+    for (const element of elements) element.style.transform = vertical ? `translateY(${delta}px)` : `translateX(${delta}px)`;
+  }, [draggingGroupId, groupDragPointer, renderedTabs, orientation, getGroupElements]);
+
+  useEffect(() => {
+    if (!draggingGroupId) return;
+    const finish = () => {
+      const moved = groupDragRef.current?.moved;
+      for (const element of getGroupElements(draggingGroupId)) {
+        element.style.transform = ''; element.classList.remove('tab-group-is-dragging');
+      }
+      groupDragRef.current = null;
+      setDraggingGroupId(null); setGroupDragPointer(null);
+      if (moved) {
+        suppressClickRef.current = true;
+        window.setTimeout(() => { suppressClickRef.current = false; }, 0);
+        scheduleDragRegionRefresh(34);
+      }
+    };
+    const move = (event: MouseEvent) => {
+      if (!(event.buttons & 1)) { finish(); return; }
+      const drag = groupDragRef.current;
+      if (!drag) return;
+      const vertical = orientation === 'vertical';
+      const pointer = vertical ? event.clientY : event.clientX;
+      const direction = Math.sign(pointer - drag.lastPointer);
+      drag.lastPointer = pointer;
+      if (!drag.moved && Math.abs(pointer - drag.start) < 4) return;
+      drag.moved = true;
+      setGroupDragPointer({ x: event.clientX, y: event.clientY });
+      const now = Date.now();
+      if (now - drag.lastSwap < TAB_SWAP_COOLDOWN_MS) return;
+      if (!direction) return;
+      const draggedRects = getGroupElements(draggingGroupId).map(element => element.getBoundingClientRect())
+        .filter(rect => rect.width > 0.5 && rect.height > 0.5);
+      if (!draggedRects.length) return;
+      const span = Math.max(...draggedRects.map(rect => vertical ? rect.bottom : rect.right))
+        - Math.min(...draggedRects.map(rect => vertical ? rect.top : rect.left));
+      const leadingEdge = pointer - drag.anchor + (direction > 0 ? span : 0);
+      const units: Array<{ id: string; groupId?: string; pinned?: boolean }> = [];
+      const seen = new Set<string>();
+      for (const tab of tabsRef.current) {
+        if (tab.group && seen.has(tab.group.id)) continue;
+        if (tab.group) seen.add(tab.group.id);
+        units.push({ id: tab.id, groupId: tab.group?.id, pinned: tab.isPinned });
+      }
+      const index = units.findIndex(unit => unit.groupId === draggingGroupId);
+      for (const [unit, after] of [[units[index - 1], false], [units[index + 1], true]] as const) {
+        if (after !== (direction > 0)) continue;
+        if (!unit || unit.pinned) continue;
+        const elements = unit.groupId ? getGroupElements(unit.groupId) : [tabElementRefs.current[unit.id]].filter((element): element is HTMLDivElement => !!element);
+        const rects = elements.map(element => {
+          const rect = element.getBoundingClientRect();
+          // Hit-test the destination layout rather than its sliding animation.
+          const transform = new DOMMatrixReadOnly(getComputedStyle(element).transform);
+          return new DOMRect(rect.x - transform.m41, rect.y - transform.m42, rect.width, rect.height);
+        }).filter(rect => rect.width > 0.5 && rect.height > 0.5);
+        if (!rects.length) continue;
+        const start = Math.min(...rects.map(rect => vertical ? rect.top : rect.left));
+        const end = Math.max(...rects.map(rect => vertical ? rect.bottom : rect.right));
+        if (after ? leadingEdge > (start + end) / 2 : leadingEdge < (start + end) / 2) {
+          moveTabGroup(draggingGroupId, unit.id, after); drag.lastSwap = now; return;
+        }
+      }
+    };
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') finish(); };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', finish);
+    window.addEventListener('blur', finish);
+    window.addEventListener('keydown', escape, true);
+    return () => {
+      window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', finish);
+      window.removeEventListener('blur', finish); window.removeEventListener('keydown', escape, true);
+    };
+  }, [draggingGroupId, orientation, getGroupElements, moveTabGroup, scheduleDragRegionRefresh]);
+
+  const isActivelyDragging = (draggingTabId !== null && draggedTabPosition !== null) || draggingGroupId !== null;
   const isRightSidebar = isVertical && tabStripPosition === 'right';
-  const tabRadius = 'var(--layoutTabRadius, 8px)';
+  const tabRadius = 'var(--layoutTabRadius, 10px)';
   const borderWidth = 'var(--layoutBorderWidth, 1px)';
 
   return (
@@ -975,6 +1156,7 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
         userSelect: isActivelyDragging ? 'none' : 'auto', // Prevent text selection during drag
         ['--tabEnterExitMs' as string]: `${TAB_ENTER_EXIT_DURATION_MS}ms`,
         ['--tabOpacityMs' as string]: `${Math.floor(TAB_ENTER_EXIT_DURATION_MS * 0.7)}ms`,
+        ['--tabHeightMs' as string]: isVertical ? `${TAB_ENTER_EXIT_DURATION_MS}ms` : '0ms',
         ['--tabGapMarginMs' as string]: isVertical ? '0ms' : `${TAB_ENTER_EXIT_DURATION_MS}ms`,
       } as CSSProperties}
     >
@@ -982,6 +1164,7 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
         style={{
           flex: 1,
           minWidth: 0,
+          minHeight: 0,
           position: 'relative',
           height: isVertical ? undefined : '100%',
         }}
@@ -996,14 +1179,16 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
             overflowX: isVertical ? 'hidden' : 'auto',
             overflowY: isVertical ? 'auto' : 'hidden',
             alignItems: isVertical ? 'stretch' : 'center',
-            height: isVertical ? undefined : '100%',
+            height: isVertical ? '100%' : 'calc(100% + 1px)',
+            boxSizing: 'border-box',
             WebkitAppRegion: !isVertical && (canScrollLeft || canScrollRight)
               ? 'no-drag'
               : dragRegionsTemporarilyDisabled ? 'no-drag' : 'drag',
             padding: isVertical ? 6 : '0 4px',
+            paddingBottom: isVertical ? 6 : 1,
           }}
         >
-          {renderedTabs.map(({ tab, phase }) => {
+          {renderedTabs.flatMap(({ tab, phase }, index) => {
             const displayFavicon = getDisplayFavicon(tab.url, tab.favicon, tab.restoreDeferred);
             const displayTitle = getDisplayTitle(tab.url, tab.title);
             const audio = tabAudioState[tab.id];
@@ -1013,8 +1198,51 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
             const isExiting = phase === 'exiting';
             const isCollapsed = phase !== 'stable';
             const pinnedIndex = renderedTabs.findIndex(item => item.tab.id === tab.id);
+            const group = tab.isPinned ? undefined : tab.group;
+            const groupStart = group && renderedTabs.findIndex(item => item.tab.group?.id === group.id) === index;
+            const groupColor = group && TAB_GROUP_COLORS[group.color];
+            const groupCollapsed = group?.collapsed === true;
+            const sizeCollapsed = isCollapsed || groupCollapsed;
+            const isActive = tab.id === activeId;
+            const activeOutlineColor = !isVertical && groupColor ? groupColor : 'var(--surfaceBorder, var(--tabBorder))';
+            const groupCount = group ? tabs.filter(tab => tab.group?.id === group.id).length : 0;
 
-            return (
+            return [
+              groupStart ? <button
+                key={`group:${group.id}`}
+                type="button"
+                data-tab-group={group.id}
+                title={`${group.name || 'Unnamed group'} - ${groupCount} ${groupCount === 1 ? 'tab' : 'tabs'}`}
+                aria-label={`${group.collapsed ? 'Expand' : 'Collapse'} ${group.name || 'unnamed group'}`}
+                aria-expanded={!group.collapsed}
+                className={`theme-btn tab-group-header${isVertical ? ' tab-group-header-vertical' : ''}`}
+                style={{ backgroundColor: groupColor, minWidth: group.name ? undefined : 20, maxWidth: isVertical ? '100%' : 150, alignSelf: isVertical ? 'stretch' : undefined, flexShrink: 0 }}
+                onClick={() => { if (!suppressClickRef.current) updateTabGroup(group.id, { collapsed: !group.collapsed }); }}
+                onMouseDown={(event) => {
+                  if (event.button !== 0) return;
+                  event.preventDefault();
+                  cancelScheduledDragRegionRefresh();
+                  const elements = getGroupElements(group.id);
+                  for (const element of elements) for (const animation of element.getAnimations()) animation.cancel();
+                  const rects = elements.map(element => element.getBoundingClientRect()).filter(rect => rect.width > 0.5 && rect.height > 0.5);
+                  const pointer = isVertical ? event.clientY : event.clientX;
+                  const start = Math.min(...rects.map(rect => isVertical ? rect.top : rect.left));
+                  groupDragRef.current = { id: group.id, start: pointer, lastPointer: pointer, anchor: pointer - start, moved: false, lastSwap: 0 };
+                  setDraggingGroupId(group.id);
+                }}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  setTabMenuState(null);
+                  if (nativeContextMenusEnabled && electron?.ipcRenderer) {
+                    setGroupMenu(null);
+                    void electron.ipcRenderer.invoke<string | null>('tab-group-show-native-context-menu', group)
+                      .then(command => { if (command) void runGroupCommand(group.id, command); }).catch(() => undefined);
+                  } else setGroupMenu({ id: group.id, x: event.clientX, y: event.clientY });
+                }}
+              >
+                {isVertical && <ChevronDown size={12} aria-hidden="true" style={{ flexShrink: 0, order: 1, transform: group.collapsed ? undefined : 'rotate(180deg)' }} />}
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: isVertical ? 1 : undefined, textAlign: isVertical ? 'left' : undefined }}>{group.name}</span>
+              </button> : null,
               <div
                 key={tab.id}
                 ref={(el) => {
@@ -1022,6 +1250,8 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
                 }}
                 data-tab-id={tab.id}
                 data-pinned={tab.isPinned ? 'true' : undefined}
+                aria-hidden={groupCollapsed || undefined}
+                inert={groupCollapsed || undefined}
                 title={tab.isPinned ? `Pinned: ${displayTitle}` : undefined}
                 onClick={() => {
                   if (isExiting) return;
@@ -1048,16 +1278,17 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
                     dragPointerToLeftRef.current = event.clientX - rect.left;
                     dragPointerWidthRatioRef.current = rect.width > 0 ? dragPointerToLeftRef.current / rect.width : 0.5;
                     dragPointerToTopRef.current = event.clientY - rect.top;
-                    setOriginalTabPosition({ x: rect.left, y: rect.top });
+                    setOriginalTabPosition({ x: rect.left, y: rect.top, right: rect.right });
                     setDraggedTabWidth(rect.width);
+                    setDraggedTabHeight(rect.height);
                   } else {
                     dragPointerToLeftRef.current = 0;
                     dragPointerWidthRatioRef.current = 0.5;
                     dragPointerToTopRef.current = 0;
-                    setOriginalTabPosition({ x: event.clientX, y: event.clientY });
+                    setOriginalTabPosition({ x: event.clientX, y: event.clientY, right: event.clientX });
                   }
-                  lastSwapClientXRef.current = null;
-                  lastSwapClientYRef.current = null;
+                  lastSwapEdgeXRef.current = null;
+                  lastSwapEdgeYRef.current = null;
                   lastSwapAtRef.current = 0;
                   dragMovedRef.current = false;
                   dragDetachedRef.current = false;
@@ -1082,6 +1313,8 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
                         hasTabsToRight,
                         hasOtherTabs,
                         isPinned: tab.isPinned === true,
+                        groupId: tab.group?.id,
+                        groups: groups.map(({ id, name }) => ({ id, name })),
                         isVertical,
                       })
                       .catch(() => undefined);
@@ -1089,13 +1322,19 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
                   }
                   setTabMenuState({ tabId: tab.id, x: event.clientX, y: event.clientY });
                 }}
-                className={`theme-tab ${tab.id === activeId ? 'theme-tab-selected' : ''}${
+                className={`theme-tab${group ? ' tab-group-member' : ''} ${tab.id === activeId ? 'theme-tab-selected' : ''}${
+                  settledActiveId !== activeId && (tab.id === activeId || tab.id === settledActiveId)
+                    ? ' tab-selection-changing' : ''
+                }${
                   (isActivelyDragging && draggingTabId === tab.id) || transitionSuppressedTabId === tab.id
                     ? ' tab-is-dragging'
                     : ''
                 }`}
                 style={{
-                  height: TAB_ROW_HEIGHT,
+                  height: isVertical && groupCollapsed ? 0 : !isVertical && isActive
+                    ? `calc((100% + ${TAB_ROW_HEIGHT}) / 2)` : TAB_ROW_HEIGHT,
+                  alignSelf: !isVertical && isActive ? 'flex-end' : undefined,
+                  minHeight: 0,
                   cursor: 'default',
                   WebkitAppRegion: 'no-drag',
                   borderRadius:
@@ -1108,58 +1347,69 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
                       : tabRadius,
                   display: 'flex',
                   gap: 6,
-                  alignItems: 'center',
+                  alignItems: !isVertical && isActive ? 'flex-start' : 'center',
                   whiteSpace: 'nowrap',
-                  flex: isVertical ? '0 0 auto' : tab.isPinned ? '0 0 38px' : `1 1 ${TAB_TARGET_WIDTH}`,
-                  minWidth: isVertical ? 0 : isCollapsed ? 0 : tab.isPinned ? 38 : TAB_MIN_WIDTH,
-                  maxWidth: isVertical ? '100%' : isCollapsed ? 0 : tab.isPinned ? 38 : TAB_TARGET_WIDTH,
-                  overflow: 'hidden',
-                  padding: isCollapsed ? '0' : tab.isPinned && !isVertical ? '0' : '0 6px 0 10px',
+                  flex: isVertical ? '0 0 auto' : groupCollapsed ? '0 1 0px' : tab.isPinned ? '0 0 38px' : `1 1 ${TAB_TARGET_WIDTH}`,
+                  minWidth: isVertical ? 0 : sizeCollapsed ? 0 : tab.isPinned ? 38 : TAB_MIN_WIDTH,
+                  maxWidth: isVertical ? (isActive ? 'none' : '100%') : sizeCollapsed ? 0 : tab.isPinned ? 38 : TAB_TARGET_WIDTH,
+                  overflow: isActive && !sizeCollapsed ? 'visible' : 'hidden',
+                  padding: sizeCollapsed ? '0' : tab.isPinned && !isVertical ? '0'
+                    : isVertical && isActive ? (isRightSidebar ? '0 6px 0 16px' : '0 12px 0 10px') : '0 6px 0 10px',
+                  paddingBottom: 0,
                   justifyContent: tab.isPinned && !isVertical ? 'center' : undefined,
                   position: tab.isPinned ? 'sticky' : 'relative',
                   left: tab.isPinned && !isVertical ? `calc(${pinnedIndex} * (38px + ${TAB_STRIP_GAP}))` : undefined,
                   top: tab.isPinned && isVertical ? `calc(${pinnedIndex} * (${TAB_ROW_HEIGHT} + ${TAB_STRIP_GAP}))` : undefined,
-                  marginBottom: 0,
+                  marginBottom: isVertical && groupCollapsed ? `calc(-1 * ${TAB_STRIP_GAP})` : 0,
                   marginRight:
-                    !isVertical && isCollapsed
+                    !isVertical && sizeCollapsed
                       ? `calc(-1 * ${TAB_STRIP_GAP})`
-                      : tab.id === activeId && isVertical && !isRightSidebar
-                      ? `calc(-1 * ${borderWidth})`
+                      : isActive && isVertical && !isRightSidebar
+                      ? '-6px'
+                      : isVertical && group && isRightSidebar
+                      ? '10px'
                       : 0,
-                  borderWidth: isCollapsed ? 0 : borderWidth,
+                  borderWidth: sizeCollapsed ? 0 : borderWidth,
+                  borderTopColor: isActive ? activeOutlineColor : undefined,
                   marginLeft:
-                    tab.id === activeId && isVertical && isRightSidebar
-                      ? `calc(-1 * ${borderWidth})`
+                    isActive && isVertical && isRightSidebar
+                      ? '-6px'
+                      : isVertical && group && !isRightSidebar
+                      ? '10px'
                       : 0,
                   background:
                     tab.id === activeId ? 'var(--surfaceBgHover, var(--tabBgHover))' : tab.isPinned ? 'var(--surfaceBg, var(--tabBg))' : undefined,
-                  opacity: isCollapsed
+                  opacity: sizeCollapsed
                     ? 0
                     : draggingTabId === tab.id && draggedTabPosition
                       ? 0  // Completely hide when overlay is visible (actual dragging)
                       : 1,
-                  borderBottomColor:
-                    tab.id === activeId && !isVertical
-                      ? 'var(--surfaceBgHover, var(--tabBgHover))'
-                      : undefined,
-                  borderLeftColor:
-                    tab.id === activeId && isVertical && isRightSidebar
-                      ? 'var(--surfaceBgHover, var(--tabBgHover))'
-                      : undefined,
-                  borderRightColor:
-                    tab.id === activeId && isVertical && !isRightSidebar
-                      ? 'var(--surfaceBgHover, var(--tabBgHover))'
-                      : undefined,
+                  borderBottomColor: isActive
+                    ? !isVertical ? 'var(--surfaceBgHover, var(--tabBgHover))' : activeOutlineColor
+                    : undefined,
+                  borderLeftColor: isActive
+                    ? isVertical && isRightSidebar ? 'var(--surfaceBgHover, var(--tabBgHover))' : activeOutlineColor
+                    : undefined,
+                  borderRightColor: isActive
+                    ? isVertical && !isRightSidebar ? 'var(--surfaceBgHover, var(--tabBgHover))' : activeOutlineColor
+                    : undefined,
                   pointerEvents:
-                    isExiting || (isActivelyDragging && tab.id !== draggingTabId) ? 'none' : 'auto',
+                    isExiting || groupCollapsed || (isActivelyDragging && tab.id !== draggingTabId) ? 'none' : 'auto',
                   zIndex: isActivelyDragging && draggingTabId === tab.id ? 20 : tab.isPinned ? (tab.id === activeId ? 4 : 3) : tab.id === activeId ? 2 : 1,
                   borderTopStyle: tab.isSleeping ? 'dashed' : undefined,
-                  borderTopWidth: tab.isSleeping ? borderWidth : undefined,
+                  borderTopWidth: sizeCollapsed ? 0 : tab.isSleeping ? borderWidth : undefined,
                 }}
               >
+                {isActive && !sizeCollapsed && <TabConnection vertical={isVertical} rightSidebar={isRightSidebar} color={!isVertical ? groupColor || undefined : undefined} />}
+                <div data-tab-content style={{
+                  display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, width: '100%',
+                  height: `calc(${TAB_ROW_HEIGHT} - 2 * ${borderWidth})`, flexShrink: 0,
+                  justifyContent: tab.isPinned && !isVertical ? 'center' : undefined,
+                }}>
                 {(!tab.isPinned || isVertical || !showAudio) && <TabFavicon url={tab.url} src={displayFavicon} size={faviconSize} deferred={tab.restoreDeferred} />}
                 {(!tab.isPinned || isVertical) && <span
                   title={displayTitle}
+                  className="tab-title"
                   style={{
                     flex: 1,
                     minWidth: 0,
@@ -1198,7 +1448,8 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
                   className="theme-btn tab-close-btn"
                   style={{
                     opacity: 0.8,
-                    padding: 4,
+                    padding: 2,
+                    flexShrink: 0,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -1208,31 +1459,32 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
                 >
                   <X size={14} strokeWidth={2.2} aria-hidden="true" />
                 </button>}
-              </div>
-            );
+                </div>
+              </div>,
+            ];
           })}
           <button
             onClick={() => newTab()}
             className="theme-btn theme-btn-nav nav-icon-btn tab-new-tab-btn"
             style={{
-              height: TAB_ROW_HEIGHT,
+              height: NEW_TAB_BUTTON_SIZE,
               flex: isVertical
                 ? '0 0 auto'
                 : 'none',
               width: isVertical
                 ? '100%'
-                : 'calc(var(--layoutNavButtonHeight, 30px) + 3px)',
+                : NEW_TAB_BUTTON_SIZE,
               minWidth: isVertical
                 ? 0
-                : 'calc(var(--layoutNavButtonHeight, 30px) + 3px)',
+                : NEW_TAB_BUTTON_SIZE,
               maxWidth: isVertical
                 ? '100%'
-                : 'calc(var(--layoutNavButtonHeight, 30px) + 3px)',
+                : NEW_TAB_BUTTON_SIZE,
               marginTop: isVertical ? 0 : 1,
               flexShrink: 0,
               borderRadius: isVertical
-                ? 'var(--layoutTabRadius, 8px)'
-                : undefined,
+                ? 'var(--layoutTabRadius, 10px)'
+                : '50%',
               WebkitAppRegion: 'no-drag',
               display: 'flex',
               alignItems: 'center',
@@ -1242,6 +1494,7 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
             <Plus size={16} strokeWidth={2.2} aria-hidden="true" />
           </button>
         </div>
+        <TabGroupOutlines scrollRef={scrollRef} tabs={tabs} activeId={activeId} vertical={isVertical} rightSidebar={isRightSidebar} draggingTabId={draggingTabId} draggingGroupId={draggingGroupId} />
         {!isVertical && (
           <>
             {!dragRegionsTemporarilyDisabled && !isActivelyDragging && (
@@ -1272,6 +1525,21 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
         minWidth={196}
       />
       
+      <ContextMenu
+        open={!!groupMenu}
+        anchor={groupMenu ? { x: groupMenu.x, y: groupMenu.y } : null}
+        onClose={closeGroupMenu}
+        entries={groupMenu ? [
+          { type: 'item', label: 'Rename Group', onSelect: () => { void runGroupCommand(groupMenu.id, 'rename'); } },
+          { type: 'item', label: groups.find(group => group.id === groupMenu.id)?.collapsed ? 'Expand Group' : 'Collapse Group', onSelect: () => { void runGroupCommand(groupMenu.id, 'toggle'); } },
+          { type: 'separator' },
+          ...Object.keys(TAB_GROUP_COLORS).map(color => ({ type: 'item' as const, label: `${color[0].toUpperCase()}${color.slice(1)}${groups.find(group => group.id === groupMenu.id)?.color === color ? ' \u2713' : ''}`, onSelect: () => { void runGroupCommand(groupMenu.id, `color:${color}`); } })),
+          { type: 'separator' },
+          { type: 'item', label: 'Ungroup Tabs', onSelect: () => { void runGroupCommand(groupMenu.id, 'ungroup'); } },
+          { type: 'item', label: 'Close Group', onSelect: () => { void runGroupCommand(groupMenu.id, 'close'); } },
+        ] : []}
+      />
+
       {/* Dragged tab overlay */}
       {draggingTabId && draggedTabPosition && !dragUsesNativeWindow && (() => {
         const draggedTab = tabs.find(tab => tab.id === draggingTabId);
@@ -1280,13 +1548,16 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
         const displayTitle = getDisplayTitle(draggedTab.url, draggedTab.title);
         const isInternalTab = draggedTab.url.startsWith('mira://');
         const faviconSize = isInternalTab ? 22 : 16;
+        const isActive = draggedTab.id === activeId;
+        const groupColor = !draggedTab.isPinned && !isVertical && draggedTab.group ? TAB_GROUP_COLORS[draggedTab.group.color] : undefined;
+        const activeOutlineColor = groupColor ?? 'var(--surfaceBorder, var(--tabBorder))';
         
         return (
           <div
             style={{
               position: 'fixed',
               left: isVertical
-                ? originalTabPosition?.x ?? 0
+                ? isRightSidebar ? originalTabPosition?.x ?? 0 : originalTabPosition?.right ?? 0
                 : draggedTabPosition.x,
               top: !isVertical && originalTabPosition
                 ? originalTabPosition.y
@@ -1299,25 +1570,37 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
               className={`theme-tab tab-drag-preview ${draggedTab.id === activeId ? 'theme-tab-selected' : ''}`}
               data-tab-drag-preview={draggedTab.id}
               style={{
-                height: TAB_ROW_HEIGHT,
-                borderRadius: 'var(--layoutTabRadius, 8px)',
+                height: isActive ? draggedTabHeight ?? TAB_ROW_HEIGHT : TAB_ROW_HEIGHT,
+                borderRadius: isActive ? (isVertical ? (isRightSidebar ? `0 ${tabRadius} ${tabRadius} 0` : `${tabRadius} 0 0 ${tabRadius}`) : `${tabRadius} ${tabRadius} 0 0`) : tabRadius,
+                borderTopColor: isActive ? activeOutlineColor : undefined,
+                borderBottomColor: isActive ? (!isVertical ? 'var(--surfaceBgHover, var(--tabBgHover))' : activeOutlineColor) : undefined,
+                borderLeftColor: isActive ? (isVertical && isRightSidebar ? 'var(--surfaceBgHover, var(--tabBgHover))' : activeOutlineColor) : undefined,
+                borderRightColor: isActive ? (isVertical && !isRightSidebar ? 'var(--surfaceBgHover, var(--tabBgHover))' : activeOutlineColor) : undefined,
                 display: 'flex',
                 gap: 6,
-                alignItems: 'center',
+                alignItems: isActive && !isVertical ? 'flex-start' : 'center',
                 whiteSpace: 'nowrap',
                 width: draggedTabWidth ?? TAB_TARGET_WIDTH,
                 minWidth: 0,
-                transform: isVertical ? undefined : `translateX(${-dragPointerWidthRatioRef.current * 100}%)`,
-                boxShadow: 'var(--tabDragShadow, 0 6px 18px rgba(0, 0, 0, 0.28))',
-                overflow: 'hidden',
-                padding: draggedTab.isPinned && !isVertical ? '0' : '0 6px 0 10px',
+                transform: isVertical
+                  ? isRightSidebar ? undefined : 'translateX(-100%)'
+                  : `translateX(${-dragPointerWidthRatioRef.current * 100}%)`,
+                boxShadow: isActive ? undefined : 'var(--tabDragShadow, 0 6px 18px rgba(0, 0, 0, 0.28))',
+                position: 'relative',
+                overflow: isActive ? 'visible' : 'hidden',
+                padding: draggedTab.isPinned && !isVertical ? '0' : isVertical && isActive ? (isRightSidebar ? '0 6px 0 16px' : '0 12px 0 10px') : '0 6px 0 10px',
                 justifyContent: draggedTab.isPinned && !isVertical ? 'center' : undefined,
                 background: draggedTab.id === activeId ? 'var(--surfaceBgHover, var(--tabBgHover))' : undefined,
               }}
             >
+              {isActive && <TabConnection vertical={isVertical} rightSidebar={isRightSidebar} color={groupColor} />}
+              <div data-tab-drag-content style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', minWidth: 0,
+                height: `calc(${TAB_ROW_HEIGHT} - 2 * ${borderWidth})`, flexShrink: 0,
+                justifyContent: draggedTab.isPinned && !isVertical ? 'center' : undefined }}>
               <TabFavicon url={draggedTab.url} src={displayFavicon} size={faviconSize} deferred={draggedTab.restoreDeferred} />
               {(!draggedTab.isPinned || isVertical) && <span
                 title={displayTitle}
+                className="tab-title"
                 style={{
                   flex: 1,
                   minWidth: 0,
@@ -1329,6 +1612,14 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
               >
                 {displayTitle}
               </span>}
+              {!draggedTab.isPinned && <span
+                aria-hidden="true"
+                className="theme-btn tab-close-btn"
+                style={{ opacity: 0.8, padding: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+              >
+                <X size={14} strokeWidth={2.2} />
+              </span>}
+              </div>
             </div>
           </div>
         );

@@ -98,8 +98,8 @@ body {
   --layoutSettingsButtonPaddingX: 12px;
   --layoutSettingsDropdownRadius: 8px;
   --layoutSettingsDropdownMaxHeight: 260px;
-  --layoutTabRadius: 8px;
-  --layoutTabHeight: 34px;
+  --layoutTabRadius: 10px;
+  --layoutTabHeight: 31px;
   --layoutTabGap: 6px;
   --layoutTabMinWidth: 100px;
   --layoutTabTargetWidth: 220px;
@@ -1301,7 +1301,7 @@ textarea {
   top: 0;
   left: 0;
   right: 0;
-  height: max(0px, calc((100% - var(--layoutTabHeight, 30px)) / 2));
+  height: max(0px, calc((100% - var(--layoutTabHeight, 27px)) / 2));
   z-index: 30;
   -webkit-app-region: drag;
 }
@@ -2199,4 +2199,145 @@ textarea {
   .tab-animations-enabled .theme-tab.tab-drag-preview {
     transition: none;
   }
+}
+
+
+/* A compact filled chip and a single connected outline identify each group. */
+.tab-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 20px;
+  padding: 0 6px;
+  border: none;
+  border-radius: 5px;
+  color: var(--surfaceBg, var(--tabBg));
+  font-size: 11px;
+  font-weight: 500;
+  -webkit-app-region: no-drag;
+}
+.tab-group-header:hover {
+  filter: brightness(1.08);
+}
+.tab-animations-enabled .tab-group-header,
+.tab-animations-enabled .tab-group-base-outline path {
+  animation: tab-group-appear 170ms ease-out;
+}
+@keyframes tab-group-appear {
+  from { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tab-animations-enabled .tab-group-header,
+  .tab-animations-enabled .tab-group-base-outline path {
+    animation: none;
+  }
+}
+.tab-group-header-vertical {
+  width: 100%;
+  height: var(--layoutTabHeight, 27px);
+  border-radius: var(--layoutTabRadius, 10px);
+  padding: 0 10px;
+  gap: 4px;
+  font-size: 12px;
+}
+.tab-group-outlines {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 5;
+}
+
+
+/* Group rows animate to zero without leaving flex gaps behind. */
+.tab-animations-enabled .theme-tab.tab-group-member {
+  transition:
+    flex-basis var(--tabEnterExitMs, 180ms) cubic-bezier(0.2, 0, 0.2, 1),
+    flex-grow var(--tabEnterExitMs, 180ms) cubic-bezier(0.2, 0, 0.2, 1),
+    min-width var(--tabEnterExitMs, 180ms) cubic-bezier(0.2, 0, 0.2, 1),
+    max-width var(--tabEnterExitMs, 180ms) cubic-bezier(0.2, 0, 0.2, 1),
+    height var(--tabHeightMs, var(--tabEnterExitMs, 180ms)) cubic-bezier(0.2, 0, 0.2, 1),
+    padding var(--tabEnterExitMs, 180ms) cubic-bezier(0.2, 0, 0.2, 1),
+    margin-right var(--tabEnterExitMs, 180ms) cubic-bezier(0.2, 0, 0.2, 1),
+    margin-bottom var(--tabEnterExitMs, 180ms) cubic-bezier(0.2, 0, 0.2, 1),
+    margin-top var(--tabHeightMs, var(--tabEnterExitMs, 180ms)) cubic-bezier(0.2, 0, 0.2, 1),
+    opacity var(--tabOpacityMs, 126ms) ease,
+    border-width var(--tabEnterExitMs, 180ms) cubic-bezier(0.2, 0, 0.2, 1),
+    border-color 140ms ease,
+    background-color 140ms ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tab-animations-enabled .theme-tab.tab-group-member {
+    transition: none;
+  }
+}
+
+
+.tab-group-is-dragging {
+  transition: none !important;
+  z-index: 6 !important;
+}
+
+
+/* The curves share the tab's own coordinate system and compositor transform. */
+.tab-connection {
+  position: absolute;
+  inset: calc(-1 * var(--layoutBorderWidth, 1px));
+  pointer-events: none;
+}
+.tab-connection-curve {
+  position: absolute;
+  width: calc(var(--tabConnectionRadius) + 2px);
+  height: calc(var(--tabConnectionRadius) + 2px);
+}
+.tab-connection-horizontal .tab-connection-curve {
+  bottom: -1px;
+}
+.tab-connection-horizontal .tab-connection-curve-0 {
+  left: calc(-1 * var(--tabConnectionRadius));
+}
+.tab-connection-horizontal .tab-connection-curve-1 {
+  right: calc(-1 * var(--tabConnectionRadius));
+}
+.tab-connection-horizontal::after {
+  content: '';
+  position: absolute;
+  left: 1px;
+  right: 1px;
+  bottom: -1px;
+  height: 2px;
+  background: var(--surfaceBgHover, var(--tabBgHover));
+}
+.tab-connection-left .tab-connection-curve {
+  right: -1px;
+}
+.tab-connection-right .tab-connection-curve {
+  left: -1px;
+}
+.tab-connection-left .tab-connection-curve-0,
+.tab-connection-right .tab-connection-curve-0 {
+  top: calc(-1 * var(--tabConnectionRadius));
+}
+.tab-connection-left .tab-connection-curve-1,
+.tab-connection-right .tab-connection-curve-1 {
+  bottom: calc(-1 * var(--tabConnectionRadius));
+}
+
+
+.tab-title {
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+
+/* Never fade the source and its drag preview at the same time. */
+.tab-animations-enabled .theme-tab.tab-group-member.tab-is-dragging {
+  transition: none;
+}
+
+/* Selection geometry and its connecting outline must switch in the same frame. */
+.tab-animations-enabled .theme-tab.tab-selection-changing {
+  transition: none !important;
 }

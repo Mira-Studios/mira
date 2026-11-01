@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { electron } from '../electronBridge';
 import { X } from 'lucide-react';
 import './SiteInteractionPrompts.css';
 import { usePromptPresence } from '../hooks/usePromptPresence';
@@ -52,7 +53,7 @@ function Interaction({
   }, [passkey]);
   const respond = (accepted: boolean) => {
     if (closing) return;
-    void window.electron?.ipcRenderer
+    void electron?.ipcRenderer
       .invoke('site-interaction-respond', {
         requestId: request.requestId,
         accepted,
@@ -157,7 +158,7 @@ function Interaction({
 export default function SiteInteractionPrompts() {
   const [requests, setRequests] = useState<Request[]>([]);
   useEffect(() => {
-    const ipc = window.electron?.ipcRenderer;
+    const ipc = electron?.ipcRenderer;
     if (!ipc) return;
     const receive = (_event: unknown, raw: unknown) => {
       const request = raw as Request;

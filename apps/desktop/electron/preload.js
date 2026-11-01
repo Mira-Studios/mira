@@ -4,6 +4,8 @@ const { contextBridge, ipcRenderer } = require('electron');
 const isMacOS = process.platform === 'darwin';
 const privatePartition = process.argv.find((arg) => arg.startsWith('--mira-private-partition='))?.split('=')[1];
 const appVersion = process.env.MIRA_VERSION || null;
+const rendererListeners = new Map();
+let nextRendererListenerId = 0;
 
 contextBridge.exposeInMainWorld('electron', {
   platform: process.platform,
@@ -11,10 +13,22 @@ contextBridge.exposeInMainWorld('electron', {
   privatePartition,
   isMacOS,
   appVersion,
+  ipcSubscriptionIds: true,
   getAppVersion: () => ipcRenderer.invoke('app-get-version'),
   ipcRenderer: {
-    on: (channel, listener) => ipcRenderer.on(channel, listener),
-    off: (channel, listener) => ipcRenderer.removeListener(channel, listener),
+    on: (channel, listener) => {
+      const id = ++nextRendererListenerId;
+      const wrapped = (_event, ...args) => listener(undefined, ...args);
+      rendererListeners.set(id, { channel, wrapped });
+      ipcRenderer.on(channel, wrapped);
+      return id;
+    },
+    off: (channel, id) => {
+      const subscription = rendererListeners.get(id);
+      if (!subscription || subscription.channel !== channel) return;
+      ipcRenderer.removeListener(channel, subscription.wrapped);
+      rendererListeners.delete(id);
+    },
     send: (channel, ...args) => ipcRenderer.send(channel, ...args),
     invoke: (channel, ...args) => ipcRenderer.invoke(channel, ...args),
   },

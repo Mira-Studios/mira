@@ -1,3 +1,4 @@
+import type { TabGroup } from '../../../electron/tabGroups';
 /**
  * Frozen tab state data for preservation during sleep.
  */
@@ -31,6 +32,7 @@ export type Tab = {
   title: string;
   favicon?: string;
   isPinned?: boolean;
+  group?: TabGroup;
   history: string[];
   historyIndex: number;
   reloadToken: number;

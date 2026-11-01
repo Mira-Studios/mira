@@ -64,7 +64,9 @@ export default function TopBar({
       const gap = strip ? parseFloat(getComputedStyle(strip).columnGap) || 0 : 6;
       const newTabWidth =
         strip?.querySelector('.tab-new-tab-btn')?.getBoundingClientRect().width ?? 33;
-      const needed = (horizontalTabCount - horizontalPinnedTabCount) * tabWidth + horizontalPinnedTabCount * 38 + horizontalTabCount * gap + newTabWidth;
+      const groupHeaderWidth = strip ? Array.from(strip.querySelectorAll('[data-tab-group]'))
+        .reduce((width, header) => width + header.getBoundingClientRect().width + gap, 0) : 0;
+      const needed = groupHeaderWidth + (horizontalTabCount - horizontalPinnedTabCount) * tabWidth + horizontalPinnedTabCount * 38 + horizontalTabCount * gap + newTabWidth;
       const stripStyle = strip && getComputedStyle(strip);
       const edgePadding = stripStyle ? parseFloat(stripStyle.paddingLeft) + parseFloat(stripStyle.paddingRight) : 0;
       const crowded = horizontalTabCount > 1 && needed + edgePadding > availableWithBrand;
@@ -83,10 +85,13 @@ export default function TopBar({
     ]) {
       if (element) observer.observe(element);
     }
+    const groupObserver = new MutationObserver(measure);
+    if (contentRef.current) groupObserver.observe(contentRef.current, { childList: true, subtree: true, characterData: true });
     measure();
     window.addEventListener(BROWSER_SETTINGS_CHANGED_EVENT, syncSettings);
     return () => {
       observer.disconnect();
+      groupObserver.disconnect();
       window.removeEventListener(BROWSER_SETTINGS_CHANGED_EVENT, syncSettings);
     };
   }, [horizontalTabCount, horizontalPinnedTabCount, hideBrandWhenNarrow, isFullscreen, isTitleBarOverlayEnabled]);

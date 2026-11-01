@@ -1,3 +1,4 @@
+import { normalizeTabGroup, orderGroupedTabs, TAB_GROUP_COLORS, type TabGroup } from './tabGroups.ts';
 import {
   app,
   BrowserWindow,
@@ -70,6 +71,7 @@ interface HistoryEntry {
 }
 
 interface TabSessionSnapshot {
+  group?: TabGroup;
   isPinned?: boolean;
   id: string;
   url: string;
@@ -1904,7 +1906,7 @@ function normalizeTabSessionSnapshot(value: unknown): TabSessionSnapshot | null 
     .map((entry) => entry.trim())
     .filter(Boolean);
   if (!id || !url || !history.length) return null;
-  if (!isRestorableSessionTabUrl(url) && candidate.isPinned !== true) return null;
+  if (!isRestorableSessionTabUrl(url) && candidate.isPinned !== true && !normalizeTabGroup(candidate.group)) return null;
 
   const historyIndexRaw =
     typeof candidate.historyIndex === 'number' && Number.isFinite(candidate.historyIndex)
@@ -1917,6 +1919,7 @@ function normalizeTabSessionSnapshot(value: unknown): TabSessionSnapshot | null 
     url,
     title: title || url,
     isPinned: candidate.isPinned === true,
+    group: candidate.isPinned === true ? undefined : normalizeTabGroup(candidate.group),
     favicon:
       typeof candidate.favicon === 'string' && candidate.favicon.trim()
         ? candidate.favicon.trim()
@@ -1965,7 +1968,7 @@ function normalizeWindowSessionSnapshot(value: unknown): WindowSessionSnapshot |
     height >= 240;
 
   return {
-    tabs,
+    tabs: orderGroupedTabs(tabs),
     activeId,
     savedAt:
       typeof candidate.savedAt === 'number' && Number.isFinite(candidate.savedAt)
@@ -4454,6 +4457,28 @@ function setupWindowControlsHandlers() {
     });
   });
 
+  ipcMain.handle('tab-group-show-native-context-menu', (event, payload: unknown) => {
+    const hostWindow = BrowserWindow.fromWebContents(event.sender);
+    if (!hostWindow || hostWindow.isDestroyed() || event.sender.hostWebContents) return null;
+    const group = normalizeTabGroup(payload);
+    if (!group) return null;
+    return new Promise<string | null>((resolve) => {
+      const menu = Menu.buildFromTemplate([
+        { label: 'Rename Group', click: () => resolve('rename') },
+        { label: group.collapsed ? 'Expand Group' : 'Collapse Group', click: () => resolve('toggle') },
+        { label: 'Color', submenu: Object.keys(TAB_GROUP_COLORS).map(color => ({
+          label: color[0].toUpperCase() + color.slice(1), type: 'radio' as const, checked: group.color === color,
+          click: () => resolve(`color:${color}`),
+        })) },
+        { type: 'separator' },
+        { label: 'Ungroup Tabs', click: () => resolve('ungroup') },
+        { label: 'Close Group', click: () => resolve('close') },
+      ]);
+      try { menu.popup({ window: hostWindow, callback: () => resolve(null) }); }
+      catch { resolve(null); }
+    });
+  });
+
   ipcMain.handle('tab-show-native-context-menu', (event, payload: unknown) => {
     if (typeof payload !== 'object' || !payload) return false;
 
@@ -4464,6 +4489,8 @@ function setupWindowControlsHandlers() {
       hasTabsToRight?: unknown;
       hasOtherTabs?: unknown;
       isPinned?: unknown;
+      groupId?: unknown;
+      groups?: unknown;
       isVertical?: unknown;
     };
     const tabId = typeof candidate.tabId === 'string' ? candidate.tabId.trim() : '';
@@ -4473,6 +4500,11 @@ function setupWindowControlsHandlers() {
     const hasOtherTabs = candidate.hasOtherTabs === true;
     const isVertical = candidate.isVertical === true;
     const isPinned = candidate.isPinned === true;
+    const groupId = typeof candidate.groupId === 'string' ? candidate.groupId : '';
+    const groups = Array.isArray(candidate.groups) ? candidate.groups.slice(0, 50).flatMap(value => {
+      if (!value || typeof value !== 'object' || typeof value.id !== 'string' || typeof value.name !== 'string') return [];
+      return [{ id: value.id.slice(0, 100), name: value.name.slice(0, 60) }];
+    }) : [];
     const x = typeof candidate.x === 'number' && Number.isFinite(candidate.x)
       ? Math.max(0, Math.floor(candidate.x))
       : null;
@@ -4506,6 +4538,14 @@ function setupWindowControlsHandlers() {
         label: isPinned ? 'Unpin Tab' : 'Pin Tab',
         click: () => sendCommand('toggle-pin'),
       },
+      {
+        label: 'Add Tab to Group',
+        submenu: [
+          { label: 'New Group', click: () => sendCommand('group-new') },
+          ...groups.filter(group => group.id !== groupId).map(group => ({ label: group.name || 'Unnamed group', click: () => sendCommand(`group-add:${group.id}`) })),
+        ],
+      },
+      ...(groupId ? [{ label: 'Remove from Group', click: () => sendCommand('group-remove') }] : []),
       { type: 'separator' },
       {
         label: 'Close',

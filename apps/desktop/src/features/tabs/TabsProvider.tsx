@@ -1,3 +1,5 @@
+import { normalizeTabGroup, orderGroupedTabs, moveTabGroup as moveGroupTabs, removeTabFromGroup, TAB_GROUP_COLORS, type TabGroup } from '../../../electron/tabGroups';
+import { promptDialog } from '../../components/appDialogs';
 import { createContext, useContext, useState, useReducer, useCallback, useEffect, useRef } from 'react';
 import { electron } from '../../electronBridge';
 import { 
@@ -11,6 +13,7 @@ import { addHistoryEntry, updateHistoryEntryTitle } from '../history/clientHisto
 import { useBookmarks } from '../bookmarks/BookmarksProvider';
 import miraLogo from '../../assets/mira_logo.png';
 import { type Tab } from './types';
+import { addClosedTab, restoreClosedEntry, type RecentlyClosedEntry } from './recentlyClosed';
 import { orderPinnedTabs, moveTabInGroup } from './pinnedTabs';
 import { nextPageZoom, type PageZoomAction } from '../../../electron/pageZoomPolicy';
 import { getNavigationMetadata, getUpdatedFavicon, type NavigationMetadata } from './tabMetadata';
@@ -128,6 +131,15 @@ type TabsContextType = {
   reloadTab: (id: string) => void;
   duplicateTab: (id: string) => void;
   toggleTabPinned: (id: string) => void;
+  createTabGroup: (tabId: string) => Promise<void>;
+  moveTabToGroup: (tabId: string, groupId?: string, side?: 'before' | 'after') => void;
+  moveTabGroup: (groupId: string, targetId: string, after: boolean) => void;
+  updateTabGroup: (groupId: string, patch: Partial<Pick<TabGroup, 'name' | 'color' | 'collapsed'>>) => void;
+  ungroupTabs: (groupId: string) => void;
+  closeTabGroup: (groupId: string) => Promise<void>;
+  recentlyClosed: RecentlyClosedEntry[];
+  restoreRecentlyClosed: (id: string) => void;
+  openRecentlyClosed: () => void;
   reopenLastClosedTab: () => void;
   openHistory: () => void;
   openDownloads: () => void;
@@ -212,7 +224,7 @@ function isSessionEphemeralTabUrl(url: string): boolean {
 }
 
 function filterRestorableTabs(tabs: Tab[]): Tab[] {
-  return tabs.filter((tab) => tab.isPinned || !isSessionEphemeralTabUrl(tab.url));
+  return tabs.filter((tab) => tab.isPinned || tab.group || !isSessionEphemeralTabUrl(tab.url));
 }
 
 function createInitialTab(url: string): Tab {
@@ -314,6 +326,7 @@ function normalizeTab(value: unknown, defaultTabUrl: string): Tab | null {
     title,
     favicon,
     isPinned: value.isPinned === true,
+    group: value.isPinned === true ? undefined : normalizeTabGroup(value.group),
     history: normalizedHistory,
     historyIndex,
     reloadToken,
@@ -409,7 +422,7 @@ function normalizeDetachedTabTransfer(
 }
 
 function isDefaultSnapshot(snapshot: SessionSnapshot, defaultTabUrl: string): boolean {
-  return snapshot.tabs.length === 1 && !snapshot.tabs[0].isPinned && snapshot.tabs[0].url === defaultTabUrl;
+  return snapshot.tabs.length === 1 && !snapshot.tabs[0].isPinned && !snapshot.tabs[0].group && snapshot.tabs[0].url === defaultTabUrl;
 }
 
 /**
@@ -421,12 +434,49 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
   const initialTabRef = useRef<Tab>(createInitialTab(initialTabUrlRef.current));
   const [tabs, setTabs] = useReducer(
     (current: Tab[], update: Tab[] | ((current: Tab[]) => Tab[])) =>
-      orderPinnedTabs(typeof update === 'function' ? update(current) : update),
+      orderGroupedTabs(orderPinnedTabs(typeof update === 'function' ? update(current) : update)),
     [initialTabRef.current],
   );
   const toggleTabPinned = useCallback((id: string) => {
     setTabs(current => current.map(tab => tab.id === id ? { ...tab, isPinned: !tab.isPinned } : tab));
   }, [setTabs]);
+  const creatingGroupRef = useRef(false);
+  const createTabGroup = useCallback(async (tabId: string) => {
+    if (creatingGroupRef.current) return;
+    creatingGroupRef.current = true;
+    try {
+      const name = await promptDialog({ title: 'New tab group', defaultValue: '', confirmLabel: 'Create' });
+      if (name === null) return;
+      const id = crypto.randomUUID();
+      setTabs(current => {
+        const colors = Object.keys(TAB_GROUP_COLORS) as TabGroup['color'][];
+        const count = new Set(current.flatMap(tab => tab.group ? [tab.group.id] : [])).size;
+        const group: TabGroup = { id, name: name.trim().slice(0, 60), color: colors[count % colors.length], collapsed: false };
+        return current.map(tab => tab.id === tabId ? { ...tab, isPinned: false, group } : tab);
+      });
+    } finally {
+      creatingGroupRef.current = false;
+    }
+  }, []);
+  const updateTabGroup = useCallback((groupId: string, patch: Partial<Pick<TabGroup, 'name' | 'color' | 'collapsed'>>) => {
+    setTabs(current => current.map(tab => tab.group?.id === groupId
+      ? { ...tab, group: normalizeTabGroup({ ...tab.group, ...patch }) } : tab));
+  }, []);
+  const moveTabToGroup = useCallback((tabId: string, groupId?: string, side?: 'before' | 'after') => {
+    setTabs(current => {
+      if (!groupId) return removeTabFromGroup(current, tabId, side);
+      const group = current.find(tab => tab.group?.id === groupId)?.group;
+      return current.map(tab => tab.id === tabId
+        ? { ...tab, isPinned: group ? false : tab.isPinned, group: group ? { ...group, collapsed: false } : undefined }
+        : group && tab.group?.id === group.id ? { ...tab, group: { ...group, collapsed: false } } : tab);
+    });
+  }, []);
+  const moveTabGroup = useCallback((groupId: string, targetId: string, after: boolean) => {
+    setTabs(current => moveGroupTabs(current, groupId, targetId, after));
+  }, []);
+  const ungroupTabs = useCallback((groupId: string) => {
+    setTabs(current => current.map(tab => tab.group?.id === groupId ? { ...tab, group: undefined } : tab));
+  }, []);
   const [activeId, setActiveId] = useState(initialTabRef.current.id);
   const [tabAudioState, setTabAudioState] = useState<Record<string, { audible: boolean; muted: boolean }>>({});
   const [loadingTabIds, setLoadingTabIds] = useState<Set<string>>(() => new Set());
@@ -465,7 +515,10 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
   >(() => undefined);
   const newTabRef = useRef<(url?: string) => void>(() => undefined);
   const tabSleepTimerRef = useRef<number | null>(null);
-  const recentlyClosedTabsRef = useRef<Tab[]>([]);
+  const [recentlyClosed, setRecentlyClosed] = useState<RecentlyClosedEntry[]>([]);
+  const recentlyClosedRef = useRef<RecentlyClosedEntry[]>([]);
+  const closingGroupTabsRef = useRef(new Map<string, { id: string; tabs: Tab[]; activeId: string; closedAt: number }>());
+  const closingGroupRef = useRef(false);
   const lastReopenClosedTabAtRef = useRef(0);
   const reopenTabActivationTimerRef = useRef<number | null>(null);
   const zoomFactorByTabRef = useRef<Record<string, number>>({});
@@ -894,6 +947,8 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
     switch (route.toLowerCase()) {
       case 'newtab':
         return 'New Tab';
+      case 'recently-closed':
+        return 'Recently Closed';
       case 'mailto':
         return 'Compose Email';
       case 'themecreator':
@@ -1059,6 +1114,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
             : normalizedTargetUrl
           : undefined;
       const now = Date.now();
+      const sourceGroup = tabsRef.current.find(tab => tab.id === id)?.group;
       const newEntry: Tab = {
         id: crypto.randomUUID(),
         url: normalizedTargetUrl,
@@ -1068,6 +1124,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
             ? miraUrlToName(normalizedTargetUrl)
             : normalizedTargetUrl),
         favicon: normalizedTargetUrl.startsWith('mira://') ? INTERNAL_FAVICON_URL : undefined,
+        group: sourceGroup ? { ...sourceGroup, collapsed: false } : undefined,
         history: [normalizedTargetUrl],
         historyIndex: 0,
         reloadToken: 0,
@@ -1082,7 +1139,8 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
         if (sourceIndex === -1) return currentTabs;
 
         const nextTabs = currentTabs.map((tab) =>
-          tab.id === activeId ? { ...tab, lastActiveAt: now } : tab,
+          tab.id === activeId ? { ...tab, lastActiveAt: now, ...(newEntry.group && tab.group?.id === newEntry.group.id ? { group: newEntry.group } : {}) }
+            : newEntry.group && tab.group?.id === newEntry.group.id ? { ...tab, group: newEntry.group } : tab,
         );
         nextTabs.splice(sourceIndex + 1, 0, newEntry);
         return nextTabs;
@@ -1151,6 +1209,12 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
     },
     [newTabToRight],
   );
+
+  const openRecentlyClosed = () => {
+    const existing = tabs.find(tab => tab.url === 'mira://recently-closed');
+    if (existing) setActive(existing.id);
+    else newTab('mira://recently-closed');
+  };
 
   const openHistory = () => {
     const activeTab = tabs.find((t) => t.id === activeId);
@@ -1293,22 +1357,22 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
   );
 
   const rememberRecentlyClosedTabs = useCallback((tabsToRemember: Tab[]) => {
-    if (electron?.isPrivate || !tabsToRemember.length) return;
-
-    const clonedTabs = tabsToRemember.map((tab) => ({
-      ...tab,
-      history: [...tab.history],
-    }));
-    recentlyClosedTabsRef.current = [...recentlyClosedTabsRef.current, ...clonedTabs].slice(
-      -MAX_RECENTLY_CLOSED_TABS,
-    );
+    let entries = recentlyClosedRef.current;
+    for (const tab of tabsToRemember) {
+      const batch = closingGroupTabsRef.current.get(tab.id);
+      if (!electron?.isPrivate) entries = addClosedTab(entries, tab, batch, MAX_RECENTLY_CLOSED_TABS);
+      closingGroupTabsRef.current.delete(tab.id);
+    }
+    recentlyClosedRef.current = entries;
+    setRecentlyClosed(entries);
   }, []);
 
   const finalizeTabClose = useCallback((id: string) => {
     const currentTabs = tabsRef.current;
+    if (!currentTabs.some(tab => tab.id === id)) return;
     const currentActiveId = activeIdRef.current;
     const shouldCloseWindow = currentTabs.length === 1 && currentTabs[0]?.id === id;
-    if (shouldCloseWindow) {
+    if (shouldCloseWindow && !closingGroupTabsRef.current.has(id)) {
       closeWindow();
       return;
     }
@@ -1321,6 +1385,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
 
     setTabs((existingTabs) => {
       const next = existingTabs.filter((tab) => tab.id !== id);
+      if (!next.length) next.push(createInitialTab(getBrowserSettings().newTabPage));
       if (id !== currentActiveId || !next.length) return next;
 
       const closingIndex = existingTabs.findIndex((tab) => tab.id === id);
@@ -1339,7 +1404,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
 
   const closeTab = useCallback(async (id: string): Promise<boolean> => {
     const currentTabs = tabsRef.current;
-    if (currentTabs.length === 1 && currentTabs[0]?.id === id) return closeWindow();
+    if (currentTabs.length === 1 && currentTabs[0]?.id === id && !closingGroupTabsRef.current.has(id)) return closeWindow();
     const tabToClose = currentTabs.find((tab) => tab.id === id);
     if (!tabToClose) return true;
     const webContentsId = getWebContentsIdForTab(id);
@@ -1367,73 +1432,49 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
     }
   }, [closeTab]);
 
-  const reopenLastClosedTab = useCallback(() => {
-    const now = Date.now();
-    if (now - lastReopenClosedTabAtRef.current < REOPEN_CLOSED_TAB_DEDUPE_WINDOW_MS) {
-      return;
-    }
-    lastReopenClosedTabAtRef.current = now;
-
-    let lastClosedTab: Tab | null = null;
-    while (recentlyClosedTabsRef.current.length > 0) {
-      const candidate = recentlyClosedTabsRef.current[recentlyClosedTabsRef.current.length - 1];
-      recentlyClosedTabsRef.current = recentlyClosedTabsRef.current.slice(0, -1);
-
-      const candidateUrl = (candidate.history[candidate.historyIndex] ?? candidate.url).trim();
-      if (!candidateUrl || candidateUrl.toLowerCase() === 'about:blank') {
-        continue;
+  const closeTabGroup = useCallback(async (groupId: string) => {
+    if (closingGroupRef.current) return;
+    const members = tabsRef.current.filter(tab => tab.group?.id === groupId);
+    if (!members.length) return;
+    closingGroupRef.current = true;
+    const batch = { id: crypto.randomUUID(), tabs: members, activeId: activeIdRef.current, closedAt: Date.now() };
+    for (const tab of members) closingGroupTabsRef.current.set(tab.id, batch);
+    const accepted = new Set<string>();
+    try {
+      for (const tab of members) {
+        if (!await closeTab(tab.id)) break;
+        accepted.add(tab.id);
       }
-      lastClosedTab = candidate;
-      break;
+    } finally {
+      for (const tab of members) {
+        if (!accepted.has(tab.id)) closingGroupTabsRef.current.delete(tab.id);
+      }
+      closingGroupRef.current = false;
     }
+  }, [closeTab]);
 
-    if (!lastClosedTab) return;
-
-    const normalizedHistory = lastClosedTab.history
-      .map((entry) => entry.trim())
-      .filter((entry) => !!entry && entry.toLowerCase() !== 'about:blank');
-    const restoredUrl = (
-      lastClosedTab.history[lastClosedTab.historyIndex] ?? lastClosedTab.url
-    ).trim();
-    const safeRestoredUrl =
-      restoredUrl && restoredUrl.toLowerCase() !== 'about:blank'
-        ? restoredUrl
-        : getBrowserSettings().newTabPage;
-    const nextHistory = normalizedHistory.length ? normalizedHistory : [safeRestoredUrl];
-    const nextHistoryIndex = Math.max(
-      0,
-      Math.min(lastClosedTab.historyIndex, nextHistory.length - 1),
-    );
-
-    const reopenedTab: Tab = {
-      ...lastClosedTab,
-      id: crypto.randomUUID(),
-      url: safeRestoredUrl,
-      history: nextHistory,
-      historyIndex: nextHistoryIndex,
-      isSleeping: false,
-      lastActiveAt: now,
-    };
-
-    setTabs((currentTabs) =>
-      currentTabs
-        .map((tab) => (tab.id === activeId ? { ...tab, lastActiveAt: now } : tab))
-        .concat(reopenedTab),
-    );
-    if (reopenTabActivationTimerRef.current !== null) {
-      window.clearTimeout(reopenTabActivationTimerRef.current);
-      reopenTabActivationTimerRef.current = null;
-    }
-
-    const reopenedTabId = reopenedTab.id;
+  const restoreRecentlyClosed = useCallback((id: string) => {
+    const entry = recentlyClosedRef.current.find(item => item.id === id);
+    if (!entry) return;
+    const restored = restoreClosedEntry(entry);
+    const entries = recentlyClosedRef.current.filter(item => item.id !== id);
+    recentlyClosedRef.current = entries;
+    setRecentlyClosed(entries);
+    setTabs(current => current.concat(restored.tabs));
+    if (reopenTabActivationTimerRef.current !== null) window.clearTimeout(reopenTabActivationTimerRef.current);
     reopenTabActivationTimerRef.current = window.setTimeout(() => {
       reopenTabActivationTimerRef.current = null;
-      if (!tabsRef.current.some((tab) => tab.id === reopenedTabId)) {
-        return;
-      }
-      setActiveId(reopenedTabId);
+      if (tabsRef.current.some(tab => tab.id === restored.activeId)) setActiveId(restored.activeId);
     }, REOPEN_CLOSED_TAB_ACTIVATE_DELAY_MS);
-  }, [activeId]);
+  }, []);
+
+  const reopenLastClosedTab = useCallback(() => {
+    const now = Date.now();
+    if (now - lastReopenClosedTabAtRef.current < REOPEN_CLOSED_TAB_DEDUPE_WINDOW_MS) return;
+    lastReopenClosedTabAtRef.current = now;
+    const entry = recentlyClosedRef.current.at(-1);
+    if (entry) restoreRecentlyClosed(entry.id);
+  }, [restoreRecentlyClosed]);
 
   const moveTab = useCallback((fromId: string, toId: string) => {
     if (!fromId || !toId || fromId === toId) return;
@@ -1453,7 +1494,15 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
   }, []);
 
   const moveTabToIndex = useCallback((tabId: string, toIndex: number, options?: { isPinned?: boolean }) => {
-    setTabs(current => moveTabInGroup(current, tabId, toIndex, options));
+    setTabs(current => {
+      const source = current.find(tab => tab.id === tabId);
+      const target = current[Math.max(0, Math.min(Math.floor(toIndex), current.length - 1))];
+      const moved = moveTabInGroup(current, tabId, toIndex, options);
+      if (!source || !target || options?.isPinned !== undefined || source.isPinned || target.isPinned
+        || source.group?.id === target.group?.id) return moved;
+      return moved.map(tab => tab.id === tabId ? { ...tab, group: target.group ? { ...target.group, collapsed: false } : undefined }
+        : target.group && tab.group?.id === target.group.id ? { ...tab, group: { ...target.group, collapsed: false } } : tab);
+    });
   }, []);
 
   const moveActiveTabBy = useCallback(
@@ -1534,6 +1583,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
             title: tabToMove.title,
             favicon: tabToMove.favicon,
             isPinned: tabToMove.isPinned,
+            group: tabToMove.group,
             history: [...tabToMove.history],
             historyIndex: tabToMove.historyIndex,
             reloadToken: tabToMove.reloadToken,
@@ -1576,8 +1626,12 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
     (id: string) => {
       const now = Date.now();
       setTabs((currentTabs) => {
+        const groupId = currentTabs.find(tab => tab.id === id)?.group?.id;
         let changed = false;
-        const nextTabs = currentTabs.map((tab) => {
+        const nextTabs = currentTabs.map((original) => {
+          const tab = groupId && original.group?.id === groupId && original.group.collapsed
+            ? { ...original, group: { ...original.group, collapsed: false } } : original;
+          if (tab !== original) changed = true;
           if (tab.id === activeId || tab.id === id) {
             const nextLastActiveAt = now;
             const nextIsSleeping = tab.id === id ? false : tab.isSleeping;
@@ -2424,6 +2478,15 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
         reloadTab,
         duplicateTab,
         toggleTabPinned,
+        createTabGroup,
+        moveTabToGroup,
+        moveTabGroup,
+        updateTabGroup,
+        ungroupTabs,
+        closeTabGroup,
+        recentlyClosed,
+        restoreRecentlyClosed,
+        openRecentlyClosed,
         reopenLastClosedTab,
         openHistory,
         openDownloads,

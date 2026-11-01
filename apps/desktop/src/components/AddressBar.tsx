@@ -145,6 +145,7 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
     isPageLoading,
     newTab,
     openHistory,
+    openRecentlyClosed,
     openDownloads,
     openBookmarks,
     setActive,
@@ -568,6 +569,12 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
       shortcut: `${primaryModifierLabel}+${electron?.isMacOS ? 'Y' : 'H'}`,
       icon: History,
       onSelect: openHistory,
+    },
+    {
+      id: 'recently-closed',
+      label: 'Recently Closed',
+      icon: History,
+      onSelect: openRecentlyClosed,
     },
     {
       id: 'downloads',

@@ -428,7 +428,7 @@ function Browser() {
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', width: '100vw' }}>
       {!hideBars && (
-        <TopBar hideBrandWhenNarrow={addressBarInTopBar} horizontalTabCount={isVerticalTabs ? 0 : tabs.length} horizontalPinnedTabCount={isVerticalTabs ? 0 : tabs.filter(tab => tab.isPinned).length}>
+        <TopBar hideBrandWhenNarrow={addressBarInTopBar} horizontalTabCount={isVerticalTabs ? 0 : tabs.filter(tab => !tab.group?.collapsed).length} horizontalPinnedTabCount={isVerticalTabs ? 0 : tabs.filter(tab => tab.isPinned).length}>
           {addressBarInTopBar ? (
             <AddressBar inputRef={addressInputRef} inTopBar />
           ) : (
@@ -453,15 +453,11 @@ function Browser() {
               width: 240,
               minWidth: 160,
               maxWidth: 360,
-              borderRight:
-                tabStripPosition === 'left'
-                  ? '1px solid var(--surfaceBorder, var(--tabBorder))'
-                  : undefined,
-              borderLeft:
-                tabStripPosition === 'right'
-                  ? '1px solid var(--surfaceBorder, var(--tabBorder))'
-                  : undefined,
-              background: 'var(--surfaceBg, var(--tabBg))',
+              backgroundColor: 'var(--surfaceBg, var(--tabBg))',
+              backgroundImage: 'linear-gradient(var(--surfaceBorder, var(--tabBorder)), var(--surfaceBorder, var(--tabBorder)))',
+              backgroundSize: '1px 100%',
+              backgroundPosition: tabStripPosition === 'right' ? 'left top' : 'right top',
+              backgroundRepeat: 'no-repeat',
               display: 'flex',
               flexDirection: 'column',
             }}

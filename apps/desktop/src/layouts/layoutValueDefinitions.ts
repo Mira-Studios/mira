@@ -109,13 +109,13 @@ export const LAYOUT_VALUE_DEFINITIONS: LayoutValueDefinition[] = [
     key: 'layoutTabRadius',
     label: 'Tab Radius',
     kind: 'length',
-    defaultValue: '8px',
+    defaultValue: '10px',
   },
   {
     key: 'layoutTabHeight',
     label: 'Tab Height',
     kind: 'length',
-    defaultValue: '34px',
+    defaultValue: '31px',
   },
   {
     key: 'layoutTabGap',
