@@ -1,4 +1,5 @@
 import { normalizeTabGroup, orderGroupedTabs, TAB_GROUP_COLORS, type TabGroup } from './tabGroups.ts';
+import { addClosedTab, addClosedWindow, pruneRecentlyClosed, restoreClosedEntry, type RecentlyClosedEntry } from './recentlyClosed.ts';
 import {
   app,
   BrowserWindow,
@@ -220,6 +221,50 @@ const suppressHostDevToolsUntilByWindowId = new Map<number, number>();
 const pendingSitePermissionRequests = new Map<string, PendingSitePermissionRequest>();
 const pendingWebviewCloseRequestsByWebContentsId = new Map<number, PendingWebviewCloseRequest>();
 const windowSessionCache = new Map<number, WindowSessionSnapshot>();
+const recentlyClosedWindowSnapshots = new Map<number, WindowSessionSnapshot>();
+let recentlyClosedEntries: RecentlyClosedEntry[] = [];
+
+function saveRecentlyClosed() {
+  recentlyClosedEntries = pruneRecentlyClosed(recentlyClosedEntries);
+  try {
+    writeFileSync(path.join(app.getPath('userData'), 'recently-closed.json'), JSON.stringify(recentlyClosedEntries), 'utf-8');
+  } catch (error) {
+    console.error('Could not save recently closed history', error);
+  }
+}
+
+async function loadRecentlyClosed() {
+  try {
+    const raw: unknown = JSON.parse(await fs.readFile(path.join(app.getPath('userData'), 'recently-closed.json'), 'utf-8'));
+    if (Array.isArray(raw)) {
+      recentlyClosedEntries = pruneRecentlyClosed(raw.flatMap(value => {
+        if (!value || typeof value.id !== 'string' || typeof value.closedAt !== 'number') return [];
+        const snapshot = normalizeWindowSessionSnapshot(value, true);
+        return snapshot ? [{ ...snapshot, id: value.id, closedAt: value.closedAt,
+          isGroup: value.isGroup === true, isWindow: value.isWindow === true }] : [];
+      }));
+    }
+  } catch {
+    // A missing or unreadable history starts empty.
+  }
+  saveRecentlyClosed();
+}
+
+function expireRecentlyClosed() {
+  const current = pruneRecentlyClosed(recentlyClosedEntries);
+  if (current.length === recentlyClosedEntries.length) return;
+  recentlyClosedEntries = current;
+  saveRecentlyClosed();
+  broadcastRecentlyClosed();
+}
+
+function broadcastRecentlyClosed() {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed() && !win.webContents.isDestroyed() && !privatePartitionsByWindow.has(win.id)) {
+      win.webContents.send('recently-closed-changed', recentlyClosedEntries);
+    }
+  }
+}
 const bootRestoreByWindowId = new Map<number, WindowSessionSnapshot>();
 let pendingRestoreSession: PersistedSessionSnapshot | null = null;
 let sessionPersistTimer: NodeJS.Timeout | null = null;
@@ -1893,7 +1938,7 @@ async function clearHistory(): Promise<boolean> {
   return true;
 }
 
-function normalizeTabSessionSnapshot(value: unknown): TabSessionSnapshot | null {
+function normalizeTabSessionSnapshot(value: unknown, includeBlank = false): TabSessionSnapshot | null {
   if (typeof value !== 'object' || !value) return null;
   const candidate = value as Record<string, unknown>;
 
@@ -1906,7 +1951,7 @@ function normalizeTabSessionSnapshot(value: unknown): TabSessionSnapshot | null 
     .map((entry) => entry.trim())
     .filter(Boolean);
   if (!id || !url || !history.length) return null;
-  if (!isRestorableSessionTabUrl(url) && candidate.isPinned !== true && !normalizeTabGroup(candidate.group)) return null;
+  if (!includeBlank && !isRestorableSessionTabUrl(url) && candidate.isPinned !== true && !normalizeTabGroup(candidate.group)) return null;
 
   const historyIndexRaw =
     typeof candidate.historyIndex === 'number' && Number.isFinite(candidate.historyIndex)
@@ -1938,12 +1983,12 @@ function normalizeTabSessionSnapshot(value: unknown): TabSessionSnapshot | null 
   };
 }
 
-function normalizeWindowSessionSnapshot(value: unknown): WindowSessionSnapshot | null {
+function normalizeWindowSessionSnapshot(value: unknown, includeBlank = false): WindowSessionSnapshot | null {
   if (typeof value !== 'object' || !value) return null;
   const candidate = value as Record<string, unknown>;
   const tabsRaw = Array.isArray(candidate.tabs) ? candidate.tabs : [];
   const tabs = tabsRaw
-    .map((tab) => normalizeTabSessionSnapshot(tab))
+    .map((tab) => normalizeTabSessionSnapshot(tab, includeBlank))
     .filter((tab): tab is TabSessionSnapshot => tab !== null)
     .sort((a, b) => Number(!!b.isPinned) - Number(!!a.isPinned));
   if (!tabs.length) return null;
@@ -3713,6 +3758,52 @@ function setupSitePermissionHandlers() {
 }
 
 function setupSessionHandlers() {
+  ipcMain.handle('recently-closed-update-window', (event, payload: unknown) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win || win.isDestroyed() || privatePartitionsByWindow.has(win.id)) return;
+    const snapshot = normalizeWindowSessionSnapshot(payload, true);
+    if (snapshot) recentlyClosedWindowSnapshots.set(win.id, snapshot);
+  });
+
+  ipcMain.handle('recently-closed-get', (event) => {
+    if (isPrivateContents(event.sender)) return [];
+    expireRecentlyClosed();
+    return recentlyClosedEntries;
+  });
+
+  ipcMain.handle('recently-closed-add-tabs', (event, payload: unknown) => {
+    if (isPrivateContents(event.sender) || !payload || typeof payload !== 'object') return;
+    const candidate = payload as { tabs?: unknown; batch?: unknown };
+    if (!Array.isArray(candidate.tabs)) return;
+    let batch: { id: string; tabs: TabSessionSnapshot[]; activeId: string; closedAt: number } | undefined;
+    if (candidate.batch && typeof candidate.batch === 'object') {
+      const raw = candidate.batch as Record<string, unknown>;
+      const snapshot = normalizeWindowSessionSnapshot(raw, true);
+      if (snapshot && typeof raw.id === 'string' && typeof raw.closedAt === 'number') {
+        batch = { id: raw.id, tabs: snapshot.tabs, activeId: snapshot.activeId, closedAt: raw.closedAt };
+      }
+    }
+    for (const raw of candidate.tabs) {
+      const tab = normalizeTabSessionSnapshot(raw, true);
+      if (tab) recentlyClosedEntries = addClosedTab(recentlyClosedEntries, tab, batch);
+    }
+    saveRecentlyClosed();
+    broadcastRecentlyClosed();
+  });
+
+  ipcMain.handle('recently-closed-restore', (event, id: unknown) => {
+    if (isPrivateContents(event.sender)) return null;
+    expireRecentlyClosed();
+    const entry = id === undefined ? recentlyClosedEntries.at(-1) : recentlyClosedEntries.find(item => item.id === id);
+    if (!entry) return null;
+    const restored = restoreClosedEntry(entry);
+    if (entry.isWindow) createWindow(undefined, undefined, { ...entry, ...restored, savedAt: Date.now() });
+    recentlyClosedEntries = recentlyClosedEntries.filter(item => item.id !== entry.id);
+    saveRecentlyClosed();
+    broadcastRecentlyClosed();
+    return entry.isWindow ? null : restored;
+  });
+
   ipcMain.handle('session-save-window', async (event, payload: unknown) => {
     const sourceWindow = BrowserWindow.fromWebContents(event.sender);
     if (!sourceWindow || sourceWindow.isDestroyed() || privatePartitionsByWindow.has(sourceWindow.id)) return false;
@@ -5750,6 +5841,7 @@ function createWindow(
 
   if (restoreSnapshot) {
     bootRestoreByWindowId.set(win.id, restoreSnapshot);
+    recentlyClosedWindowSnapshots.set(win.id, restoreSnapshot);
   }
 
   applyWindowStateFromSnapshot(win, restoreSnapshot);
@@ -5846,12 +5938,23 @@ function createWindow(
   });
 
   win.on('close', (event) => {
+    const snapshot = recentlyClosedWindowSnapshots.get(win.id);
+    if (snapshot) recentlyClosedWindowSnapshots.set(win.id, {
+      ...snapshot, bounds: win.getBounds(), isMaximized: win.isMaximized(), isFullScreen: win.isFullScreen(),
+    });
     if (canCloseWindow(win)) return;
     event.preventDefault();
     void requestWindowClose(win);
   });
 
   win.on('closed', () => {
+    const closedSnapshot = recentlyClosedWindowSnapshots.get(win.id);
+    recentlyClosedWindowSnapshots.delete(win.id);
+    if (!privatePartition && closedSnapshot) {
+      recentlyClosedEntries = addClosedWindow(recentlyClosedEntries, closedSnapshot);
+      saveRecentlyClosed();
+      broadcastRecentlyClosed();
+    }
     privatePartitionsByWindow.delete(win.id);
     if (privatePartition && ![...privatePartitionsByWindow.values()].includes(privatePartition)) {
       const privateSession = session.fromPartition(privatePartition);
@@ -6177,6 +6280,9 @@ app.whenReady().then(async () => {
   await loadPersistedAppState().catch(() => undefined);
   await loadPersistedSitePermissions().catch(() => undefined);
   await loadPersistedSessionSnapshot().catch(() => undefined);
+  await loadRecentlyClosed();
+  const recentlyClosedExpiryTimer = setInterval(expireRecentlyClosed, 60_000);
+  recentlyClosedExpiryTimer.unref();
   setupHistoryHandlers();
   setupVersionExposure();
   setupVersionHandlers();

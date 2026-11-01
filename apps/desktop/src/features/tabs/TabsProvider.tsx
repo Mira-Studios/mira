@@ -517,6 +517,36 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
   const tabSleepTimerRef = useRef<number | null>(null);
   const [recentlyClosed, setRecentlyClosed] = useState<RecentlyClosedEntry[]>([]);
   const recentlyClosedRef = useRef<RecentlyClosedEntry[]>([]);
+  useEffect(() => {
+    const ipc = electron?.ipcRenderer;
+    if (!ipc || electron?.isPrivate) return;
+    let cancelled = false;
+    let receivedUpdate = false;
+    const update = (entries: RecentlyClosedEntry[]) => {
+      if (cancelled) return;
+      recentlyClosedRef.current = entries;
+      setRecentlyClosed(entries);
+    };
+    const onRecentlyClosedChanged = (_event: unknown, entries: RecentlyClosedEntry[]) => {
+      receivedUpdate = true;
+      update(entries);
+    };
+    ipc.on('recently-closed-changed', onRecentlyClosedChanged);
+    void ipc.invoke<RecentlyClosedEntry[]>('recently-closed-get').then(entries => {
+      if (!receivedUpdate) update(entries);
+    }).catch(() => undefined);
+    return () => {
+      cancelled = true;
+      ipc.off('recently-closed-changed', onRecentlyClosedChanged);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isBootstrapReady || !electron?.ipcRenderer || electron?.isPrivate) return;
+    void electron.ipcRenderer.invoke('recently-closed-update-window', {
+      tabs, activeId, savedAt: Date.now(),
+    }).catch(() => undefined);
+  }, [tabs, activeId, isBootstrapReady]);
   const closingGroupTabsRef = useRef(new Map<string, { id: string; tabs: Tab[]; activeId: string; closedAt: number }>());
   const closingGroupRef = useRef(false);
   const lastReopenClosedTabAtRef = useRef(0);
@@ -1333,6 +1363,11 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
 
   const closeWindow = useCallback(async () => {
     if (electron?.ipcRenderer) {
+      if (!electron.isPrivate) {
+        await electron.ipcRenderer.invoke('recently-closed-update-window', {
+          tabs: tabsRef.current, activeId: activeIdRef.current, savedAt: Date.now(),
+        }).catch(() => undefined);
+      }
       return electron.ipcRenderer.invoke<boolean>('window-close').catch(() => false);
     }
     window.close();
@@ -1360,7 +1395,13 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
     let entries = recentlyClosedRef.current;
     for (const tab of tabsToRemember) {
       const batch = closingGroupTabsRef.current.get(tab.id);
-      if (!electron?.isPrivate) entries = addClosedTab(entries, tab, batch, MAX_RECENTLY_CLOSED_TABS);
+      if (!electron?.isPrivate) {
+        if (electron?.ipcRenderer) {
+          void electron.ipcRenderer.invoke('recently-closed-add-tabs', { tabs: [tab], batch }).catch(() => undefined);
+        } else {
+          entries = addClosedTab(entries, tab, batch, MAX_RECENTLY_CLOSED_TABS);
+        }
+      }
       closingGroupTabsRef.current.delete(tab.id);
     }
     recentlyClosedRef.current = entries;
@@ -1453,27 +1494,34 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
     }
   }, [closeTab]);
 
-  const restoreRecentlyClosed = useCallback((id: string) => {
-    const entry = recentlyClosedRef.current.find(item => item.id === id);
+  const restoreRecentlyClosed = useCallback((id?: string) => {
+    const apply = (restored: ReturnType<typeof restoreClosedEntry> | null) => {
+      if (!restored) return;
+      setTabs(current => current.concat(restored.tabs));
+      if (reopenTabActivationTimerRef.current !== null) window.clearTimeout(reopenTabActivationTimerRef.current);
+      reopenTabActivationTimerRef.current = window.setTimeout(() => {
+        reopenTabActivationTimerRef.current = null;
+        if (tabsRef.current.some(tab => tab.id === restored.activeId)) setActiveId(restored.activeId);
+      }, REOPEN_CLOSED_TAB_ACTIVATE_DELAY_MS);
+    };
+    if (electron?.ipcRenderer) {
+      void electron.ipcRenderer.invoke<ReturnType<typeof restoreClosedEntry> | null>('recently-closed-restore', id)
+        .then(apply).catch(() => undefined);
+      return;
+    }
+    const entry = id === undefined ? recentlyClosedRef.current.at(-1) : recentlyClosedRef.current.find(item => item.id === id);
     if (!entry) return;
-    const restored = restoreClosedEntry(entry);
-    const entries = recentlyClosedRef.current.filter(item => item.id !== id);
+    const entries = recentlyClosedRef.current.filter(item => item.id !== entry.id);
     recentlyClosedRef.current = entries;
     setRecentlyClosed(entries);
-    setTabs(current => current.concat(restored.tabs));
-    if (reopenTabActivationTimerRef.current !== null) window.clearTimeout(reopenTabActivationTimerRef.current);
-    reopenTabActivationTimerRef.current = window.setTimeout(() => {
-      reopenTabActivationTimerRef.current = null;
-      if (tabsRef.current.some(tab => tab.id === restored.activeId)) setActiveId(restored.activeId);
-    }, REOPEN_CLOSED_TAB_ACTIVATE_DELAY_MS);
+    apply(restoreClosedEntry(entry));
   }, []);
 
   const reopenLastClosedTab = useCallback(() => {
     const now = Date.now();
     if (now - lastReopenClosedTabAtRef.current < REOPEN_CLOSED_TAB_DEDUPE_WINDOW_MS) return;
     lastReopenClosedTabAtRef.current = now;
-    const entry = recentlyClosedRef.current.at(-1);
-    if (entry) restoreRecentlyClosed(entry.id);
+    restoreRecentlyClosed();
   }, [restoreRecentlyClosed]);
 
   const moveTab = useCallback((fromId: string, toId: string) => {
