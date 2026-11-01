@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useTabs } from './features/tabs/TabsProvider';
 import TabsProvider from './features/tabs/TabsProvider';
 import TabBar from './features/tabs/TabBar';
@@ -17,7 +17,9 @@ import { electron } from './electronBridge';
 import Onboarding from './browser_pages/Onboarding';
 import {
   BROWSER_SETTINGS_CHANGED_EVENT,
+  BROWSER_SETTINGS_STORAGE_KEY,
   getBrowserSettings,
+  getMinimizedWindowSleepAfterMs,
   type AutoUpdateMode,
   type TabStripPosition,
 } from './features/settings/browserSettings';
@@ -25,30 +27,6 @@ import { applyTheme } from './features/themes/applyTheme';
 import { getThemeById } from './features/themes/themeLoader';
 import { applyLayout } from './features/layouts/applyLayout';
 import { getLayoutById } from './features/layouts/layoutLoader';
-
-function useFullscreenState() {
-  const [isFullscreen, setIsFullscreen] = useState(false);
-
-  useEffect(() => {
-    const ipc = electron?.ipcRenderer;
-    if (!ipc) return;
-
-    ipc.invoke<boolean>('window-is-fullscreen')
-      .then((value) => setIsFullscreen(!!value))
-      .catch(() => undefined);
-
-    const onFullscreenChanged = (_event: unknown, value: boolean) => {
-      setIsFullscreen(!!value);
-    };
-
-    ipc.on('window-fullscreen-changed', onFullscreenChanged);
-    return () => {
-      ipc.off('window-fullscreen-changed', onFullscreenChanged);
-    };
-  }, []);
-
-  return { isFullscreen };
-}
 
 type PerformanceMemoryInfo = {
   usedJSHeapSize?: number;
@@ -233,7 +211,6 @@ function Browser() {
   const [verticalTabsAddressBarInTopBar, setVerticalTabsAddressBarInTopBar] = useState(
     () => getBrowserSettings().verticalTabsAddressBarInTopBar,
   );
-  const { isFullscreen } = useFullscreenState();
   const {
     tabs,
     newTab,
@@ -268,7 +245,17 @@ function Browser() {
     scrollPage,
     activeId,
     restorePromptOpen,
+    restoreRevision,
+    isFullscreen,
   } = useTabs();
+  const [settledRestoreRevision, setSettledRestoreRevision] = useState(-1);
+  const isRestoringLayout = settledRestoreRevision !== restoreRevision;
+  useLayoutEffect(() => {
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => setSettledRestoreRevision(restoreRevision));
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [restoreRevision]);
   const openFindBar = useCallback(() => {
     setFindBarOpen(true);
     setFindBarFocusToken((token) => token + 1);
@@ -338,6 +325,10 @@ function Browser() {
       const overlayColor = rootStyles.getPropertyValue('--surfaceBg').trim() || '#1a2029';
 
       void Promise.allSettled([
+        electron.ipcRenderer.invoke('settings-set-window-suspension', {
+          enabled: settings.suspendMinimizedWindows,
+          delayMs: getMinimizedWindowSleepAfterMs(settings),
+        }),
         electron.ipcRenderer.invoke('settings-set-ad-block-enabled', settings.adBlockEnabled),
         electron.ipcRenderer.invoke('settings-set-youtube-ad-beta-enabled', settings.youtubeAdBlockBetaEnabled),
         electron.ipcRenderer.invoke(
@@ -358,8 +349,15 @@ function Browser() {
 
     applyRuntimeSettings();
 
+    const onSettingsStorageChanged = (event: StorageEvent) => {
+      if (event.key === BROWSER_SETTINGS_STORAGE_KEY || event.key === null) applyRuntimeSettings();
+    };
     window.addEventListener(BROWSER_SETTINGS_CHANGED_EVENT, applyRuntimeSettings);
-    return () => window.removeEventListener(BROWSER_SETTINGS_CHANGED_EVENT, applyRuntimeSettings);
+    window.addEventListener('storage', onSettingsStorageChanged);
+    return () => {
+      window.removeEventListener(BROWSER_SETTINGS_CHANGED_EVENT, applyRuntimeSettings);
+      window.removeEventListener('storage', onSettingsStorageChanged);
+    };
   }, []);
 
   useEffect(() => {
@@ -426,13 +424,14 @@ function Browser() {
   const showVerticalTabSidebar = isVerticalTabs && !hideBars;
 
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', width: '100vw' }}>
+    <div className={isRestoringLayout ? 'browser-restoring-layout' : undefined}
+      style={{ height: '100vh', display: 'flex', flexDirection: 'column', width: '100vw' }}>
       {!hideBars && (
         <TopBar hideBrandWhenNarrow={addressBarInTopBar} horizontalTabCount={isVerticalTabs ? 0 : tabs.filter(tab => !tab.group?.collapsed).length} horizontalPinnedTabCount={isVerticalTabs ? 0 : tabs.filter(tab => tab.isPinned).length}>
           {addressBarInTopBar ? (
             <AddressBar inputRef={addressInputRef} inTopBar />
           ) : (
-            !isVerticalTabs && <TabBar orientation="horizontal" />
+            !isVerticalTabs && <TabBar key={restoreRevision} orientation="horizontal" />
           )}
         </TopBar>
       )}
@@ -462,7 +461,7 @@ function Browser() {
               flexDirection: 'column',
             }}
           >
-            <TabBar orientation="vertical" />
+            <TabBar key={restoreRevision} orientation="vertical" />
           </div>
         )}
 

@@ -65,6 +65,9 @@ export type BrowserSettings = {
   tabSleepValue: number;
   tabSleepUnit: TabSleepUnit;
   tabSleepMode: TabSleepMode;
+  suspendMinimizedWindows: boolean;
+  minimizedWindowSleepValue: number;
+  minimizedWindowSleepUnit: TabSleepUnit;
   devToolsOpenMode: DevToolsOpenMode;
   adBlockEnabled: boolean;
   youtubeAdBlockBetaEnabled: boolean;
@@ -99,6 +102,9 @@ export const DEFAULT_BROWSER_SETTINGS: BrowserSettings = {
   tabSleepValue: 3,
   tabSleepUnit: 'minutes',
   tabSleepMode: 'freeze',
+  suspendMinimizedWindows: false,
+  minimizedWindowSleepValue: 5,
+  minimizedWindowSleepUnit: 'minutes',
   devToolsOpenMode: 'side',
   adBlockEnabled: false,
   youtubeAdBlockBetaEnabled: false,
@@ -123,7 +129,7 @@ export const DEFAULT_BROWSER_SETTINGS: BrowserSettings = {
   cookiesEnabled: true,
 };
 
-const BROWSER_SETTINGS_STORAGE_KEY = 'mira.settings.browser.v1';
+export const BROWSER_SETTINGS_STORAGE_KEY = 'mira.settings.browser.v1';
 export const BROWSER_SETTINGS_CHANGED_EVENT = 'mira:settings-changed';
 const FORCE_DISABLE_DEV_SETTING = import.meta.env.VITE_DEV === 'false';
 
@@ -444,6 +450,11 @@ export function normalizeBrowserSettings(value: unknown): BrowserSettings {
   const candidate = value as Partial<BrowserSettings> & {
     hiddenDevSettingEnabled?: unknown;
   };
+  const minimizedWindowSleepUnit = candidate.minimizedWindowSleepUnit === 'seconds'
+    || candidate.minimizedWindowSleepUnit === 'hours'
+    ? candidate.minimizedWindowSleepUnit : DEFAULT_BROWSER_SETTINGS.minimizedWindowSleepUnit;
+  const maxWindowSleepValue = minimizedWindowSleepUnit === 'hours' ? 24
+    : minimizedWindowSleepUnit === 'minutes' ? 1440 : 86400;
   return {
     newTabPage: normalizeNewTabPage(candidate.newTabPage),
     themeId: normalizeThemeId(candidate.themeId),
@@ -456,6 +467,12 @@ export function normalizeBrowserSettings(value: unknown): BrowserSettings {
     tabSleepValue: normalizeTabSleepValue(candidate.tabSleepValue),
     tabSleepUnit: normalizeTabSleepUnit(candidate.tabSleepUnit),
     tabSleepMode: normalizeTabSleepMode(candidate.tabSleepMode),
+    suspendMinimizedWindows: candidate.suspendMinimizedWindows === true,
+    minimizedWindowSleepValue:
+      typeof candidate.minimizedWindowSleepValue === 'number' && Number.isFinite(candidate.minimizedWindowSleepValue)
+        ? Math.min(maxWindowSleepValue, Math.max(1, Math.floor(candidate.minimizedWindowSleepValue)))
+        : DEFAULT_BROWSER_SETTINGS.minimizedWindowSleepValue,
+    minimizedWindowSleepUnit,
     devToolsOpenMode: normalizeDevToolsOpenMode(candidate.devToolsOpenMode),
     adBlockEnabled: normalizeAdBlockEnabled(candidate.adBlockEnabled),
     youtubeAdBlockBetaEnabled: candidate.youtubeAdBlockBetaEnabled === true,
@@ -498,6 +515,11 @@ export function normalizeBrowserSettings(value: unknown): BrowserSettings {
  */
 export function getTabSleepAfterMs(settings: BrowserSettings): number {
   return settings.tabSleepValue * TAB_SLEEP_UNIT_TO_MS[settings.tabSleepUnit];
+}
+
+export function getMinimizedWindowSleepAfterMs(settings: BrowserSettings): number {
+  return Math.min(24 * 60 * 60 * 1000,
+    settings.minimizedWindowSleepValue * TAB_SLEEP_UNIT_TO_MS[settings.minimizedWindowSleepUnit]);
 }
 
 /**

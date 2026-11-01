@@ -698,7 +698,7 @@ export default function ThemeCreator() {
   const fallbackFonts = fallbackThemeForMode?.fonts ?? defaultDarkTheme.fonts ?? {};
 
   return (
-    <div className="settings-page creator-page">
+    <div className="settings-page creator-page" data-mira-prevent-suspension="true">
       <header className="settings-header">
         <div>
           <h1 className="settings-title">Theme Creator</h1>

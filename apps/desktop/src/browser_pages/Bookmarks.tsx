@@ -150,7 +150,7 @@ function BookmarkItem({
     ) : null;
 
   return (
-    <div style={{ paddingLeft: level * 20 }}>
+    <div data-mira-prevent-suspension={isEditing} style={{ paddingLeft: level * 20 }}>
       <div
         ref={(el) => {
           elementRef.current = el;
@@ -795,7 +795,8 @@ export default function Bookmarks() {
     : null;
 
   return (
-    <div style={{ padding: 20, background: 'var(--bg)', color: 'var(--text1)', minHeight: '100%' }}>
+    <div data-mira-prevent-suspension={showAddBookmarkForm || showAddFolderForm}
+      style={{ padding: 20, background: 'var(--bg)', color: 'var(--text1)', minHeight: '100%' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <h2 style={{ margin: 0, fontSize: 24, fontWeight: 600 }}>Bookmarks</h2>
         <div style={{ display: 'flex', gap: 8 }}>

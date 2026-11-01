@@ -22,12 +22,17 @@ import type {
 import { appendFileSync, promises as fs, readFileSync, statSync, unlinkSync, writeFileSync } from 'fs';
 import os from 'node:os';
 import { isExplicitPopupRequest } from './popupPolicy.ts';
-import { setupDeviceConnections, setupDeviceSession } from './deviceConnections.ts';
+import { setupDeviceConnections, setupDeviceSession, hasWindowDeviceActivity } from './deviceConnections.ts';
 import { setupPageZoom } from './pageZoom.ts';
+import { setupWindowSuspension, revealRestoredWindow } from './windowSuspension.ts';
+import { normalizeWindowSuspensionSettings, type MinimizedWindowLifecycle } from './minimizedWindowLifecycle.ts';
+import { areWindowContentsIdle, hasWindowDownloads } from './windowSuspensionSafety.ts';
+import { setupWindowSuspensionFrames } from './windowSuspensionFrames.ts';
 import { installYoutubeAdBeta } from './youtubeAdBeta.js';
 import {
   setupSiteInteractions, consumeUnloadDecision, confirmContentsClose, allowContentsClose,
   requestWindowClose, canCloseWindow, confirmWindowClose, allowWindowClose, markWindowCloseAllowed, requestAppDialog, requestUnloadDialog,
+  hasPendingWindowInteraction,
 } from './siteInteractions.ts';
 import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
@@ -266,6 +271,10 @@ function broadcastRecentlyClosed() {
   }
 }
 const bootRestoreByWindowId = new Map<number, WindowSessionSnapshot>();
+const suspendedWindowRestoreById = new Map<number, WindowSessionSnapshot>();
+const liveWindowSnapshots = new Map<number, WindowSessionSnapshot>();
+const windowSuspensionById = new Map<number, MinimizedWindowLifecycle>();
+let windowSuspensionSettings = normalizeWindowSuspensionSettings(null);
 let pendingRestoreSession: PersistedSessionSnapshot | null = null;
 let sessionPersistTimer: NodeJS.Timeout | null = null;
 const pendingClosedWindowCleanupTimers = new Map<number, NodeJS.Timeout>();
@@ -2670,7 +2679,7 @@ function setupDownloadSession(ses: Electron.Session) {
   ses.on('will-download', (event, item, webContents) => {
     const downloadId = uuidv4(); // unique id for this download
     const filename = item.getFilename();
-    const sourceWindow = BrowserWindow.fromWebContents(webContents ?? event.sender);
+    const sourceWindow = getHostWindowForContents(webContents ?? event.sender);
 
     // Store the download item so we can cancel it later
     downloadMap.set(downloadId, item);
@@ -2809,6 +2818,7 @@ async function applyYoutubeAdBeta(contents: WebContents): Promise<void> {
 function setupWebviewTabOpenHandler() {
   app.on('web-contents-created', (_, contents) => {
     if (contents.getType() === 'webview') {
+      setupWindowSuspensionFrames(contents);
       contents.on('dom-ready', () => { void applyYoutubeAdBeta(contents); });
       const publishAudio = (audible: boolean) => {
         if (contents.isDestroyed()) return;
@@ -2873,6 +2883,10 @@ function setupWebviewTabOpenHandler() {
         }
         // Lock guest pages to our trusted preload and current sandbox defaults.
         webPreferences.preload = path.join(__dirname, 'webview-preload.js');
+        // Run the trusted activity observer inside embedded pages too. Otherwise an
+        // unmonitored idle iframe blocks suspension of the entire window.
+        // Sandboxing and context isolation still keep Node APIs out of site scripts.
+        webPreferences.nodeIntegrationInSubFrames = true;
         webPreferences.nodeIntegration = false;
         webPreferences.contextIsolation = true;
         webPreferences.sandbox = true;
@@ -3758,6 +3772,25 @@ function setupSitePermissionHandlers() {
 }
 
 function setupSessionHandlers() {
+  // Unlike disk session persistence, this includes private, pinned, and built-in tabs.
+  // Both snapshots and screenshot previews remain in memory only.
+  ipcMain.handle('window-suspension-update-state', (event, payload: unknown) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win || win.isDestroyed() || event.sender !== win.webContents) return false;
+    const snapshot = normalizeWindowSessionSnapshot(payload, true);
+    if (!snapshot) return false;
+    liveWindowSnapshots.set(win.id, snapshot);
+    return true;
+  });
+
+  ipcMain.handle('window-suspension-ready', async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win || win.isDestroyed() || event.sender !== win.webContents) return false;
+    const lifecycle = windowSuspensionById.get(win.id);
+    if (lifecycle && await revealRestoredWindow(win, lifecycle)) suspendedWindowRestoreById.delete(win.id);
+    return true;
+  });
+
   ipcMain.handle('recently-closed-update-window', (event, payload: unknown) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win || win.isDestroyed() || privatePartitionsByWindow.has(win.id)) return;
@@ -3878,6 +3911,8 @@ function setupSessionHandlers() {
   ipcMain.handle('session-take-window-restore', (event) => {
     const sourceWindow = BrowserWindow.fromWebContents(event.sender);
     if (!sourceWindow || sourceWindow.isDestroyed()) return null;
+    const suspendedSnapshot = suspendedWindowRestoreById.get(sourceWindow.id);
+    if (suspendedSnapshot) return suspendedSnapshot;
     const snapshot = bootRestoreByWindowId.get(sourceWindow.id) ?? null;
     bootRestoreByWindowId.delete(sourceWindow.id);
     return snapshot;
@@ -4221,6 +4256,13 @@ function setupAdBlocker(ses: Electron.Session = session.defaultSession) {
 }
 
 function setupBlockingSettingsHandlers() {
+  ipcMain.handle('settings-set-window-suspension', (event, value: unknown) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win || event.sender !== win.webContents) return false;
+    windowSuspensionSettings = normalizeWindowSuspensionSettings(value);
+    for (const lifecycle of windowSuspensionById.values()) lifecycle.configure(windowSuspensionSettings);
+    return true;
+  });
   ipcMain.handle('settings-set-ad-block-enabled', async (_, enabled: unknown) => {
     adBlockEnabled = enabled !== false;
     if (!adBlockEnabled) trackedYoutubeAdCpns.clear();
@@ -5815,6 +5857,33 @@ function createWindow(
 
   if (privatePartition) privatePartitionsByWindow.set(win.id, privatePartition);
 
+  const suspension = setupWindowSuspension(win, () => {
+    const snapshot = liveWindowSnapshots.get(win.id);
+    if (!snapshot || pendingDetachedTabTransferByWindowId.has(win.id)
+      || activeDetachedWindowDragBySourceWindowId.has(win.id)) return null;
+    return () => {
+      suspendedWindowRestoreById.set(win.id, snapshot);
+      activeWebContentsByWindow.delete(win.id);
+    };
+  }, () => loadRendererShell(win), async () => {
+    const isBusy = () => {
+      if (isQuitting || win.isDestroyed() || !win.isMinimized() || win.webContents.isLoading()
+        || win.webContents.isDevToolsOpened() || win.getChildWindows().some(child => !child.isDestroyed())
+        || hasWindowDeviceActivity(win.id) || hasPendingWindowInteraction(win.id)
+        || pendingDetachedTabTransferByWindowId.has(win.id) || activeDetachedWindowDragBySourceWindowId.has(win.id)
+        || [...pendingSitePermissionRequests.values()].some(request => request.hostWindowId === win.id)) return true;
+      // Unknown download ownership is protected too. Paused/interrupted items remain resumable.
+      if (hasWindowDownloads(win.id, downloadMap.keys(), downloadWindowById)) return true;
+      return !liveWindowSnapshots.has(win.id);
+    };
+    if (isBusy()) return false;
+    const guests = electronWebContents.getAllWebContents().filter(contents =>
+      contents !== win.webContents && !contents.isDestroyed() && getHostWindowForContents(contents)?.id === win.id);
+    return await areWindowContentsIdle(guests, win.webContents) && !isBusy();
+  });
+  windowSuspensionById.set(win.id, suspension);
+  suspension.configure(windowSuspensionSettings);
+
   if (isMacOS) {
     win.setWindowButtonVisibility(true);
   }
@@ -5889,7 +5958,7 @@ function createWindow(
       exitCode: details.exitCode,
     });
 
-    if (isQuitting || win.isDestroyed()) return;
+    if (isQuitting || win.isDestroyed() || (suspension.isUnloaded && suspendedWindowRestoreById.has(win.id))) return;
     if (details.reason === 'clean-exit') return;
 
     const now = Date.now();
@@ -5898,7 +5967,7 @@ function createWindow(
     recentRendererRecoveryByWindow.set(win.id, now);
 
     setTimeout(() => {
-      if (isQuitting || win.isDestroyed()) return;
+      if (isQuitting || win.isDestroyed() || (suspension.isUnloaded && suspendedWindowRestoreById.has(win.id))) return;
       loadRendererShell(win);
     }, 150);
   });
@@ -5948,6 +6017,9 @@ function createWindow(
   });
 
   win.on('closed', () => {
+    windowSuspensionById.delete(win.id);
+    suspendedWindowRestoreById.delete(win.id);
+    liveWindowSnapshots.delete(win.id);
     const closedSnapshot = recentlyClosedWindowSnapshots.get(win.id);
     recentlyClosedWindowSnapshots.delete(win.id);
     if (!privatePartition && closedSnapshot) {

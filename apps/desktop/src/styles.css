@@ -2280,6 +2280,15 @@ textarea {
   z-index: 6 !important;
 }
 
+/* Restored chrome starts at its final geometry; ordinary tab motion resumes afterwards. */
+.browser-restoring-layout *,
+.browser-restoring-layout *::before,
+.browser-restoring-layout *::after {
+  transition: none !important;
+  animation: none !important;
+  scroll-behavior: auto !important;
+}
+
 
 /* The curves share the tab's own coordinate system and compositor transform. */
 .tab-connection {

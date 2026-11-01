@@ -1,0 +1,13 @@
+<!doctype html>
+<html>
+  <body style="background:#345678;color:white">
+    <h1>Live tab</h1>
+    <input id="draft" placeholder="Unsaved text">
+    <iframe id="embedded" src="data:text/html,%3Cinput%20id%3D%22embedded-draft%22%3E"></iframe>
+    <iframe id="empty"></iframe>
+    <script>
+      // Touch enough memory that releasing live renderers is measurable.
+      window.testMemory = new Uint8Array(32 * 1024 * 1024).fill(42);
+    </script>
+  </body>
+</html>

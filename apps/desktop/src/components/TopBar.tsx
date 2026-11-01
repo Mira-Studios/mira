@@ -193,6 +193,8 @@ export default function TopBar({
         <img
           className="topbar-brand-wordmark"
           src={appWordmark}
+          width={3700}
+          height={2000}
           alt=""
           aria-hidden="true"
           style={{ height: 25, width: 'auto', marginLeft: -6, transform: 'translateY(1px)' }}

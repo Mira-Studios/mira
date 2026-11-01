@@ -1,0 +1,15 @@
+<!doctype html>
+<html>
+  <body style="margin:0;background:#123456;color:white">
+    <header style="height:48px">Window suspension integration test</header>
+    <script>
+      const count = location.hash === '#restored' ? 1 : 2;
+      for (let index = 0; index < count; index++) {
+        const view = document.createElement('webview');
+        view.src = new URL('suspension-page.html', location.href).href;
+        view.style.cssText = `position:absolute;top:48px;width:100%;height:calc(100% - 48px);visibility:${index === 0 ? 'visible' : 'hidden'}`;
+        document.body.appendChild(view);
+      }
+    </script>
+  </body>
+</html>

@@ -14,6 +14,7 @@ export default function RestoreTabsPrompt() {
 
   return (
     <div
+      data-mira-prevent-suspension="true"
       style={{
         position: 'fixed',
         inset: 0,

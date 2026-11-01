@@ -12,6 +12,9 @@ const pending = new Map<string, Pending>();
 const unloadDecisions = new Map<number, 'allow' | 'stay'>();
 const allowedWindows = new Set<number>();
 const closingWindows = new Map<number, Promise<boolean>>();
+export function hasPendingWindowInteraction(hostId: number): boolean {
+  return closingWindows.has(hostId) || [...pending.values()].some(request => request.hostId === hostId);
+}
 let resolveWindow: (contents: WebContents) => BrowserWindow | null;
 let beforeWindowClose: ((win: BrowserWindow) => Promise<void>) | undefined;
 

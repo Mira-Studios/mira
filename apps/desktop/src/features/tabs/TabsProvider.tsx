@@ -194,6 +194,8 @@ type TabsContextType = {
   getWebContentsIdForTab: (id: string) => number | undefined;
   setActive: (id: string) => void;
   restorePromptOpen: boolean;
+  restoreRevision: number;
+  isFullscreen: boolean;
   restoreTabCount: number;
   restoreWindowCount: number;
   restoreTabsFromPreviousSession: () => void;
@@ -208,7 +210,6 @@ const TabsContext = createContext<TabsContextType>(null!);
 export const useTabs = () => useContext(TabsContext);
 const MAX_RECENTLY_CLOSED_TABS = 25;
 const REOPEN_CLOSED_TAB_DEDUPE_WINDOW_MS = 400;
-const REOPEN_CLOSED_TAB_ACTIVATE_DELAY_MS = 120;
 const IPC_OPEN_TAB_ACTIVATE_DELAY_MS = 110;
 
 /**
@@ -497,6 +498,15 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
   const [restoreTabCountState, setRestoreTabCountState] = useState(0);
   const [restoreWindowCount, setRestoreWindowCount] = useState(1);
   const [isBootstrapReady, setIsBootstrapReady] = useState(false);
+  const [restoreRevision, setRestoreRevision] = useState(0);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  useEffect(() => {
+    const ipc = electron?.ipcRenderer;
+    if (!ipc) return;
+    const onFullscreenChanged = (_event: unknown, value: boolean) => setIsFullscreen(!!value);
+    ipc.on('window-fullscreen-changed', onFullscreenChanged);
+    return () => ipc.off('window-fullscreen-changed', onFullscreenChanged);
+  }, []);
   const [findInPageMatchesByTab, setFindInPageMatchesByTab] = useState<
     Record<string, FindInPageMatchState>
   >({});
@@ -547,10 +557,35 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
       tabs, activeId, savedAt: Date.now(),
     }).catch(() => undefined);
   }, [tabs, activeId, isBootstrapReady]);
+
+  useEffect(() => {
+    if (!isBootstrapReady || !electron?.ipcRenderer) return;
+    // Main-process state remains current even when minimized renderers cannot paint.
+    void electron.ipcRenderer.invoke('window-suspension-update-state', {
+      tabs, activeId, savedAt: Date.now(),
+    }).catch(() => undefined);
+  }, [tabs, activeId, isBootstrapReady]);
+
+  useEffect(() => {
+    const ipc = electron?.ipcRenderer;
+    if (!isBootstrapReady || !ipc) return;
+    // Keep the native screenshot until fonts and the restored chrome have been laid out.
+    let cancelled = false;
+    let frame = 0;
+    void document.fonts.ready.then(() => {
+      if (cancelled) return;
+      frame = requestAnimationFrame(() => {
+        frame = requestAnimationFrame(() => {
+          if (cancelled) return;
+          void ipc.invoke('window-suspension-ready').catch(() => undefined);
+        });
+      });
+    });
+    return () => { cancelled = true; cancelAnimationFrame(frame); };
+  }, [restoreRevision, isBootstrapReady]);
   const closingGroupTabsRef = useRef(new Map<string, { id: string; tabs: Tab[]; activeId: string; closedAt: number }>());
   const closingGroupRef = useRef(false);
   const lastReopenClosedTabAtRef = useRef(0);
-  const reopenTabActivationTimerRef = useRef<number | null>(null);
   const zoomFactorByTabRef = useRef<Record<string, number>>({});
   const bootDetachedTransferHandledRef = useRef(false);
   const activeFindInPageMatches = findInPageMatchesByTab[activeId] ?? {
@@ -573,6 +608,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
 
       setTabs(restoredTabs);
       setActiveId(snapshot.activeId);
+      setRestoreRevision(revision => revision + 1);
 
       setPendingSession(null);
       setRestoreTabCountState(0);
@@ -756,10 +792,12 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
 
     let cancelled = false;
     const bootstrapSessionRestore = async () => {
+      const fullscreen = ipc.invoke<boolean>('window-is-fullscreen').catch(() => false);
       try {
         if (electron?.isPrivate) {
-          hydratedRef.current = true;
-          setIsBootstrapReady(true);
+          const windowRestore = await ipc.invoke<SessionSnapshot | null>('session-take-window-restore');
+          if (cancelled) return;
+          if (windowRestore?.tabs.length) applyRestoredSnapshot(windowRestore);
           return;
         }
         const [queuedUrlsRaw, initialWindowUrlRaw] = await Promise.all([
@@ -818,7 +856,9 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
           }
         }
       } finally {
+        const initialFullscreen = await fullscreen;
         if (!cancelled) {
+          setIsFullscreen(!!initialFullscreen);
           hydratedRef.current = true;
           setIsBootstrapReady(true);
         }
@@ -1498,11 +1538,8 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
     const apply = (restored: ReturnType<typeof restoreClosedEntry> | null) => {
       if (!restored) return;
       setTabs(current => current.concat(restored.tabs));
-      if (reopenTabActivationTimerRef.current !== null) window.clearTimeout(reopenTabActivationTimerRef.current);
-      reopenTabActivationTimerRef.current = window.setTimeout(() => {
-        reopenTabActivationTimerRef.current = null;
-        if (tabsRef.current.some(tab => tab.id === restored.activeId)) setActiveId(restored.activeId);
-      }, REOPEN_CLOSED_TAB_ACTIVATE_DELAY_MS);
+      setActiveId(restored.activeId);
+      setRestoreRevision(revision => revision + 1);
     };
     if (electron?.ipcRenderer) {
       void electron.ipcRenderer.invoke<ReturnType<typeof restoreClosedEntry> | null>('recently-closed-restore', id)
@@ -2456,16 +2493,6 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
     return () => ipc.off('open-url-in-new-tab', onOpenUrlInNewTab);
   }, [findTabIdForWebContentsId, isBootstrapReady, miraUrlToName, newTabToRight]);
 
-  useEffect(
-    () => () => {
-      if (reopenTabActivationTimerRef.current !== null) {
-        window.clearTimeout(reopenTabActivationTimerRef.current);
-        reopenTabActivationTimerRef.current = null;
-      }
-    },
-    [],
-  );
-
   useEffect(() => {
     const ipc = electron?.ipcRenderer;
     if (!ipc) return;
@@ -2582,6 +2609,8 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
         getWebContentsIdForTab,
         setActive,
         restorePromptOpen,
+        restoreRevision,
+        isFullscreen,
         restoreTabCount: pendingSession?.tabs.length ?? restoreTabCountState,
         restoreWindowCount,
         restoreTabsFromPreviousSession,
@@ -2589,7 +2618,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
         discardPreviousSession,
       }}
     >
-      {children}
+      {isBootstrapReady ? children : null}
     </TabsContext.Provider>
   );
 }

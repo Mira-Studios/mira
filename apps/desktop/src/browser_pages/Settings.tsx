@@ -273,6 +273,9 @@ export default function Settings() {
   const [tabSleepValue, setTabSleepValue] = useState(() => initialSettings.tabSleepValue);
   const [tabSleepUnit, setTabSleepUnit] = useState(() => initialSettings.tabSleepUnit);
   const [tabSleepMode, setTabSleepMode] = useState(() => initialSettings.tabSleepMode);
+  const [suspendMinimizedWindows, setSuspendMinimizedWindows] = useState(() => initialSettings.suspendMinimizedWindows);
+  const [minimizedWindowSleepValue, setMinimizedWindowSleepValue] = useState(() => initialSettings.minimizedWindowSleepValue);
+  const [minimizedWindowSleepUnit, setMinimizedWindowSleepUnit] = useState(() => initialSettings.minimizedWindowSleepUnit);
   const [devToolsOpenMode, setDevToolsOpenMode] = useState(() => initialSettings.devToolsOpenMode);
   const [adBlockEnabled, setAdBlockEnabled] = useState(() => initialSettings.adBlockEnabled);
   const [youtubeAdBlockBetaEnabled, setYoutubeAdBlockBetaEnabled] = useState(() => initialSettings.youtubeAdBlockBetaEnabled);
@@ -629,6 +632,9 @@ export default function Settings() {
         tabSleepValue,
         tabSleepUnit,
         tabSleepMode,
+        suspendMinimizedWindows,
+        minimizedWindowSleepValue,
+        minimizedWindowSleepUnit,
         devToolsOpenMode,
         adBlockEnabled,
         youtubeAdBlockBetaEnabled,
@@ -671,6 +677,9 @@ export default function Settings() {
     tabSleepValue,
     tabSleepUnit,
     tabSleepMode,
+    suspendMinimizedWindows,
+    minimizedWindowSleepValue,
+    minimizedWindowSleepUnit,
     devToolsOpenMode,
     adBlockEnabled,
     youtubeAdBlockBetaEnabled,
@@ -1360,6 +1369,71 @@ export default function Settings() {
                     <option value="discard">Discard (save more memory)</option>
                   </select>
                 </div>
+              </SettingsGroup>
+
+              <SettingsGroup>
+                <div className="settings-card-header">
+                  <h3 className="settings-card-title">Minimized windows</h3>
+                </div>
+                <label htmlFor="suspend-minimized-windows" className="settings-setting-row">
+                  <span className="settings-setting-meta">
+                    <span className="settings-setting-label">Unload minimized windows to save memory</span>
+                    <span className="settings-setting-description">
+                      Keep a screenshot and unload the window and its tabs. Reopening loads only the active tab;
+                      other tabs load when selected. Windows with downloads, playing media, calls,
+                      connected devices, or unsaved edits stay loaded.
+                    </span>
+                  </span>
+                  <input
+                    id="suspend-minimized-windows"
+                    type="checkbox"
+                    className="settings-toggle settings-setting-control"
+                    checked={suspendMinimizedWindows}
+                    onChange={(event) => {
+                      setSuspendMinimizedWindows(event.currentTarget.checked);
+                      setSaveStatus('saving');
+                    }}
+                  />
+                </label>
+                <SettingsVisibility visible={suspendMinimizedWindows} animated={animationsEnabled}>
+                  <div className="settings-setting-row">
+                    <label htmlFor="minimized-window-sleep-value" className="settings-setting-meta">
+                      <span className="settings-setting-label">Unload after being minimized for</span>
+                    </label>
+                    <div className="settings-inline-controls settings-setting-control settings-setting-control-grow settings-setting-control-right">
+                      <input
+                        id="minimized-window-sleep-value"
+                        type="number"
+                        min={1}
+                        max={minimizedWindowSleepUnit === 'hours' ? 24 : minimizedWindowSleepUnit === 'minutes' ? 1440 : 86400}
+                        value={minimizedWindowSleepValue}
+                        onChange={(event) => {
+                          const value = event.currentTarget.valueAsNumber;
+                          const max = minimizedWindowSleepUnit === 'hours' ? 24 : minimizedWindowSleepUnit === 'minutes' ? 1440 : 86400;
+                          setMinimizedWindowSleepValue(Number.isFinite(value) ? Math.min(max, Math.max(1, Math.floor(value))) : 1);
+                          setSaveStatus('saving');
+                        }}
+                        className="theme-input settings-number-input"
+                      />
+                      <select
+                        aria-label="Minimized window delay unit"
+                        value={minimizedWindowSleepUnit}
+                        onChange={(event) => {
+                          const unit = event.currentTarget.value;
+                          if (unit !== 'seconds' && unit !== 'minutes' && unit !== 'hours') return;
+                          setMinimizedWindowSleepUnit(unit);
+                          setMinimizedWindowSleepValue(value => Math.min(value, unit === 'hours' ? 24 : unit === 'minutes' ? 1440 : 86400));
+                          setSaveStatus('saving');
+                        }}
+                        className="theme-input settings-select-input"
+                      >
+                        <option value="seconds">Seconds</option>
+                        <option value="minutes">Minutes</option>
+                        <option value="hours">Hours</option>
+                      </select>
+                    </div>
+                  </div>
+                </SettingsVisibility>
               </SettingsGroup>
 
               <SettingsGroup>

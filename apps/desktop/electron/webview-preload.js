@@ -10,10 +10,11 @@ contextBridge.exposeInMainWorld('__miraInteractionBridge', {
 });
 contextBridge.executeInMainWorld({ func: () => {
   const bridge = window.__miraInteractionBridge;
+  let suspensionProbe = false;
   const text = (value) => value == null ? '' : String(value);
-  window.alert = (message = '') => { bridge.dialog({ type: 'alert', message: text(message) }); };
-  window.confirm = (message = '') => bridge.dialog({ type: 'confirm', message: text(message) }) === true;
-  window.prompt = (message = '', value = '') => bridge.dialog({ type: 'prompt', message: text(message), defaultValue: text(value) });
+  window.alert = (message = '') => { if (!suspensionProbe) bridge.dialog({ type: 'alert', message: text(message) }); };
+  window.confirm = (message = '') => !suspensionProbe && bridge.dialog({ type: 'confirm', message: text(message) }) === true;
+  window.prompt = (message = '', value = '') => suspensionProbe ? null : bridge.dialog({ type: 'prompt', message: text(message), defaultValue: text(value) });
 
   const add = EventTarget.prototype.addEventListener;
   const remove = EventTarget.prototype.removeEventListener;
@@ -23,13 +24,15 @@ contextBridge.executeInMainWorld({ func: () => {
   const states = new WeakMap();
   let allowNext = false;
   let propertyHandler = null;
+  const unloadListeners = new Map();
+  const usesCapture = (options) => typeof options === 'boolean' ? options : options?.capture === true;
   const initialize = (event) => {
     if (event.isTrusted && allowNext) {
       allowNext = false;
       event.stopImmediatePropagation();
       return;
     }
-    const state = { requested: false, accepted: true, finished: false, value: '' };
+    const state = { requested: false, accepted: true, finished: false, value: '', probe: suspensionProbe };
     states.set(event, state);
     Object.defineProperties(event, {
       preventDefault: { value: () => { state.requested = true; } },
@@ -42,6 +45,7 @@ contextBridge.executeInMainWorld({ func: () => {
     state.finished = true;
     if (event.defaultPrevented) state.requested = true;
     if (!state.requested) return;
+    if (state.probe) return;
     state.accepted = bridge.dialog({ type: 'beforeunload', trusted: event.isTrusted }) === true;
     if (!state.accepted) {
       prevent.call(event);
@@ -56,7 +60,23 @@ contextBridge.executeInMainWorld({ func: () => {
   moveFinishLast();
   EventTarget.prototype.addEventListener = function (type, listener, options) {
     const result = add.call(this, type, listener, options);
-    if (this === window && type === 'beforeunload') moveFinishLast();
+    if (this === window && type === 'beforeunload') {
+      if (listener) {
+        const captures = unloadListeners.get(listener) ?? new Set();
+        captures.add(usesCapture(options));
+        unloadListeners.set(listener, captures);
+      }
+      moveFinishLast();
+    }
+    return result;
+  };
+  EventTarget.prototype.removeEventListener = function (type, listener, options) {
+    const result = remove.call(this, type, listener, options);
+    if (this === window && type === 'beforeunload') {
+      const captures = unloadListeners.get(listener);
+      captures?.delete(usesCapture(options));
+      if (captures?.size === 0) unloadListeners.delete(listener);
+    }
     return result;
   };
   if (onUnload?.set) {
@@ -74,6 +94,17 @@ contextBridge.executeInMainWorld({ func: () => {
     });
   }
   Object.defineProperty(window, '__miraSiteInteractions', { value: Object.freeze({
+    hasBeforeUnloadHandlers: () => !!propertyHandler || unloadListeners.size > 0,
+    wouldPreventUnload: () => {
+      if (!propertyHandler && unloadListeners.size === 0) return false;
+      suspensionProbe = true;
+      try {
+        const event = new Event('beforeunload', { cancelable: true });
+        window.dispatchEvent(event);
+        const state = states.get(event);
+        return state ? state.requested || event.defaultPrevented : true;
+      } finally { suspensionProbe = false; }
+    },
     checkBeforeUnload: () => {
       const event = new Event('beforeunload', { cancelable: true });
       window.dispatchEvent(event);

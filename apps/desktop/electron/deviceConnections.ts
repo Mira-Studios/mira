@@ -9,6 +9,10 @@ type Request = {
 };
 type State = { source: WebContents; hostId: number | null; request?: Request; select?: (id: string, pin?: string) => void; connected: Map<string, Device> };
 const states = new Map<number, State>();
+export function hasWindowDeviceActivity(hostId: number): boolean {
+  return [...states.values()].some(state => !state.source.isDestroyed()
+    && hostFor(state.source)?.id === hostId && (!!state.request || state.connected.size > 0));
+}
 let resolveHost: (source: WebContents) => BrowserWindow | null;
 
 function hostFor(source: WebContents): BrowserWindow | null {
