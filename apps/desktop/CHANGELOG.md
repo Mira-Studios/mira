@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v1.1.1 - 2026-11-01
+
 ## v1.1.0 - 2026-11-01
 
 - Registers for more files and link types
