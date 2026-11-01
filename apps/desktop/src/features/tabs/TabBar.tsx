@@ -1,3 +1,4 @@
+import TabFavicon from './TabFavicon';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { Plus, X } from 'lucide-react';
 import { useTabs } from './TabsProvider';
@@ -57,8 +58,8 @@ function getDisplayFavicon(url: string, favicon?: string, deferred = false): str
 
   try {
     const parsed = new URL(url);
-    if (!parsed.hostname) return undefined;
-    return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(parsed.hostname)}&sz=64`;
+    if (!/^https?:$/.test(parsed.protocol)) return undefined;
+    return new URL('/favicon.ico', parsed).href;
   } catch {
     return undefined;
   }
@@ -1096,32 +1097,7 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
                   borderTopWidth: tab.isSleeping ? borderWidth : undefined,
                 }}
               >
-                {displayFavicon ? (
-                  <img
-                    src={displayFavicon}
-                    alt=""
-                    draggable={false}
-                    style={{
-                      width: faviconSize,
-                      height: faviconSize,
-                      borderRadius: 3,
-                      flexShrink: 0,
-                      pointerEvents: 'none',
-                    }}
-                  />
-                ) : (
-                  <span
-                    aria-hidden={true}
-                    style={{
-                      width: 16,
-                      height: 16,
-                      borderRadius: 3,
-                      display: 'inline-block',
-                      background: 'var(--tabPlaceholderBg, var(--surfaceBorder, var(--tabBorder)))',
-                      flexShrink: 0,
-                    }}
-                  />
-                )}
+                <TabFavicon url={tab.url} src={displayFavicon} size={faviconSize} deferred={tab.restoreDeferred} />
                 <span
                   title={displayTitle}
                   style={{
@@ -1263,31 +1239,7 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
                 background: draggedTab.id === activeId ? 'var(--surfaceBgHover, var(--tabBgHover))' : undefined,
               }}
             >
-              {displayFavicon ? (
-                <img
-                  src={displayFavicon}
-                  alt=""
-                  draggable={false}
-                  style={{
-                    width: faviconSize,
-                    height: faviconSize,
-                    borderRadius: 3,
-                    flexShrink: 0,
-                  }}
-                />
-              ) : (
-                <span
-                  aria-hidden={true}
-                  style={{
-                    width: 16,
-                    height: 16,
-                    borderRadius: 3,
-                    display: 'inline-block',
-                    background: 'var(--tabPlaceholderBg, var(--surfaceBorder, var(--tabBorder)))',
-                    flexShrink: 0,
-                  }}
-                />
-              )}
+              <TabFavicon url={draggedTab.url} src={displayFavicon} size={faviconSize} deferred={draggedTab.restoreDeferred} />
               <span
                 title={displayTitle}
                 style={{

@@ -24,3 +24,19 @@ export function getNavigationMetadata(
 export function getUpdatedFavicon(current: string | undefined, incoming: unknown): string | undefined {
   return typeof incoming === 'string' && incoming.trim() ? incoming.trim() : current;
 }
+
+
+/** Only the main document can nominate a tab icon, including a CDN-hosted icon. */
+export function selectPageFavicon(pageUrl: string, declared: string[], reported: string[]): string | undefined {
+  const resolve = (value: string) => {
+    try { return new URL(value, pageUrl).href; } catch { return undefined; }
+  };
+  const declaredUrls = new Set(declared.map(resolve).filter(Boolean));
+  if (!declaredUrls.size) {
+    try {
+      const page = new URL(pageUrl);
+      if (/^https?:$/.test(page.protocol)) declaredUrls.add(new URL('/favicon.ico', page).href);
+    } catch { /* No default icon for internal pages. */ }
+  }
+  return reported.map(resolve).find((url) => !!url && declaredUrls.has(url));
+}

@@ -915,7 +915,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
             ...tab,
             url: normalized,
             title: defaultTitle,
-            favicon: normalized.startsWith('mira://') ? INTERNAL_FAVICON_URL : undefined,
+            favicon: normalized.startsWith('mira://') ? INTERNAL_FAVICON_URL : getNavigationMetadata(tab, normalized).favicon,
             history: newHistory,
             historyIndex: newHistory.length - 1,
             reloadToken: tab.reloadToken,
@@ -1745,7 +1745,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
           ...tab,
           url: nextUrl,
           title: nextTitle,
-          favicon: nextUrl.startsWith('mira://') ? INTERNAL_FAVICON_URL : undefined,
+          favicon: nextUrl.startsWith('mira://') ? INTERNAL_FAVICON_URL : getNavigationMetadata(tab, nextUrl).favicon,
           historyIndex: newIdx,
         };
       }),
@@ -1783,7 +1783,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
           ...tab,
           url: nextUrl,
           title: nextTitle,
-          favicon: nextUrl.startsWith('mira://') ? INTERNAL_FAVICON_URL : undefined,
+          favicon: nextUrl.startsWith('mira://') ? INTERNAL_FAVICON_URL : getNavigationMetadata(tab, nextUrl).favicon,
           historyIndex: newIdx,
         };
       }),

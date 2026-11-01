@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { useTabs } from './TabsProvider';
+import { selectPageFavicon } from './tabMetadata';
 import { BROWSER_SETTINGS_CHANGED_EVENT, getBrowserSettings } from '../settings/browserSettings';
 import { getThemeById } from '../themes/themeLoader';
 import { electron } from '../../electronBridge';
@@ -106,6 +107,7 @@ interface WebviewElement extends HTMLElement {
   closeDevTools: () => void;
   isDevToolsOpened: () => boolean;
   getWebContentsId?: () => number;
+  getURL: () => string;
   getTitle?: () => string;
   isLoading?: () => boolean;
   willNavigateHandler?: (e: WebviewWillNavigateEvent) => void;
@@ -518,6 +520,7 @@ export default function TabView() {
   const navigationUrlByTabIdRef = useRef<Record<string, string>>({});
   const stateUrlByTabIdRef = useRef<Record<string, string>>({});
   const nativeHistoryOffsetRef = useRef<Record<string, number>>({});
+  const faviconSyncSequenceRef = useRef<Record<string, number>>({});
   const historySyncSequenceRef = useRef<Record<string, number>>({});
   const pendingHistoryRestoreRef = useRef<Record<string, { history: string[]; index: number; attachAttempts?: number }>>({});
   const webviewRefCallbacks = useRef<Record<string, (el: Element | null) => void>>({});
@@ -979,10 +982,27 @@ export default function TabView() {
     updateTabMetadata(tabId, { title: webviewEvent.title });
   });
 
-  const handlePageFaviconUpdated = React.useEffectEvent((tabId: string, event: Event) => {
-    const webviewEvent = event as WebviewPageFaviconUpdatedEvent;
-    const favicon = webviewEvent.favicons?.find((url) => typeof url === 'string' && url.trim());
-    if (favicon) updateTabMetadata(tabId, { favicon });
+  const handlePageFaviconUpdated = React.useEffectEvent(async (tabId: string, event: Event) => {
+    const webview = webviewMap.current[tabId];
+    const reported = (event as WebviewPageFaviconUpdatedEvent).favicons?.filter(
+      (url) => typeof url === 'string' && url.trim(),
+    );
+    if (!webview || !reported?.length) return;
+    const sequence = (faviconSyncSequenceRef.current[tabId] ?? 0) + 1;
+    faviconSyncSequenceRef.current[tabId] = sequence;
+    try {
+      const page = await webview.executeJavaScript(`({
+        url: location.href,
+        icons: [...document.querySelectorAll('link[rel]')]
+          .filter(link => link.rel.toLowerCase().split(/\\s+/).includes('icon'))
+          .map(link => link.href)
+      })`) as { url: string; icons: string[] };
+      if (webviewMap.current[tabId] !== webview
+        || faviconSyncSequenceRef.current[tabId] !== sequence
+        || webview.getURL() !== page.url) return;
+      const favicon = selectPageFavicon(page.url, page.icons, reported);
+      if (favicon) updateTabMetadata(tabId, { favicon });
+    } catch { /* Keep the current icon if the page navigates during inspection. */ }
   });
 
   const handleFoundInPage = React.useEffectEvent((tabId: string, event: Event) => {
