@@ -283,6 +283,9 @@ export default function Settings() {
     () => initialSettings.trackerBlockEnabled,
   );
   const [quitOnLastWindowClose] = useState(() => initialSettings.quitOnLastWindowClose);
+  const [openExternalLinksInNewWindow, setOpenExternalLinksInNewWindow] = useState(
+    () => initialSettings.openExternalLinksInNewWindow,
+  );
   const [showNewTabBranding, setShowNewTabBranding] = useState(
     () => initialSettings.showNewTabBranding,
   );
@@ -640,6 +643,7 @@ export default function Settings() {
         youtubeAdBlockBetaEnabled,
         trackerBlockEnabled,
         quitOnLastWindowClose,
+        openExternalLinksInNewWindow,
         showNewTabBranding,
         disableNewTabIntro,
         includePrereleaseUpdates,
@@ -685,6 +689,7 @@ export default function Settings() {
     youtubeAdBlockBetaEnabled,
     trackerBlockEnabled,
     quitOnLastWindowClose,
+    openExternalLinksInNewWindow,
     showNewTabBranding,
     disableNewTabIntro,
     includePrereleaseUpdates,
@@ -2209,6 +2214,27 @@ export default function Settings() {
                 <div className="settings-card-header">
                   <h3 className="settings-card-title">Default Browser</h3>
                 </div>
+                <label htmlFor="open-external-links-in-new-window" className="settings-setting-row">
+                  <span className="settings-setting-meta">
+                    <span className="settings-setting-label">Open external links in a new window</span>
+                    <span id="external-links-window-description" className="settings-setting-description">
+                      Open links from other apps in a new Mira window. Turn off to open them in a new
+                      tab in an existing window.
+                    </span>
+                  </span>
+                  <input
+                    id="open-external-links-in-new-window"
+                    type="checkbox"
+                    role="switch"
+                    aria-describedby="external-links-window-description"
+                    className="settings-toggle settings-setting-control"
+                    checked={openExternalLinksInNewWindow}
+                    onChange={(e) => {
+                      setOpenExternalLinksInNewWindow(e.currentTarget.checked);
+                      setSaveStatus('saving');
+                    }}
+                  />
+                </label>
                 <div className="settings-setting-row">
                   <div className="settings-setting-meta">
                     <span className="settings-setting-label">System default app for links</span>

@@ -284,6 +284,7 @@ let adBlockEnabled = true;
 let youtubeAdBetaEnabled = false;
 let trackerBlockEnabled = false;
 let quitOnLastWindowClose = false;
+let openExternalLinksInNewWindow = true;
 let hasAttemptedLaunchAutoUpdate = false;
 let hasAttemptedCloseAutoUpdate = false;
 let persistedSitePermissions: Record<string, Partial<Record<SitePermissionId, SitePermissionSetting>>> = {};
@@ -5527,6 +5528,13 @@ function setupDefaultBrowserHandlers() {
 }
 
 function setupIncomingUrlHandlers() {
+  ipcMain.handle('settings-set-open-external-links-in-new-window', (event, enabled: unknown) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win || event.sender !== win.webContents) return false;
+    openExternalLinksInNewWindow = enabled !== false;
+    return openExternalLinksInNewWindow;
+  });
+
   ipcMain.handle('incoming-urls-consume', () => {
     return takeQueuedIncomingBrowserUrls();
   });
@@ -6246,6 +6254,11 @@ function createWindow(
 function routeIncomingBrowserUrl(rawUrl: string): void {
   const normalized = normalizeIncomingBrowserUrl(rawUrl);
   if (!normalized) return;
+
+  if (openExternalLinksInNewWindow) {
+    createWindow(undefined, normalized, undefined, { private: false });
+    return;
+  }
 
   const focusedWindow = BrowserWindow.getFocusedWindow();
   const focusedBrowserWindow =

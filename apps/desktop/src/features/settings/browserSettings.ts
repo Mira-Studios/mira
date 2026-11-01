@@ -73,6 +73,7 @@ export type BrowserSettings = {
   youtubeAdBlockBetaEnabled: boolean;
   trackerBlockEnabled: boolean;
   quitOnLastWindowClose: boolean;
+  openExternalLinksInNewWindow: boolean;
   showNewTabBranding: boolean;
   disableNewTabIntro: boolean;
   includePrereleaseUpdates: boolean;
@@ -110,6 +111,7 @@ export const DEFAULT_BROWSER_SETTINGS: BrowserSettings = {
   youtubeAdBlockBetaEnabled: false,
   trackerBlockEnabled: false,
   quitOnLastWindowClose: false,
+  openExternalLinksInNewWindow: true,
   showNewTabBranding: false,
   disableNewTabIntro: false,
   includePrereleaseUpdates: false,
@@ -481,6 +483,10 @@ export function normalizeBrowserSettings(value: unknown): BrowserSettings {
       normalizeAdBlockEnabled(candidate.adBlockEnabled),
     ),
     quitOnLastWindowClose: normalizeQuitOnLastWindowClose(candidate.quitOnLastWindowClose),
+    openExternalLinksInNewWindow:
+      typeof candidate.openExternalLinksInNewWindow === 'boolean'
+        ? candidate.openExternalLinksInNewWindow
+        : DEFAULT_BROWSER_SETTINGS.openExternalLinksInNewWindow,
     showNewTabBranding: normalizeShowNewTabBranding(candidate.showNewTabBranding),
     disableNewTabIntro: normalizeDisableNewTabIntro(candidate.disableNewTabIntro),
     includePrereleaseUpdates: normalizeIncludePrereleaseUpdates(candidate.includePrereleaseUpdates),

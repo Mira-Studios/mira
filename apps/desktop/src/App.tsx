@@ -340,6 +340,10 @@ function Browser() {
           settings.quitOnLastWindowClose,
         ),
         electron.ipcRenderer.invoke('settings-set-run-on-startup', settings.runOnStartup),
+        electron.ipcRenderer.invoke(
+          'settings-set-open-external-links-in-new-window',
+          settings.openExternalLinksInNewWindow,
+        ),
         electron.ipcRenderer.invoke('window-set-titlebar-symbol-color', {
           symbolColor,
           color: overlayColor,
