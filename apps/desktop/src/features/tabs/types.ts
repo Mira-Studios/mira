@@ -30,6 +30,7 @@ export type Tab = {
   url: string;
   title: string;
   favicon?: string;
+  isPinned?: boolean;
   history: string[];
   historyIndex: number;
   reloadToken: number;

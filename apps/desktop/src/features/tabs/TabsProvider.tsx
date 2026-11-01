@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
+import { createContext, useContext, useState, useReducer, useCallback, useEffect, useRef } from 'react';
 import { electron } from '../../electronBridge';
 import { 
   getBrowserSettings, 
@@ -11,6 +11,7 @@ import { addHistoryEntry, updateHistoryEntryTitle } from '../history/clientHisto
 import { useBookmarks } from '../bookmarks/BookmarksProvider';
 import miraLogo from '../../assets/mira_logo.png';
 import { type Tab } from './types';
+import { orderPinnedTabs, moveTabInGroup } from './pinnedTabs';
 import { nextPageZoom, type PageZoomAction } from '../../../electron/pageZoomPolicy';
 import { getNavigationMetadata, getUpdatedFavicon, type NavigationMetadata } from './tabMetadata';
 import {
@@ -120,6 +121,7 @@ type TabsContextType = {
   newTabToRight: (id: string, url?: string, options?: NewTabToRightOptions) => string | undefined;
   reloadTab: (id: string) => void;
   duplicateTab: (id: string) => void;
+  toggleTabPinned: (id: string) => void;
   reopenLastClosedTab: () => void;
   openHistory: () => void;
   openDownloads: () => void;
@@ -132,7 +134,7 @@ type TabsContextType = {
   closeOtherTabs: (id: string) => void;
   closeTabsToRight: (id: string) => void;
   moveTab: (fromId: string, toId: string) => void;
-  moveTabToIndex: (tabId: string, toIndex: number) => void;
+  moveTabToIndex: (tabId: string, toIndex: number, options?: { isPinned?: boolean }) => void;
   moveActiveTabBy: (delta: -1 | 1) => void;
   moveTabToNewWindow: (
     id: string,
@@ -204,7 +206,7 @@ function isSessionEphemeralTabUrl(url: string): boolean {
 }
 
 function filterRestorableTabs(tabs: Tab[]): Tab[] {
-  return tabs.filter((tab) => !isSessionEphemeralTabUrl(tab.url));
+  return tabs.filter((tab) => tab.isPinned || !isSessionEphemeralTabUrl(tab.url));
 }
 
 function createInitialTab(url: string): Tab {
@@ -305,6 +307,7 @@ function normalizeTab(value: unknown, defaultTabUrl: string): Tab | null {
     url,
     title,
     favicon,
+    isPinned: value.isPinned === true,
     history: normalizedHistory,
     historyIndex,
     reloadToken,
@@ -400,7 +403,7 @@ function normalizeDetachedTabTransfer(
 }
 
 function isDefaultSnapshot(snapshot: SessionSnapshot, defaultTabUrl: string): boolean {
-  return snapshot.tabs.length === 1 && snapshot.tabs[0].url === defaultTabUrl;
+  return snapshot.tabs.length === 1 && !snapshot.tabs[0].isPinned && snapshot.tabs[0].url === defaultTabUrl;
 }
 
 /**
@@ -410,7 +413,14 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
   const { addBookmark, deleteBookmark, bookmarks } = useBookmarks();
   const initialTabUrlRef = useRef(getBrowserSettings().newTabPage);
   const initialTabRef = useRef<Tab>(createInitialTab(initialTabUrlRef.current));
-  const [tabs, setTabs] = useState<Tab[]>([initialTabRef.current]);
+  const [tabs, setTabs] = useReducer(
+    (current: Tab[], update: Tab[] | ((current: Tab[]) => Tab[])) =>
+      orderPinnedTabs(typeof update === 'function' ? update(current) : update),
+    [initialTabRef.current],
+  );
+  const toggleTabPinned = useCallback((id: string) => {
+    setTabs(current => current.map(tab => tab.id === id ? { ...tab, isPinned: !tab.isPinned } : tab));
+  }, [setTabs]);
   const [activeId, setActiveId] = useState(initialTabRef.current.id);
   const [loadingTabIds, setLoadingTabIds] = useState<Set<string>>(() => new Set());
   const setTabLoading = useCallback((id: string, loading: boolean) => {
@@ -1299,7 +1309,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
 
   const closeOtherTabs = useCallback(async (id: string) => {
     if (!tabsRef.current.some((tab) => tab.id === id)) return;
-    for (const tab of tabsRef.current.filter((tab) => tab.id !== id)) {
+    for (const tab of tabsRef.current.filter((tab) => tab.id !== id && !tab.isPinned)) {
       if (!await closeTab(tab.id)) break;
     }
   }, [closeTab]);
@@ -1307,7 +1317,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
   const closeTabsToRight = useCallback(async (id: string) => {
     const index = tabsRef.current.findIndex((tab) => tab.id === id);
     if (index < 0) return;
-    for (const tab of tabsRef.current.slice(index + 1)) {
+    for (const tab of tabsRef.current.slice(index + 1).filter(tab => !tab.isPinned)) {
       if (!await closeTab(tab.id)) break;
     }
   }, [closeTab]);
@@ -1397,27 +1407,8 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
     });
   }, []);
 
-  const moveTabToIndex = useCallback((tabId: string, toIndex: number) => {
-    if (!tabId) return;
-
-    setTabs((currentTabs) => {
-      const fromIndex = currentTabs.findIndex((tab) => tab.id === tabId);
-      if (fromIndex === -1) return currentTabs;
-
-      const normalizedToIndex = Math.floor(toIndex);
-      if (!Number.isFinite(normalizedToIndex)) return currentTabs;
-
-      const boundedTargetIndex = Math.max(0, Math.min(normalizedToIndex, currentTabs.length - 1));
-      if (boundedTargetIndex === fromIndex) {
-        return currentTabs;
-      }
-
-      const nextTabs = [...currentTabs];
-      const [moved] = nextTabs.splice(fromIndex, 1);
-      const boundedIndex = Math.max(0, Math.min(boundedTargetIndex, nextTabs.length));
-      nextTabs.splice(boundedIndex, 0, moved);
-      return nextTabs;
-    });
+  const moveTabToIndex = useCallback((tabId: string, toIndex: number, options?: { isPinned?: boolean }) => {
+    setTabs(current => moveTabInGroup(current, tabId, toIndex, options));
   }, []);
 
   const moveActiveTabBy = useCallback(
@@ -1497,6 +1488,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
             url: tabToMove.url,
             title: tabToMove.title,
             favicon: tabToMove.favicon,
+            isPinned: tabToMove.isPinned,
             history: [...tabToMove.history],
             historyIndex: tabToMove.historyIndex,
             reloadToken: tabToMove.reloadToken,
@@ -2383,6 +2375,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
         newTabToRight,
         reloadTab,
         duplicateTab,
+        toggleTabPinned,
         reopenLastClosedTab,
         openHistory,
         openDownloads,

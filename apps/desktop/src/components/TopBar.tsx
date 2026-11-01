@@ -12,10 +12,12 @@ export default function TopBar({
   children,
   hideBrandWhenNarrow = false,
   horizontalTabCount = 0,
+  horizontalPinnedTabCount = 0,
 }: {
   children?: React.ReactNode;
   hideBrandWhenNarrow?: boolean;
   horizontalTabCount?: number;
+  horizontalPinnedTabCount?: number;
 }) {
   const barRef = useRef<HTMLDivElement>(null);
   const brandRef = useRef<HTMLDivElement>(null);
@@ -62,7 +64,7 @@ export default function TopBar({
       const gap = strip ? parseFloat(getComputedStyle(strip).columnGap) || 0 : 6;
       const newTabWidth =
         strip?.querySelector('.tab-new-tab-btn')?.getBoundingClientRect().width ?? 33;
-      const needed = horizontalTabCount * tabWidth + horizontalTabCount * gap + newTabWidth;
+      const needed = (horizontalTabCount - horizontalPinnedTabCount) * tabWidth + horizontalPinnedTabCount * 38 + horizontalTabCount * gap + newTabWidth;
       const stripStyle = strip && getComputedStyle(strip);
       const edgePadding = stripStyle ? parseFloat(stripStyle.paddingLeft) + parseFloat(stripStyle.paddingRight) : 0;
       const crowded = horizontalTabCount > 1 && needed + edgePadding > availableWithBrand;
@@ -87,7 +89,7 @@ export default function TopBar({
       observer.disconnect();
       window.removeEventListener(BROWSER_SETTINGS_CHANGED_EVENT, syncSettings);
     };
-  }, [horizontalTabCount, hideBrandWhenNarrow, isFullscreen, isTitleBarOverlayEnabled]);
+  }, [horizontalTabCount, horizontalPinnedTabCount, hideBrandWhenNarrow, isFullscreen, isTitleBarOverlayEnabled]);
 
   useEffect(() => {
     electron?.ipcRenderer

@@ -70,6 +70,7 @@ interface HistoryEntry {
 }
 
 interface TabSessionSnapshot {
+  isPinned?: boolean;
   id: string;
   url: string;
   title: string;
@@ -1903,7 +1904,7 @@ function normalizeTabSessionSnapshot(value: unknown): TabSessionSnapshot | null 
     .map((entry) => entry.trim())
     .filter(Boolean);
   if (!id || !url || !history.length) return null;
-  if (!isRestorableSessionTabUrl(url)) return null;
+  if (!isRestorableSessionTabUrl(url) && candidate.isPinned !== true) return null;
 
   const historyIndexRaw =
     typeof candidate.historyIndex === 'number' && Number.isFinite(candidate.historyIndex)
@@ -1915,6 +1916,7 @@ function normalizeTabSessionSnapshot(value: unknown): TabSessionSnapshot | null 
     id,
     url,
     title: title || url,
+    isPinned: candidate.isPinned === true,
     favicon:
       typeof candidate.favicon === 'string' && candidate.favicon.trim()
         ? candidate.favicon.trim()
@@ -1939,7 +1941,8 @@ function normalizeWindowSessionSnapshot(value: unknown): WindowSessionSnapshot |
   const tabsRaw = Array.isArray(candidate.tabs) ? candidate.tabs : [];
   const tabs = tabsRaw
     .map((tab) => normalizeTabSessionSnapshot(tab))
-    .filter((tab): tab is TabSessionSnapshot => tab !== null);
+    .filter((tab): tab is TabSessionSnapshot => tab !== null)
+    .sort((a, b) => Number(!!b.isPinned) - Number(!!a.isPinned));
   if (!tabs.length) return null;
 
   const activeIdRaw = typeof candidate.activeId === 'string' ? candidate.activeId : tabs[0].id;
@@ -4450,6 +4453,7 @@ function setupWindowControlsHandlers() {
       y?: unknown;
       hasTabsToRight?: unknown;
       hasOtherTabs?: unknown;
+      isPinned?: unknown;
       isVertical?: unknown;
     };
     const tabId = typeof candidate.tabId === 'string' ? candidate.tabId.trim() : '';
@@ -4458,6 +4462,7 @@ function setupWindowControlsHandlers() {
     const hasTabsToRight = candidate.hasTabsToRight === true;
     const hasOtherTabs = candidate.hasOtherTabs === true;
     const isVertical = candidate.isVertical === true;
+    const isPinned = candidate.isPinned === true;
     const x = typeof candidate.x === 'number' && Number.isFinite(candidate.x)
       ? Math.max(0, Math.floor(candidate.x))
       : null;
@@ -4486,6 +4491,10 @@ function setupWindowControlsHandlers() {
       {
         label: 'Duplicate',
         click: () => sendCommand('duplicate'),
+      },
+      {
+        label: isPinned ? 'Unpin Tab' : 'Pin Tab',
+        click: () => sendCommand('toggle-pin'),
       },
       { type: 'separator' },
       {

@@ -428,7 +428,7 @@ function Browser() {
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', width: '100vw' }}>
       {!hideBars && (
-        <TopBar hideBrandWhenNarrow={addressBarInTopBar} horizontalTabCount={isVerticalTabs ? 0 : tabs.length}>
+        <TopBar hideBrandWhenNarrow={addressBarInTopBar} horizontalTabCount={isVerticalTabs ? 0 : tabs.length} horizontalPinnedTabCount={isVerticalTabs ? 0 : tabs.filter(tab => tab.isPinned).length}>
           {addressBarInTopBar ? (
             <AddressBar inputRef={addressInputRef} inTopBar />
           ) : (
