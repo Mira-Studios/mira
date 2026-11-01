@@ -160,7 +160,7 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
   }, [activeId, settledActiveId]);
   const previousRectsRef = useRef<Record<string, DOMRect>>({});
   const previousLayoutOrderRef = useRef<string[]>([]);
-  const previousGroupMembershipRef = useRef('');
+  const previousGroupMembershipRef = useRef(new Map<string, string | undefined>());
   const enterTimerByTabIdRef = useRef<Record<string, number>>({});
   const exitTimerByTabIdRef = useRef<Record<string, number>>({});
   const reorderAnimationByTabIdRef = useRef<Partial<Record<string, Animation>>>({});
@@ -919,8 +919,13 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
     const nextSurvivors = nextOrder.filter((id) => previousIds.has(id));
     const orderChanged = nextSurvivors.some((id, index) => id !== previousSurvivors[index]);
     previousLayoutOrderRef.current = nextOrder;
-    const membership = JSON.stringify(renderedTabs.map(({ tab }) => [tab.id, tab.group?.id]));
-    const membershipChanged = previousGroupMembershipRef.current !== '' && previousGroupMembershipRef.current !== membership;
+    const membership = new Map(renderedTabs.map(({ tab }) => [tab.id, tab.group?.id]));
+    // Entering/exiting tabs already move their neighbors through size transitions.
+    // Only surviving tabs changing groups should trigger another position animation.
+    const membershipChanged = renderedTabs.some(({ tab }) =>
+      previousGroupMembershipRef.current.has(tab.id)
+      && previousGroupMembershipRef.current.get(tab.id) !== tab.group?.id,
+    );
     previousGroupMembershipRef.current = membership;
     const releasedDragTabId = releasedDragTabIdRef.current;
     const isVertical = orientation === 'vertical';
