@@ -2918,7 +2918,8 @@ function setupWebviewTabOpenHandler() {
         || (!hasPrimaryModifier && !input.alt && !input.shift && key === 'f6');
       const isReloadChord = isPrimaryChord && key === 'r';
       const isReloadFunctionChord = !hasPrimaryModifier && !input.alt && !input.shift && key === 'f5';
-      const isHardReloadChord = hasPrimaryModifier && input.shift && key === 'r';
+      const isClearCacheReloadChord = hasPrimaryModifier && input.alt && input.shift && key === 'r';
+      const isHardReloadChord = hasPrimaryModifier && !input.alt && input.shift && key === 'r';
       const isHardReloadFunctionChord = hasPrimaryModifier && key === 'f5';
       const isStopLoadingKey = !hasPrimaryModifier && !input.alt && !input.shift && key === 'escape';
       const isSavePageChord = isPrimaryChord && key === 's';
@@ -2966,6 +2967,7 @@ function setupWebviewTabOpenHandler() {
         && !isFocusAddressBarChord
         && !isReloadChord
         && !isReloadFunctionChord
+        && !isClearCacheReloadChord
         && !isHardReloadChord
         && !isHardReloadFunctionChord
         && !isStopLoadingKey
@@ -3114,6 +3116,11 @@ function setupWebviewTabOpenHandler() {
 
       if (isFocusAddressBarChord) {
         hostWindow.webContents.send('app-shortcut', 'focus-address-bar');
+        return;
+      }
+
+      if (isClearCacheReloadChord) {
+        hostWindow.webContents.send('app-shortcut', 'reload-tab-clear-cache');
         return;
       }
 
@@ -4360,6 +4367,34 @@ function setupWindowControlsHandlers() {
     return true;
   });
 
+  ipcMain.handle('reload-show-native-context-menu', (event, payload: unknown) => {
+    const hostWindow = BrowserWindow.fromWebContents(event.sender);
+    if (!hostWindow || hostWindow.isDestroyed() || event.sender.hostWebContents) return null;
+    const candidate = payload as { x?: unknown; y?: unknown } | null;
+    const x = typeof candidate?.x === 'number' && Number.isFinite(candidate.x)
+      ? Math.max(0, Math.floor(candidate.x)) : undefined;
+    const y = typeof candidate?.y === 'number' && Number.isFinite(candidate.y)
+      ? Math.max(0, Math.floor(candidate.y)) : undefined;
+    return new Promise<string | null>((resolve) => {
+      const item = (label: string, action: string, accelerator: string): MenuItemConstructorOptions => ({
+        label,
+        accelerator,
+        registerAccelerator: false,
+        click: () => resolve(action),
+      });
+      const menu = Menu.buildFromTemplate([
+        item('Reload', 'reload', 'CommandOrControl+R'),
+        item('Hard Reload', 'hard-reload', 'CommandOrControl+Shift+R'),
+        item('Clear Cache and Reload', 'clear-cache-reload', 'CommandOrControl+Alt+Shift+R'),
+      ]);
+      try {
+        menu.popup({ window: hostWindow, x, y, callback: () => resolve(null) });
+      } catch {
+        resolve(null);
+      }
+    });
+  });
+
   ipcMain.handle('tab-show-native-context-menu', (event, payload: unknown) => {
     if (typeof payload !== 'object' || !payload) return false;
 
@@ -4858,6 +4893,22 @@ function setupWindowControlsHandlers() {
         window: hostWindow,
         ...(x !== null && y !== null ? { x, y } : {}),
       });
+      return true;
+    } catch {
+      return false;
+    }
+  });
+
+  ipcMain.handle('webview-clear-cache-and-reload', async (event, contentsId: unknown) => {
+    if (typeof contentsId !== 'number' || !Number.isSafeInteger(contentsId)) return false;
+    const target = electronWebContents.fromId(contentsId);
+    if (!target || target.isDestroyed() || target.hostWebContents?.id !== event.sender.id) return false;
+    const hostWindow = BrowserWindow.fromWebContents(event.sender);
+    if (!hostWindow || hostWindow.isDestroyed()) return false;
+    try {
+      await target.session.clearCache();
+      if (target.isDestroyed() || hostWindow.isDestroyed()) return false;
+      target.reloadIgnoringCache();
       return true;
     } catch {
       return false;
@@ -5752,7 +5803,8 @@ function createWindow(
     const hasPrimaryModifier = input.control || input.meta;
     const isPrimaryChord = hasPrimaryModifier && !input.shift;
     const isReloadChord = isPrimaryChord && key === 'r';
-    const isHardReloadChord = hasPrimaryModifier && input.shift && key === 'r';
+    const isClearCacheReloadChord = hasPrimaryModifier && input.alt && input.shift && key === 'r';
+    const isHardReloadChord = hasPrimaryModifier && !input.alt && input.shift && key === 'r';
     const isHardReloadFunctionKey = hasPrimaryModifier && key === 'f5';
     const isFindChord = isPrimaryChord && key === 'f';
     const isNewWindowChord = isPrimaryChord && key === 'n';
@@ -5772,6 +5824,12 @@ function createWindow(
     const isDevToolsChord = key === 'f12' || isBrowserConsoleChord || (isMacOS
       ? input.meta && input.alt && key === 'i'
       : (input.meta && input.shift && key === 'i') || (input.control && input.shift && key === 'i'));
+
+    if (isClearCacheReloadChord) {
+      event.preventDefault();
+      win.webContents.send('app-shortcut', 'reload-tab-clear-cache');
+      return;
+    }
 
     if (isHardReloadChord || isHardReloadFunctionKey) {
       event.preventDefault();

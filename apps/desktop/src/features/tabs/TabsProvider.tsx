@@ -145,6 +145,7 @@ type TabsContextType = {
   goForward: () => void;
   reload: () => void;
   reloadIgnoringCache: () => void;
+  clearCacheAndReload: () => void;
   stopLoading: () => void;
   searchInPage: (query: string, options?: FindInPageOptions) => void;
   findInPageNext: (forward?: boolean) => void;
@@ -1812,6 +1813,20 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
     reload();
   }, [activeId, reload]);
 
+  const clearCacheAndReload = useCallback(() => {
+    const wv = webviewMap.current[activeId];
+    const ipc = electron?.ipcRenderer;
+    if (!wv || !ipc || !wv.getWebContentsId) {
+      reloadIgnoringCache();
+      return;
+    }
+    try {
+      void ipc.invoke('webview-clear-cache-and-reload', wv.getWebContentsId()).catch(() => undefined);
+    } catch {
+      // The guest may have closed before its contents ID became available.
+    }
+  }, [activeId, reloadIgnoringCache]);
+
   const stopLoading = useCallback(() => {
     const wv = webviewMap.current[activeId];
     if (!wv || typeof wv.stop !== 'function') return;
@@ -2383,6 +2398,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
         goForward,
         reload,
         reloadIgnoringCache,
+        clearCacheAndReload,
         stopLoading,
         searchInPage,
         findInPageNext,

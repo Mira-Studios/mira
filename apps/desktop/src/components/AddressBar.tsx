@@ -1,3 +1,4 @@
+import ContextMenu from './ContextMenu';
 import { usePromptPresence } from '../hooks/usePromptPresence';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -138,6 +139,8 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
     goBack,
     goForward,
     reload,
+    reloadIgnoringCache,
+    clearCacheAndReload,
     stopLoading,
     isPageLoading,
     newTab,
@@ -149,6 +152,9 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
   } = useTabs();
   const { addBookmark, bookmarks, deleteBookmark } = useBookmarks();
   const [input, setInput] = useState('');
+  const [reloadMenuAnchor, setReloadMenuAnchor] = useState<{ x: number; y: number } | null>(null);
+  const closeReloadMenu = useCallback(() => setReloadMenuAnchor(null), []);
+  useEffect(() => { setReloadMenuAnchor(null); }, [activeId]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuClosing, setMenuClosing] = useState(false);
   const [siteSettingsOpen, setSiteSettingsOpen] = useState(false);
@@ -669,6 +675,26 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
 
       <button
         onClick={isPageLoading ? stopLoading : reload}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          closeMenu();
+          closeSiteSettings();
+          if (getBrowserSettings().nativeTextFieldContextMenu && electron?.ipcRenderer) {
+            setReloadMenuAnchor(null);
+            void electron.ipcRenderer.invoke('reload-show-native-context-menu', {
+              x: event.clientX,
+              y: event.clientY,
+            }).then((action: unknown) => {
+              if (action === 'reload') reload();
+              if (action === 'hard-reload') reloadIgnoringCache();
+              if (action === 'clear-cache-reload') clearCacheAndReload();
+            }).catch(() => undefined);
+            return;
+          }
+          setReloadMenuAnchor({ x: event.clientX, y: event.clientY });
+        }}
+        aria-haspopup="menu"
+        aria-expanded={!!reloadMenuAnchor}
         title={isPageLoading ? 'Stop loading' : 'Reload'}
         aria-label={isPageLoading ? 'Stop loading' : 'Reload'}
         className="theme-btn theme-btn-nav nav-icon-btn"
@@ -982,6 +1008,16 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
         </div>
         </div>
       )}
+      <ContextMenu
+        open={!!reloadMenuAnchor}
+        anchor={reloadMenuAnchor}
+        onClose={closeReloadMenu}
+        entries={[
+          { type: 'item', label: 'Reload', shortcut: `${primaryModifierLabel}+R`, onSelect: reload },
+          { type: 'item', label: 'Hard reload', shortcut: `${primaryModifierLabel}+Shift+R`, onSelect: reloadIgnoringCache },
+          { type: 'item', label: 'Clear cache and reload', shortcut: `${primaryModifierLabel}+${electron?.isMacOS ? 'Option' : 'Alt'}+Shift+R`, onSelect: clearCacheAndReload },
+        ]}
+      />
     </div>
   );
 }

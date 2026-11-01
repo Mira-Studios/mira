@@ -22,6 +22,7 @@ interface UseKeyboardShortcutsProps {
   goForward: () => void;
   reload: () => void;
   reloadIgnoringCache: () => void;
+  clearCacheAndReload: () => void;
   stopLoading: () => void;
   findInPage: () => void;
   findInPageNext: (forward?: boolean) => void;
@@ -55,6 +56,7 @@ interface IpcShortcutState {
   goForward: UseKeyboardShortcutsProps['goForward'];
   reload: UseKeyboardShortcutsProps['reload'];
   reloadIgnoringCache: UseKeyboardShortcutsProps['reloadIgnoringCache'];
+  clearCacheAndReload: UseKeyboardShortcutsProps['clearCacheAndReload'];
   stopLoading: UseKeyboardShortcutsProps['stopLoading'];
   findInPage: UseKeyboardShortcutsProps['findInPage'];
   findInPageNext: UseKeyboardShortcutsProps['findInPageNext'];
@@ -99,6 +101,7 @@ export function useKeyboardShortcuts({
   goForward,
   reload,
   reloadIgnoringCache,
+  clearCacheAndReload,
   stopLoading,
   findInPage,
   findInPageNext,
@@ -160,6 +163,7 @@ export function useKeyboardShortcuts({
     goForward,
     reload,
     reloadIgnoringCache,
+    clearCacheAndReload,
     stopLoading,
     findInPage,
     findInPageNext,
@@ -332,6 +336,13 @@ export function useKeyboardShortcuts({
         e.stopPropagation();
         addressInputRef.current?.focus();
         addressInputRef.current?.select();
+        return;
+      }
+
+      if (!hasElectronBridge && isPrimaryModifier && e.altKey && e.shiftKey && key === 'r') {
+        e.preventDefault();
+        e.stopPropagation();
+        clearCacheAndReload();
         return;
       }
 
@@ -545,6 +556,7 @@ export function useKeyboardShortcuts({
     goForward,
     reload,
     reloadIgnoringCache,
+    clearCacheAndReload,
     stopLoading,
     findInPage,
     findInPageNext,
@@ -599,6 +611,10 @@ export function useKeyboardShortcuts({
       }
       if (action === 'reload-tab') {
         state.reload();
+        return;
+      }
+      if (action === 'reload-tab-clear-cache') {
+        state.clearCacheAndReload();
         return;
       }
       if (action === 'reload-tab-ignore-cache') {
