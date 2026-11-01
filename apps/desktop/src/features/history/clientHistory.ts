@@ -36,6 +36,7 @@ function saveLocal(entries: HistoryEntry[]) {
  * Adds a new visit entry unless the URL is internal or a near-duplicate of the latest visit.
  */
 export async function addHistoryEntry(url: string, title: string): Promise<void> {
+  if (electron?.isPrivate) return;
   const normalized = url.trim();
   if (!normalized || normalized.startsWith('mira://')) return;
 
@@ -69,6 +70,7 @@ export async function addHistoryEntry(url: string, title: string): Promise<void>
  * Updates a stored history title for an existing URL, or creates an entry in fallback mode.
  */
 export async function updateHistoryEntryTitle(url: string, title: string): Promise<boolean> {
+  if (electron?.isPrivate) return false;
   const normalizedUrl = url.trim();
   const normalizedTitle = title.trim();
   if (!normalizedUrl || normalizedUrl.startsWith('mira://') || !normalizedTitle) return false;

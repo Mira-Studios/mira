@@ -556,6 +556,13 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
       onSelect: openNewWindow,
     },
     {
+      id: 'new-private-window',
+      label: 'New Private Window',
+      shortcut: `${primaryModifierLabel}+Shift+N`,
+      icon: SquareArrowOutUpRight,
+      onSelect: () => { void electron?.ipcRenderer.invoke('window-new-private'); },
+    },
+    {
       id: 'history',
       label: 'History',
       shortcut: `${primaryModifierLabel}+${electron?.isMacOS ? 'Y' : 'H'}`,

@@ -2,10 +2,13 @@
 /* global require */
 const { contextBridge, ipcRenderer } = require('electron');
 const isMacOS = process.platform === 'darwin';
+const privatePartition = process.argv.find((arg) => arg.startsWith('--mira-private-partition='))?.split('=')[1];
 const appVersion = process.env.MIRA_VERSION || null;
 
 contextBridge.exposeInMainWorld('electron', {
   platform: process.platform,
+  isPrivate: !!privatePartition,
+  privatePartition,
   isMacOS,
   appVersion,
   getAppVersion: () => ipcRenderer.invoke('app-get-version'),

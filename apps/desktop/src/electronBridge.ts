@@ -7,6 +7,8 @@ interface RendererIpcBridge {
 
 interface ElectronBridge {
   platform: string;
+  isPrivate?: boolean;
+  privatePartition?: string;
   isMacOS: boolean;
   appVersion?: string | null;
   getAppVersion?: () => Promise<string>;

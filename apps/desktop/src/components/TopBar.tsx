@@ -322,6 +322,9 @@ export default function TopBar({
         </div>
       </div>
 
+      {electron?.isPrivate && (
+        <span style={{ fontSize: 12, padding: '0 10px', color: 'var(--surfaceText, var(--text1))', flexShrink: 0 }}>Private</span>
+      )}
       {isMacOS ? (
         brandSection
       ) : (

@@ -77,9 +77,7 @@ const usbDevice = (device: Electron.USBDevice): Device => ({ id: device.deviceId
 const hidDevice = (device: Electron.HIDDevice): Device => ({ id: device.deviceId, name: device.name || 'HID device', kind: 'hid' });
 const serialDevice = (device: Electron.SerialPort): Device => ({ id: device.portId, name: device.displayName ? `${device.displayName} (${device.portName})` : device.portName, kind: 'serial' });
 
-export function setupDeviceConnections(getHost: typeof resolveHost): void {
-  resolveHost = getHost;
-  const ses = session.defaultSession;
+export function setupDeviceSession(ses: Electron.Session): void {
   ses.on('select-usb-device', (event, details, callback) => {
     event.preventDefault(); request(fromFrame(details.frame), 'usb', details.deviceList.map(usbDevice), (id) => callback(id || undefined));
   });
@@ -99,6 +97,11 @@ export function setupDeviceConnections(getHost: typeof resolveHost): void {
     request(fromFrame(details.frame), 'bluetooth', [{ id: details.deviceId, name: 'Bluetooth device', kind: 'bluetooth' }],
       (id, pin) => callback({ confirmed: !!id, pin }), { kind: details.pairingKind, pin: details.pin });
   });
+}
+
+export function setupDeviceConnections(getHost: typeof resolveHost): void {
+  resolveHost = getHost;
+  setupDeviceSession(session.defaultSession);
   app.on('web-contents-created', (_event, source) => {
     source.on('select-bluetooth-device', (event, devices, callback) => {
       event.preventDefault(); request(source, 'bluetooth', devices.map((device) => ({ id: device.deviceId, name: device.deviceName || 'Bluetooth device', kind: 'bluetooth' })), (id) => callback(id));

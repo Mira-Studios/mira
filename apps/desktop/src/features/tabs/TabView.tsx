@@ -1733,6 +1733,7 @@ export default function TabView() {
             ) : (
               <div style={{ flex: 1, position: 'relative', width: '100%', height: '100%', background: '#fff' }}>
                 <webview
+                  partition={electron?.privatePartition}
                   guestinstance={tab.transferredGuestInstance}
                   data-mira-tracked-src={
                     tab.transferredGuestInstance ? normalizeComparableUrl(tab.url) : undefined

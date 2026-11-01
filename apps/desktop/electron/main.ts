@@ -20,7 +20,7 @@ import type {
 import { appendFileSync, promises as fs, readFileSync, statSync, unlinkSync, writeFileSync } from 'fs';
 import os from 'node:os';
 import { isExplicitPopupRequest } from './popupPolicy.ts';
-import { setupDeviceConnections } from './deviceConnections.ts';
+import { setupDeviceConnections, setupDeviceSession } from './deviceConnections.ts';
 import { setupPageZoom } from './pageZoom.ts';
 import { installYoutubeAdBeta } from './youtubeAdBeta.js';
 import {
@@ -37,6 +37,16 @@ if (isDevelopment) {
   app.setName('Mira Dev');
   app.setPath('userData', developmentDataPath);
   app.setPath('sessionData', developmentDataPath);
+}
+
+// Private partitions never use Chromium's persistent session storage.
+const privatePartitionsByWindow = new Map<number, string>();
+const privatePartitions = new Set<string>();
+function isPrivateContents(contents: WebContents): boolean {
+  if (contents.isDestroyed()) return false;
+  const host = getHostWindowForContents(contents);
+  return !!host && privatePartitionsByWindow.has(host.id)
+    || [...privatePartitions].some((partition) => contents.session === session.fromPartition(partition));
 }
 
 // Store active downloads by ID
@@ -2190,10 +2200,12 @@ function startDetachedWindowDragSession(
 }
 
 function collectPersistedSessionSnapshot(): PersistedSessionSnapshot | null {
-  const windows = Array.from(windowSessionCache.values())
+  const windows = Array.from(windowSessionCache.entries())
+    .filter(([windowId]) => !privatePartitionsByWindow.has(windowId))
+    .map(([, snapshot]) => snapshot)
     .filter((entry) => entry.tabs.length > 0)
     .sort((a, b) => b.savedAt - a.savedAt);
-  if (!windows.length) return null;
+  if (!windows.length) return pendingRestoreSession;
   return { windows, savedAt: Date.now() };
 }
 
@@ -2549,7 +2561,8 @@ function setupPerformanceHandlers() {
 }
 
 function setupHistoryHandlers() {
-  ipcMain.handle('history-add', async (_, payload: { url?: string; title?: string }) => {
+  ipcMain.handle('history-add', async (event, payload: { url?: string; title?: string }) => {
+    if (isPrivateContents(event.sender)) return false;
     await addHistoryEntry(payload ?? {});
     return true;
   });
@@ -2560,7 +2573,8 @@ function setupHistoryHandlers() {
     return historyCache;
   });
 
-  ipcMain.handle('history-update-title', async (_, payload: { url?: string; title?: string }) => {
+  ipcMain.handle('history-update-title', async (event, payload: { url?: string; title?: string }) => {
+    if (isPrivateContents(event.sender)) return false;
     return updateHistoryEntryTitle(payload ?? {});
   });
 
@@ -2573,8 +2587,7 @@ function setupHistoryHandlers() {
   });
 }
 
-function setupDownloadHandlers() {
-  const ses = session.defaultSession;
+function setupDownloadSession(ses: Electron.Session) {
 
   const pickTargetWindow = (downloadId: string, sourceContents?: WebContents | null): BrowserWindow | null => {
     const sourceWindowId = downloadWindowById.get(downloadId);
@@ -2666,6 +2679,10 @@ function setupDownloadHandlers() {
     // item.setSaveDialogOptions({ title: 'Save file' });
   });
 
+}
+
+function setupDownloadHandlers() {
+  setupDownloadSession(session.defaultSession);
   // Renderer wants to cancel a download
   ipcMain.handle('download-cancel', async (_, id: string) => {
     const item = downloadMap.get(id);
@@ -2761,7 +2778,7 @@ function setupWebviewTabOpenHandler() {
         if (isMainFrame) pendingUrl = url;
       });
       contents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame, frameProcessId, frameRoutingId) => {
-        if (!isMainFrame || errorCode === 0 || errorCode === -3) return;
+        if (!isMainFrame || errorCode === 0 || errorCode === -3 || isPrivateContents(contents)) return;
         logDebug('navigation', 'main-frame-failed-load', {
           webContentsId: contents.id,
           frameProcessId,
@@ -2787,6 +2804,12 @@ function setupWebviewTabOpenHandler() {
     if (contents.getType() === 'window') {
       contents.on('will-attach-webview', (_event, webPreferences, params) => {
         prepareWebviewHistoryRestore(params);
+        const hostWindow = BrowserWindow.fromWebContents(contents);
+        const privatePartition = hostWindow && privatePartitionsByWindow.get(hostWindow.id);
+        if (privatePartition) {
+          params.partition = privatePartition;
+          webPreferences.partition = privatePartition;
+        }
         // Lock guest pages to our trusted preload and current sandbox defaults.
         webPreferences.preload = path.join(__dirname, 'webview-preload.js');
         webPreferences.nodeIntegration = false;
@@ -2887,6 +2910,11 @@ function setupWebviewTabOpenHandler() {
       const hasPrimaryModifier = input.control || input.meta;
       const isPrimaryChord = hasPrimaryModifier && !input.shift;
       const historyKey = isMacOS ? 'y' : 'h';
+      if (hasPrimaryModifier && input.shift && !input.alt && key === 'n') {
+        event.preventDefault();
+        createWindow(BrowserWindow.fromWebContents(host) ?? undefined, undefined, undefined, { private: true });
+        return;
+      }
       const isNewTabChord = isPrimaryChord && key === 't';
       const isNewWindowChord = isPrimaryChord && key === 'n';
       const isFindChord = isPrimaryChord && key === 'f';
@@ -3264,8 +3292,7 @@ function isFirstPartyStorageAccess(permission: string, requestingUrl: string, to
   }
 }
 
-function setupSitePermissionHandlers() {
-  const ses = session.defaultSession;
+function setupSessionPermissions(ses: Electron.Session) {
 
   ses.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => {
     if (permission === 'fullscreen') return true;
@@ -3369,6 +3396,10 @@ function setupSitePermissionHandlers() {
     });
   });
 
+}
+
+function setupSitePermissionHandlers() {
+  setupSessionPermissions(session.defaultSession);
   ipcMain.handle('site-permissions-get', (_event, rawValue: unknown) => {
     const target = typeof rawValue === 'string' ? rawValue.trim() : '';
     const origin = normalizeSitePermissionOrigin(target);
@@ -3435,10 +3466,12 @@ function setupSitePermissionHandlers() {
       pendingRequest.callback(false);
       return { ok: true, snapshot: buildSitePermissionsSnapshot(pendingRequest.origin) };
     }
-    for (const permissionId of pendingRequest.permissionIds) {
-      writeSitePermissionSetting(pendingRequest.origin, permissionId, decision);
+    if (!privatePartitionsByWindow.has(sourceWindow.id)) {
+      for (const permissionId of pendingRequest.permissionIds) {
+        writeSitePermissionSetting(pendingRequest.origin, permissionId, decision);
+      }
+      await persistSitePermissions().catch(() => undefined);
     }
-    await persistSitePermissions().catch(() => undefined);
     pendingRequest.callback(decision === 'allow');
 
     return {
@@ -3483,9 +3516,10 @@ function setupSitePermissionHandlers() {
   });
 
   // Cookie management handlers
-  ipcMain.handle('cookies-get-all', async () => {
+  ipcMain.handle('cookies-get-all', async (event) => {
     try {
-      const ses = session.defaultSession;
+      const privatePartition = privatePartitionsByWindow.get(BrowserWindow.fromWebContents(event.sender)?.id ?? -1);
+      const ses = privatePartition ? session.fromPartition(privatePartition) : session.defaultSession;
       const cookies = await ses.cookies.get({});
       
       // Group cookies by origin
@@ -3516,14 +3550,15 @@ function setupSitePermissionHandlers() {
     }
   });
 
-  ipcMain.handle('cookies-delete', async (_event, payload: unknown) => {
+  ipcMain.handle('cookies-delete', async (event, payload: unknown) => {
     if (!isObjectRecord(payload)) return { ok: false };
 
     const origin = typeof payload.origin === 'string' ? payload.origin.trim() : '';
     if (!origin) return { ok: false };
 
     try {
-      const ses = session.defaultSession;
+      const privatePartition = privatePartitionsByWindow.get(BrowserWindow.fromWebContents(event.sender)?.id ?? -1);
+      const ses = privatePartition ? session.fromPartition(privatePartition) : session.defaultSession;
       const cookies = await ses.cookies.get({});
       
       // Delete cookies matching the origin
@@ -3541,9 +3576,10 @@ function setupSitePermissionHandlers() {
     }
   });
 
-  ipcMain.handle('cookies-delete-all', async () => {
+  ipcMain.handle('cookies-delete-all', async (event) => {
     try {
-      const ses = session.defaultSession;
+      const privatePartition = privatePartitionsByWindow.get(BrowserWindow.fromWebContents(event.sender)?.id ?? -1);
+      const ses = privatePartition ? session.fromPartition(privatePartition) : session.defaultSession;
       const cookies = await ses.cookies.get({});
       
       // Delete all cookies
@@ -3663,7 +3699,7 @@ function setupSitePermissionHandlers() {
 function setupSessionHandlers() {
   ipcMain.handle('session-save-window', async (event, payload: unknown) => {
     const sourceWindow = BrowserWindow.fromWebContents(event.sender);
-    if (!sourceWindow || sourceWindow.isDestroyed()) return false;
+    if (!sourceWindow || sourceWindow.isDestroyed() || privatePartitionsByWindow.has(sourceWindow.id)) return false;
 
     if (payload === null) {
       windowSessionCache.delete(sourceWindow.id);
@@ -3685,7 +3721,8 @@ function setupSessionHandlers() {
     return true;
   });
 
-  ipcMain.handle('session-get-restore-state', () => {
+  ipcMain.handle('session-get-restore-state', (event) => {
+    if (isPrivateContents(event.sender)) return { hasPendingRestore: false, tabCount: 0, windowCount: 0 };
     if (!pendingRestoreSession) {
       return {
         hasPendingRestore: false,
@@ -3703,6 +3740,7 @@ function setupSessionHandlers() {
   });
 
   ipcMain.handle('session-accept-restore', (event, mode: unknown) => {
+    if (isPrivateContents(event.sender)) return null;
     const sourceWindow = BrowserWindow.fromWebContents(event.sender);
     if (!sourceWindow || sourceWindow.isDestroyed()) return null;
     if (!pendingRestoreSession?.windows.length) return null;
@@ -3723,7 +3761,8 @@ function setupSessionHandlers() {
     return primaryWindow;
   });
 
-  ipcMain.handle('session-discard-restore', async () => {
+  ipcMain.handle('session-discard-restore', async (event) => {
+    if (isPrivateContents(event.sender)) return false;
     pendingRestoreSession = null;
     await clearPersistedSessionSnapshot();
     return true;
@@ -3988,7 +4027,7 @@ function triggerNewWindowFromShortcut(sourceWindow: BrowserWindow): void {
   if (now - lastTriggeredAt < NEW_WINDOW_SHORTCUT_DEDUPE_MS) return;
 
   recentNewWindowShortcutByWindow.set(windowId, now);
-  createWindow(sourceWindow);
+  createWindow(sourceWindow, undefined, undefined, { private: false });
 }
 
 function getHostWebContents(target: WebContents): WebContents | null {
@@ -4067,12 +4106,14 @@ function toggleWindowDevTools(win: BrowserWindow): boolean {
   }
 }
 
-function setupAdBlocker() {
-  const ses = session.defaultSession;
+function setupAdBlocker(ses: Electron.Session = session.defaultSession) {
   ses.webRequest.onBeforeRequest((details, callback) => {
     callback({ cancel: shouldBlockRequest(details.url, details.resourceType) });
   });
 
+}
+
+function setupBlockingSettingsHandlers() {
   ipcMain.handle('settings-set-ad-block-enabled', async (_, enabled: unknown) => {
     adBlockEnabled = enabled !== false;
     if (!adBlockEnabled) trackedYoutubeAdCpns.clear();
@@ -4157,8 +4198,7 @@ function setupAdBlocker() {
   });
 }
 
-function setupMainFrameHttpErrorReporter() {
-  const ses = session.defaultSession;
+function setupMainFrameHttpErrorReporter(ses: Electron.Session = session.defaultSession) {
   ses.webRequest.onCompleted((details) => {
     if (details.resourceType !== 'mainFrame') return;
 
@@ -4193,9 +4233,15 @@ function setupMainFrameHttpErrorReporter() {
 }
 
 function setupWindowControlsHandlers() {
+  ipcMain.handle('window-new-private', (event) => {
+    if (event.sender.hostWebContents) return false;
+    createWindow(BrowserWindow.fromWebContents(event.sender) ?? undefined, undefined, undefined, { private: true });
+    return true;
+  });
+
   ipcMain.handle('window-new', (event) => {
     const sourceWindow = BrowserWindow.fromWebContents(event.sender);
-    createWindow(sourceWindow && !sourceWindow.isDestroyed() ? sourceWindow : undefined);
+    createWindow(sourceWindow && !sourceWindow.isDestroyed() ? sourceWindow : undefined, undefined, undefined, { private: false });
     return true;
   });
 
@@ -5355,6 +5401,14 @@ function setupWindowsJumpList() {
       title: 'New Window',
       description: 'Open a new Mira window',
     },
+    {
+      program: process.execPath,
+      arguments: '--new-private-window',
+      iconPath: process.execPath,
+      iconIndex: 0,
+      title: 'New Private Window',
+      description: 'Open a new private Mira window',
+    },
   ]);
 }
 
@@ -5386,8 +5440,13 @@ function setupApplicationMenu() {
           accelerator: 'CmdOrCtrl+N',
           click: () => {
             const focusedWindow = BrowserWindow.getFocusedWindow();
-            createWindow(focusedWindow && !focusedWindow.isDestroyed() ? focusedWindow : undefined);
+            createWindow(focusedWindow && !focusedWindow.isDestroyed() ? focusedWindow : undefined, undefined, undefined, { private: false });
           },
+        },
+        {
+          label: 'New Private Window',
+          accelerator: 'CmdOrCtrl+Shift+N',
+          click: () => createWindow(undefined, undefined, undefined, { private: true }),
         },
         {
           label: 'Reopen Closed Tab',
@@ -5465,7 +5524,7 @@ function setupApplicationMenu() {
 }
 
 function getFirstBrowserWindow(): BrowserWindow | null {
-  return BrowserWindow.getAllWindows().find((win) => !win.isDestroyed() && !onboardingWindowIds.has(win.id))
+  return BrowserWindow.getAllWindows().find((win) => !win.isDestroyed() && !onboardingWindowIds.has(win.id) && !privatePartitionsByWindow.has(win.id))
     ?? null;
 }
 
@@ -5549,8 +5608,22 @@ function createWindow(
     };
     maximize?: boolean;
     showInactive?: boolean;
+    private?: boolean;
   },
 ): BrowserWindow {
+  const privatePartition = options?.private ? `mira-private-${uuidv4()}`
+    : options?.private === false ? undefined
+    : sourceWindow ? privatePartitionsByWindow.get(sourceWindow.id) : undefined;
+  if (privatePartition && !privatePartitions.has(privatePartition)) {
+    privatePartitions.add(privatePartition);
+    const privateSession = session.fromPartition(privatePartition, { cache: false });
+    privateSession.setUserAgent(session.defaultSession.getUserAgent());
+    setupSessionPermissions(privateSession);
+    setupAdBlocker(privateSession);
+    setupMainFrameHttpErrorReporter(privateSession);
+    setupDeviceSession(privateSession);
+    setupDownloadSession(privateSession);
+  }
   const sourceBounds = sourceWindow && !sourceWindow.isDestroyed() ? sourceWindow.getBounds() : null;
   const restoreBounds = restoreSnapshot?.bounds;
   const requestedBounds = options?.initialBounds;
@@ -5582,12 +5655,15 @@ function createWindow(
     webPreferences: {
       // devTools: false,
       preload: path.join(__dirname, 'preload.js'),
+      additionalArguments: privatePartition ? [`--mira-private-partition=${privatePartition}`] : [],
       webviewTag: true,
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
     },
   });
+
+  if (privatePartition) privatePartitionsByWindow.set(win.id, privatePartition);
 
   if (isMacOS) {
     win.setWindowButtonVisibility(true);
@@ -5717,6 +5793,16 @@ function createWindow(
   });
 
   win.on('closed', () => {
+    privatePartitionsByWindow.delete(win.id);
+    if (privatePartition && ![...privatePartitionsByWindow.values()].includes(privatePartition)) {
+      const privateSession = session.fromPartition(privatePartition);
+      // A popup must not keep a closed private session alive.
+      for (const contents of electronWebContents.getAllWebContents()) {
+        if (!contents.isDestroyed() && contents.session === privateSession) contents.close();
+      }
+      void Promise.allSettled([privateSession.clearStorageData(), privateSession.clearCache(), privateSession.closeAllConnections()])
+        .then(() => privatePartitions.delete(privatePartition));
+    }
     stopDetachedWindowDragSession(win.id);
     for (const [requestId, pendingRequest] of pendingSitePermissionRequests.entries()) {
       if (pendingRequest.hostWindowId !== win.id) continue;
@@ -5743,6 +5829,7 @@ function createWindow(
     recentRendererRecoveryByWindow.delete(win.id);
     pendingInitialUrlByWindowId.delete(win.id);
     const noWindowsRemaining = BrowserWindow.getAllWindows().length === 0;
+    if (privatePartition) return;
 
     // Do not remove this snapshot immediately. Users may be closing windows
     // in quick succession to quit the app, and we need all windows restorable.
@@ -5801,6 +5888,11 @@ function createWindow(
     if (input.type !== 'keyDown' || input.isAutoRepeat) return;
     const key = input.key.toLowerCase();
     const hasPrimaryModifier = input.control || input.meta;
+    if (hasPrimaryModifier && input.shift && !input.alt && key === 'n') {
+      event.preventDefault();
+      createWindow(win, undefined, undefined, { private: true });
+      return;
+    }
     const isPrimaryChord = hasPrimaryModifier && !input.shift;
     const isReloadChord = isPrimaryChord && key === 'r';
     const isClearCacheReloadChord = hasPrimaryModifier && input.alt && input.shift && key === 'r';
@@ -5954,11 +6046,15 @@ if (!hasSingleInstanceLock) {
   }
 
   app.on('second-instance', (_event, commandLine) => {
+    if (commandLine.includes('--new-private-window')) {
+      if (app.isReady()) createWindow(undefined, undefined, undefined, { private: true });
+      return;
+    }
     // Check if this was triggered by the Jump List "New Window" task
     if (commandLine.includes('--new-window')) {
       if (app.isReady()) {
         const focusedWindow = BrowserWindow.getFocusedWindow();
-        createWindow(focusedWindow && !focusedWindow.isDestroyed() ? focusedWindow : undefined);
+        createWindow(focusedWindow && !focusedWindow.isDestroyed() ? focusedWindow : undefined, undefined, undefined, { private: false });
       }
       return;
     }
@@ -6037,6 +6133,7 @@ app.whenReady().then(async () => {
   setupUpdateHandlers();
   setupWebviewTabOpenHandler();
   setupAdBlocker();
+  setupBlockingSettingsHandlers();
   setupMainFrameHttpErrorReporter();
   setupWindowControlsHandlers();
   setupMailtoHandlers();
@@ -6049,7 +6146,9 @@ app.whenReady().then(async () => {
   scheduleAdBlockListRefresh();
   setupDownloadHandlers();
 
-  if (shouldShowOnboarding()) {
+  if (process.argv.includes('--new-private-window')) {
+    createWindow(undefined, undefined, undefined, { private: true });
+  } else if (shouldShowOnboarding()) {
     createOnboardingWindow();
   } else {
     createWindow();

@@ -562,6 +562,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
   );
 
   const persistSession = (nextTabs: Tab[], nextActiveId: string) => {
+    if (electron?.isPrivate) return;
     const restorableTabs = filterRestorableTabs(nextTabs);
     const hasExplicitActiveId = restorableTabs.some((tab) => tab.id === nextActiveId);
     const fallbackActiveId =
@@ -656,6 +657,11 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
     let cancelled = false;
     const bootstrapSessionRestore = async () => {
       try {
+        if (electron?.isPrivate) {
+          hydratedRef.current = true;
+          setIsBootstrapReady(true);
+          return;
+        }
         const [queuedUrlsRaw, initialWindowUrlRaw] = await Promise.all([
           ipc
             .invoke<string[]>('incoming-urls-consume')
@@ -1232,7 +1238,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
   );
 
   const rememberRecentlyClosedTabs = useCallback((tabsToRemember: Tab[]) => {
-    if (!tabsToRemember.length) return;
+    if (electron?.isPrivate || !tabsToRemember.length) return;
 
     const clonedTabs = tabsToRemember.map((tab) => ({
       ...tab,
