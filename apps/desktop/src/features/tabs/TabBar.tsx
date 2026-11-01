@@ -1,6 +1,6 @@
 import TabFavicon from './TabFavicon';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { Pin, Plus, X } from 'lucide-react';
+import { Pin, Plus, Volume2, VolumeX, X } from 'lucide-react';
 import { useTabs } from './TabsProvider';
 import type { Tab } from './types';
 import miraLogo from '../../assets/mira_logo.png';
@@ -74,6 +74,8 @@ function getOutsideDistance(value: number, min: number, max: number): number {
 export default function TabBar({ orientation = 'horizontal' }: { orientation?: 'horizontal' | 'vertical' }) {
   const {
     tabs,
+    tabAudioState,
+    toggleTabMuted,
     activeId,
     setActive,
     closeTab,
@@ -1004,6 +1006,8 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
           {renderedTabs.map(({ tab, phase }) => {
             const displayFavicon = getDisplayFavicon(tab.url, tab.favicon, tab.restoreDeferred);
             const displayTitle = getDisplayTitle(tab.url, tab.title);
+            const audio = tabAudioState[tab.id];
+            const showAudio = audio?.audible || audio?.muted;
             const isInternalTab = tab.url.startsWith('mira://');
             const faviconSize = isInternalTab ? 22 : 16;
             const isExiting = phase === 'exiting';
@@ -1153,7 +1157,7 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
                   borderTopWidth: tab.isSleeping ? borderWidth : undefined,
                 }}
               >
-                <TabFavicon url={tab.url} src={displayFavicon} size={faviconSize} deferred={tab.restoreDeferred} />
+                {(!tab.isPinned || isVertical || !showAudio) && <TabFavicon url={tab.url} src={displayFavicon} size={faviconSize} deferred={tab.restoreDeferred} />}
                 {(!tab.isPinned || isVertical) && <span
                   title={displayTitle}
                   style={{
@@ -1168,6 +1172,21 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
                   {displayTitle}
                 </span>}
                 {tab.isPinned && isVertical && <Pin size={12} aria-hidden="true" style={{ flexShrink: 0 }} />}
+                {showAudio && <button
+                  type="button"
+                  data-tab-drag-ignore="true"
+                  aria-label={audio.muted ? 'Unmute tab' : 'Mute tab'}
+                  title={audio.muted ? 'Unmute tab' : 'Mute tab'}
+                  aria-pressed={audio.muted}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    toggleTabMuted(tab.id);
+                  }}
+                  className="theme-btn tab-close-btn"
+                  style={{ padding: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+                >
+                  {audio.muted ? <VolumeX size={14} aria-hidden="true" /> : <Volume2 size={14} aria-hidden="true" />}
+                </button>}
                 {!tab.isPinned && <button
                   type="button"
                   data-tab-drag-ignore="true"

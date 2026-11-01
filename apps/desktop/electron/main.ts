@@ -2762,6 +2762,16 @@ function setupWebviewTabOpenHandler() {
   app.on('web-contents-created', (_, contents) => {
     if (contents.getType() === 'webview') {
       contents.on('dom-ready', () => { void applyYoutubeAdBeta(contents); });
+      const publishAudio = (audible: boolean) => {
+        if (contents.isDestroyed()) return;
+        const host = contents.hostWebContents;
+        if (!host || host.isDestroyed()) return;
+        host.send('tab-audio-changed', {
+          webContentsId: contents.id, audible, muted: contents.isAudioMuted(),
+        });
+      };
+      contents.on('audio-state-changed', (event) => publishAudio(event.audible));
+      contents.on('render-process-gone', () => publishAudio(false));
     }
     let unloadTargetUrl = '';
     let checkingUnload = false;

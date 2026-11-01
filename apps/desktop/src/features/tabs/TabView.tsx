@@ -477,6 +477,7 @@ export default function TabView() {
     syncNavigationHistory,
     registerWebview,
     setTabLoading,
+    syncTabAudio,
     updateFindInPageMatches,
     newTabToRight,
     goBack,
@@ -1148,6 +1149,7 @@ export default function TabView() {
     };
     const domReadyHandler = () => {
       setTabLoading(tabId, webview.isLoading?.() ?? false);
+      syncTabAudio(tabId);
       handleDomReady(webview);
     };
     const didPageTitleUpdatedHandler = (event: Event) => {

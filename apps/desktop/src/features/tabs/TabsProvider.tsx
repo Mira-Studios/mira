@@ -51,6 +51,9 @@ type WebviewElement = {
   canGoForward?: () => boolean;
   reload: () => void;
   reloadIgnoringCache?: () => void;
+  isCurrentlyAudible?: () => boolean;
+  isAudioMuted?: () => boolean;
+  setAudioMuted?: (muted: boolean) => void;
   stop?: () => void;
   executeJavaScript?: (code: string, userGesture?: boolean) => Promise<unknown>;
   setZoomFactor?: (factor: number) => void;
@@ -114,6 +117,9 @@ type MailtoDispatchResponse = {
 
 type TabsContextType = {
   tabs: Tab[];
+  tabAudioState: Record<string, { audible: boolean; muted: boolean }>;
+  syncTabAudio: (id: string) => void;
+  toggleTabMuted: (id: string) => void;
   isPageLoading: boolean;
   setTabLoading: (id: string, loading: boolean) => void;
   activeId: string;
@@ -422,6 +428,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
     setTabs(current => current.map(tab => tab.id === id ? { ...tab, isPinned: !tab.isPinned } : tab));
   }, [setTabs]);
   const [activeId, setActiveId] = useState(initialTabRef.current.id);
+  const [tabAudioState, setTabAudioState] = useState<Record<string, { audible: boolean; muted: boolean }>>({});
   const [loadingTabIds, setLoadingTabIds] = useState<Set<string>>(() => new Set());
   const setTabLoading = useCallback((id: string, loading: boolean) => {
     setLoadingTabIds((current) => {
@@ -802,6 +809,12 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
     } else {
       delete webviewMap.current[id];
       setTabLoading(id, false);
+      setTabAudioState(current => {
+        if (!current[id]) return current;
+        const next = { ...current };
+        delete next[id];
+        return next;
+      });
     }
   };
 
@@ -821,6 +834,38 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
 
     return undefined;
   }, []);
+
+  const updateTabAudio = useCallback((id: string, audible: boolean, muted: boolean) => {
+    setTabAudioState(current => current[id]?.audible === audible && current[id]?.muted === muted
+      ? current : { ...current, [id]: { audible, muted } });
+  }, []);
+
+  const syncTabAudio = useCallback((id: string) => {
+    const webview = webviewMap.current[id];
+    if (!webview) return;
+    try { updateTabAudio(id, webview.isCurrentlyAudible?.() ?? false, webview.isAudioMuted?.() ?? false); }
+    catch { /* The guest may still be attaching or closing. */ }
+  }, [updateTabAudio]);
+
+  const toggleTabMuted = useCallback((id: string) => {
+    const webview = webviewMap.current[id];
+    if (!webview?.setAudioMuted || !webview.isAudioMuted) return;
+    try {
+      webview.setAudioMuted(!webview.isAudioMuted());
+      syncTabAudio(id);
+    } catch { /* A closing guest has no audio to control. */ }
+  }, [syncTabAudio]);
+
+  useEffect(() => {
+    const ipc = electron?.ipcRenderer;
+    if (!ipc) return;
+    const onAudioChanged = (_event: unknown, payload: { webContentsId: number; audible: boolean; muted: boolean }) => {
+      const id = findTabIdForWebContentsId(payload.webContentsId);
+      if (id) updateTabAudio(id, payload.audible === true, payload.muted === true);
+    };
+    ipc.on('tab-audio-changed', onAudioChanged);
+    return () => ipc.off('tab-audio-changed', onAudioChanged);
+  }, [findTabIdForWebContentsId, updateTabAudio]);
 
   const getWebContentsIdForTab = useCallback((id: string): number | undefined => {
     if (!id) return undefined;
@@ -2370,6 +2415,9 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
     <TabsContext.Provider
       value={{
         tabs,
+        tabAudioState,
+        syncTabAudio,
+        toggleTabMuted,
         activeId,
         newTab,
         newTabToRight,
