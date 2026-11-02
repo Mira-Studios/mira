@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Added
+
+- Install supported websites as apps with an animated install button beside the URL bar
+- Installed Apps page for opening and uninstalling web apps
+- Dedicated app windows and system shortcuts, with shared sign-ins and site-provided offline support
+- Compact custom app title bar with the app name, icon, navigation controls, and native macOS traffic lights
+
+### Fixed
+
+- App launcher names showing long IDs, with existing shortcuts renamed automatically
+- Installed app windows showing Mira instead of the app name in the title bar
+
 ## v1.1.1 - 2026-11-01
 
 - Fix tab closing animations

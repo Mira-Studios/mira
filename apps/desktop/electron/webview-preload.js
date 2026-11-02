@@ -2,6 +2,32 @@
 /* global require */
 const { contextBridge, ipcRenderer } = require('electron');
 
+if (process.isMainFrame) {
+  let manifestTimer;
+  window.addEventListener('DOMContentLoaded', () => {
+    new MutationObserver((records) => {
+      if (!records.some(record => record.target instanceof HTMLLinkElement ||
+        [...record.addedNodes, ...record.removedNodes].some(node => node instanceof Element &&
+          (node.matches('link[rel~="manifest"]') || node.querySelector('link[rel~="manifest"]'))))) return;
+      clearTimeout(manifestTimer);
+      manifestTimer = setTimeout(() => ipcRenderer.send('web-app-manifest-changed'), 250);
+    }).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['href', 'rel', 'crossorigin'] });
+  }, { once: true });
+}
+
+if (process.argv.includes('--mira-web-app')) {
+  contextBridge.executeInMainWorld({ func: () => {
+    const matchMedia = window.matchMedia.bind(window);
+    window.matchMedia = (query) => {
+      const result = matchMedia(query);
+      const displayMode = String(query).match(/^\(\s*display-mode\s*:\s*(standalone|browser)\s*\)$/i)?.[1]?.toLowerCase();
+      if (displayMode) Object.defineProperty(result, 'matches', { value: displayMode === 'standalone' });
+      return result;
+    };
+    Object.defineProperty(navigator, 'standalone', { value: true, configurable: true });
+  } });
+}
+
 // Only these narrowly scoped operations are available to untrusted site scripts.
 contextBridge.exposeInMainWorld('__miraInteractionBridge', {
   dialog: (data) => ipcRenderer.sendSync('webview-site-dialog-sync', data),

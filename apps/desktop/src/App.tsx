@@ -15,6 +15,7 @@ import DownloadProvider from './features/downloads/DownloadProvider';
 import { BookmarksProvider } from './features/bookmarks/BookmarksProvider';
 import { electron } from './electronBridge';
 import Onboarding from './browser_pages/Onboarding';
+import WebAppWindow from './components/WebAppWindow';
 import {
   BROWSER_SETTINGS_CHANGED_EVENT,
   BROWSER_SETTINGS_STORAGE_KEY,
@@ -502,6 +503,7 @@ function Browser() {
 }
 
 export default function App() {
+  if (new URLSearchParams(window.location.search).get('webApp') === '1') return <WebAppWindow />;
   const isOnboardingWindow = new URLSearchParams(window.location.search).get('onboarding') === '1';
   if (isOnboardingWindow) {
     return <Onboarding />;

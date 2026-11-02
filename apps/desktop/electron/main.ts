@@ -25,6 +25,8 @@ import os from 'node:os';
 import { isExplicitPopupRequest } from './popupPolicy.ts';
 import { setupDeviceConnections, setupDeviceSession, hasWindowDeviceActivity } from './deviceConnections.ts';
 import { setupPageZoom } from './pageZoom.ts';
+import { setupWebApps, isWebAppWindow, openWebAppFromArgv, queueWebAppLaunch } from './webApps.ts';
+import { WEB_APP_TITLEBAR_HEIGHT } from './webAppPolicy.ts';
 import { setupWindowSuspension, revealRestoredWindow } from './windowSuspension.ts';
 import { normalizeWindowSuspensionSettings, type MinimizedWindowLifecycle } from './minimizedWindowLifecycle.ts';
 import { areWindowContentsIdle, hasWindowDownloads } from './windowSuspensionSafety.ts';
@@ -547,7 +549,7 @@ function getOrCreateTitleBarOverlayState(win: BrowserWindow): WindowTitleBarOver
   const created: WindowTitleBarOverlayState = {
     color: DEFAULT_TITLEBAR_OVERLAY_COLOR,
     symbolColor: DEFAULT_TITLEBAR_SYMBOL_COLOR,
-    height: DEFAULT_TITLEBAR_OVERLAY_HEIGHT,
+    height: isWebAppWindow(win.id) ? WEB_APP_TITLEBAR_HEIGHT : DEFAULT_TITLEBAR_OVERLAY_HEIGHT,
     preferNativeOverlay: isWindows,
     suppressForDockedDevToolsCount: 0,
   };
@@ -2881,6 +2883,9 @@ function setupWebviewTabOpenHandler() {
         webPreferences.nodeIntegration = false;
         webPreferences.contextIsolation = true;
         webPreferences.sandbox = true;
+        if (hostWindow && isWebAppWindow(hostWindow.id)) {
+          webPreferences.additionalArguments = [...(webPreferences.additionalArguments ?? []), '--mira-web-app'];
+        }
       });
     }
 
@@ -5363,7 +5368,7 @@ function setupWindowControlsHandlers() {
       const overlayState = getOrCreateTitleBarOverlayState(win);
       overlayState.symbolColor = normalizedSymbolColor;
       overlayState.color = normalizedOverlayColor || DEFAULT_TITLEBAR_OVERLAY_COLOR;
-      overlayState.height = DEFAULT_TITLEBAR_OVERLAY_HEIGHT;
+      overlayState.height = isWebAppWindow(win.id) ? WEB_APP_TITLEBAR_HEIGHT : DEFAULT_TITLEBAR_OVERLAY_HEIGHT;
       overlayState.preferNativeOverlay = true;
       applyWindowTitleBarOverlay(win);
       return true;
@@ -5714,23 +5719,22 @@ function setupApplicationMenu() {
 }
 
 function getFirstBrowserWindow(): BrowserWindow | null {
-  return BrowserWindow.getAllWindows().find((win) => !win.isDestroyed() && !onboardingWindowIds.has(win.id) && !privatePartitionsByWindow.has(win.id))
+  return BrowserWindow.getAllWindows().find((win) => !win.isDestroyed() && !onboardingWindowIds.has(win.id) && !privatePartitionsByWindow.has(win.id) && !isWebAppWindow(win.id))
     ?? null;
 }
 
-function loadRendererShell(win: BrowserWindow, options?: { onboarding?: boolean }): void {
+function loadRendererShell(win: BrowserWindow, options?: { onboarding?: boolean; webApp?: boolean }): void {
   const onboarding = options?.onboarding === true;
+  const query: Record<string, string> | undefined = onboarding ? { onboarding: '1' } : options?.webApp ? { webApp: '1' } : undefined;
   if (!app.isPackaged) {
-    const onboardingQuery = onboarding ? '?onboarding=1' : '';
-    win.loadURL(`http://localhost:5173${onboardingQuery}`);
+    const search = query ? `?${new URLSearchParams(query)}` : '';
+    win.loadURL(`http://localhost:5173${search}`);
     return;
   }
 
-  if (onboarding) {
+  if (query) {
     win.loadFile('dist/index.html', {
-      query: {
-        onboarding: '1',
-      },
+      query,
     });
     return;
   }
@@ -6252,7 +6256,7 @@ function routeIncomingBrowserUrl(rawUrl: string): void {
 
   const focusedWindow = BrowserWindow.getFocusedWindow();
   const focusedBrowserWindow =
-    focusedWindow && !focusedWindow.isDestroyed() && !onboardingWindowIds.has(focusedWindow.id)
+    focusedWindow && !focusedWindow.isDestroyed() && !onboardingWindowIds.has(focusedWindow.id) && !isWebAppWindow(focusedWindow.id)
       ? focusedWindow
       : null;
   const fallbackWindow = getFirstBrowserWindow();
@@ -6283,6 +6287,10 @@ if (!hasSingleInstanceLock) {
   }
 
   app.on('second-instance', (_event, commandLine) => {
+    if (commandLine.some(value => value.startsWith('--web-app='))) {
+      queueWebAppLaunch(commandLine);
+      return;
+    }
     if (commandLine.includes('--new-private-window')) {
       if (app.isReady()) createWindow(undefined, undefined, undefined, { private: true });
       return;
@@ -6386,7 +6394,23 @@ app.whenReady().then(async () => {
   scheduleAdBlockListRefresh();
   setupDownloadHandlers();
 
-  if (process.argv.includes('--new-private-window')) {
+  await setupWebApps({
+    getHost: getHostWindowForContents,
+    isPrivate: isPrivateContents,
+    openInBrowser: routeIncomingBrowserUrl,
+    loadShell: win => loadRendererShell(win, { webApp: true }),
+    cleanupWindow: (id) => {
+      for (const [requestId, request] of pendingSitePermissionRequests) {
+        if (request.hostWindowId !== id) continue;
+        pendingSitePermissionRequests.delete(requestId);
+        request.callback(false);
+      }
+    },
+  });
+
+  if (openWebAppFromArgv(process.argv)) {
+    // The app window is the requested startup surface.
+  } else if (process.argv.includes('--new-private-window')) {
     createWindow(undefined, undefined, undefined, { private: true });
   } else if (shouldShowOnboarding()) {
     createOnboardingWindow();

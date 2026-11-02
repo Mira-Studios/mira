@@ -24,16 +24,24 @@ type ClosingView = {
 };
 const kindLabels = { usb: 'USB', hid: 'HID', serial: 'Serial', bluetooth: 'Bluetooth' };
 
-export default function DeviceConnectionsButton({
-  animationsEnabled,
-  onOpen,
-  otherMenuOpen,
-}: {
+type DeviceControlProps = {
   animationsEnabled: boolean;
   onOpen: () => void;
   otherMenuOpen: boolean;
-}) {
+};
+
+export default function DeviceConnectionsButton(props: DeviceControlProps) {
   const { activeId, getWebContentsIdForTab } = useTabs();
+  const getSourceId = useCallback(() => getWebContentsIdForTab(activeId), [activeId, getWebContentsIdForTab]);
+  return <DeviceConnectionsControl {...props} getSourceId={getSourceId} />;
+}
+
+export function DeviceConnectionsControl({
+  animationsEnabled,
+  onOpen,
+  otherMenuOpen,
+  getSourceId,
+}: DeviceControlProps & { getSourceId: () => number | undefined }) {
   const [states, setStates] = useState<DeviceState[]>([]);
   const [open, setOpen] = useState(false);
   const [closingView, setClosingView] = useState<ClosingView | null>(null);
@@ -45,7 +53,7 @@ export default function DeviceConnectionsButton({
   const menu = useRef<HTMLElement>(null);
   const seenRequest = useRef('');
   const closeTimer = useRef<number | null>(null);
-  const sourceId = getWebContentsIdForTab(activeId);
+  const sourceId = getSourceId();
   const current = states.find((state) => state.webContentsId === sourceId);
   const request = current?.request;
   const connected = current?.connected ?? EMPTY_DEVICES;
@@ -126,7 +134,7 @@ export default function DeviceConnectionsButton({
       if (!live || !Array.isArray(next)) return;
       setStates(next);
       const pending = next.find(
-        (state) => state.webContentsId === getWebContentsIdForTab(activeId),
+        (state) => state.webContentsId === getSourceId(),
       )?.request;
       if (pending && seenRequest.current !== pending.id) {
         seenRequest.current = pending.id;
@@ -150,7 +158,7 @@ export default function DeviceConnectionsButton({
       live = false;
       ipc.off('device-connections-changed', receive);
     };
-  }, [activeId, getWebContentsIdForTab, show]);
+  }, [getSourceId, show]);
 
   useEffect(() => {
     if (!open) return;

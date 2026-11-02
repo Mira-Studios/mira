@@ -3,6 +3,7 @@ import { usePromptPresence } from '../hooks/usePromptPresence';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Bookmark,
+  AppWindow,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -24,6 +25,7 @@ import { useBookmarks } from '../features/bookmarks/BookmarksProvider';
 import DownloadButton from './DownloadButton';
 import DeviceConnectionsButton from './DeviceConnectionsButton';
 import PageZoomControl from './PageZoomControl';
+import WebAppButton from './WebAppButton';
 import {
   BROWSER_SETTINGS_CHANGED_EVENT,
   getBrowserSettings,
@@ -591,6 +593,12 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
       onSelect: openBookmarks,
     },
     {
+      id: 'apps',
+      label: 'Installed Apps',
+      icon: AppWindow,
+      onSelect: () => newTab('mira://apps'),
+    },
+    {
       id: 'print',
       label: 'Print...',
       shortcut: `${primaryModifierLabel}+P`,
@@ -791,6 +799,8 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
           </button>
         )}
       </div>
+
+      <WebAppButton key={`web-app-${activeId}`} animationsEnabled={animationsEnabled} onOpen={closeMenusForDeviceChooser} />
 
       <PageZoomControl key={`zoom-${activeId}`} animationsEnabled={animationsEnabled} onOpen={closeMenusForDeviceChooser} />
 

@@ -33,6 +33,8 @@
     "files": [
       "dist/**/*",
       "electron/**/*",
+      "!electron/**/*.test.ts",
+      "!electron/**/*.smoke.ts",
       "src/assets/trackers.txt",
       "package.json"
     ],
