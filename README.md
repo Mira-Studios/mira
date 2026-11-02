@@ -11,26 +11,37 @@ A browser for desktop and mobile.
 ### Features
 
 - Tabbed browsing with drag-to-rearrange
-- Multi-window browsing with session restore
+- Tab groups with names, colors, and collapse controls
+- Pinned tabs and per-tab audio muting
+- Drag tabs into new windows
 - Vertical and horizontal tabs
-- Memory-saving tab sleeping
+- Multi-window session restore with window positions and deferred tab loading
+- Automatic session backups and recovery
+- Memory-saving tab sleeping and window suspension
 - Reopen closed tabs
-- Session restore with window positions
+- Private windows
 - Default browser support
 - Themes and theme creator
 - Layouts and layouts creator
 - Customizable new tab
 - Built-in ad blocker
 - Tracker blocker
-- Bookmarks with folder organization
+- HTTPS-first navigation with HTTP warnings
+- Per-site permissions and device connection controls
+- Cookie controls with per-site and bulk deletion
+- Bookmarks with folder organization, bookmarks bar, and bookmark manager
 - Browsing history
-- Download manager
+- Download manager with popup file opening and open-when-done
 - Find in page
+- Per-site page zoom
+- Hard reload and clear-cache reload
+- Site dialogs and unsaved changes protection
 - Devtools support
 - Print support
 - Search engine selection
 - Auto-update with update page
 - Run on startup option
+- Option to open external links in a new window
 
 ## Mobile
 

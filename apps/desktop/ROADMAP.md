@@ -1,45 +1,23 @@
 # Roadmap
 
-## v1.1.0
-- [x] Bookmarks and favorites
-      Bookmark page: Ctrl+D
-      Bookmark all tabs: Ctrl+Shift+D
-      Show/hide bookmarks bar: Ctrl+Shift+B
-      Bookmark manager: Ctrl+Shift+O
-- [x] Site settings
-- [x] HTTPS first and http warning page
-- [x] Site permissions controls
-- [x] Tracker blocking
-- [ ] Private mode
-      New private window: Ctrl+Shift+N
-- [ ] Finish cookies and site data
-- [ ] Clean up ui
-- [x] Fix http warning page
-- [x] #74
-- [ ] #76
-- [ ] #77
-- [x] #81
-
 ## v1.2.0
-- [ ] Tab groups and colors
-- [ ] Vertical tabs sidebar
+
+- [ ] Manage and clear site storage beyond cookies (local storage, IndexedDB, and cache storage)
 - [ ] Split view tabs
-- [ ] Pinned tabs
-- [ ] Mute tabs
-- [ ] Tab move to window
 - [ ] Cast
 - [ ] Screen share
-- [ ] Forward and backward context menu
-- [ ] Open downloads from pop up
 
 ## v1.3.0
+
 - [ ] Reader mode view
-- [ ] Built in screenshots
-- [ ] Picture in picture
+- [ ] Built-in screenshot tool
+- [ ] Picture-in-picture controls
 - [ ] Page translate
-- [ ] Password manager(s)
+- [ ] Password manager integration
 
 ## Anytime
-- [ ] Data migration
-- [ ] Data sync and backup
+
+- [ ] Import browsing data from other browsers
+- [ ] Data sync across devices
+- [ ] User-managed export and backup of browsing data
 - [ ] Mira extensions

@@ -4,13 +4,60 @@
 
 ## v1.1.1 - 2026-11-01
 
+- Fix tab closing animations
+
 ## v1.1.0 - 2026-11-01
 
-- Registers for more files and link types
-- Support MAILTO links
-- Site permissions
-- Fix https first and http warning page
-- Url bar shows correct url
+### Added
+
+- Private windows
+- Pinned tabs
+- Tab groups with names, colors, and collapse controls
+- Mute and unmute tabs
+- Recently closed page for restoring tabs, groups, and windows
+- Optional minimized window unloading to save memory, with screenshot previews while restoring
+- Site permission controls
+- Cookie controls and per-site cookie deletion
+- USB, Bluetooth, HID, and serial device connection prompts and controls
+- Motion and orientation permissions
+- Site dialogs, passkey prompts, and unsaved changes protection
+- Page zoom controls
+- Hard reload and clear cache and reload options when right-clicking the reload button
+- YouTube ad skipping option (beta)
+- MAILTO link support
+- Registration for additional file types, including PDF, SVG, XHTML, MHTML, and XML
+- Mira link handling
+- ARM64 builds for Windows and Linux
+- Setting for opening external links in a new window
+
+### Updated
+
+- Redesign tabs, settings, and onboarding
+- Move layout settings into a separate section
+- URL bar and controls can move into the top bar with vertical tabs
+- Round URL bar
+- Update dialogs and prompt animations
+- Reload button shows a cancel button while loading
+- Mira logo hides when the tab bar gets crowded
+- Restoring windows initially loads only the active tab to reduce memory use
+- Improve session saving with atomic saves and backup recovery
+- Update updates page
+- Allow fullscreen without permission prompts
+
+### Fixed
+
+- HTTP warning appearing again when navigating to another page on the same site
+- URL bar sometimes showing an incorrect URL
+- Tabs going blank when restoring windows
+- App going blank when switching to vertical tabs
+- Network error pages appearing incorrectly
+- Back and forward navigation
+- Links opening in popup windows when they should open in tabs
+- Cross-site cookies
+- Missing or incorrect favicons
+- Tab titles getting cut off
+- Tab scrolling
+- Main menu opening and closing when opening site settings
 
 ## v1.0.0 - 2026-04-01
 
@@ -37,6 +84,10 @@
 - Webview has white background
 - Fix bookmarks context menu
 - Finish bookmarks menu and folders
+
+## v0.13.1 - 2026-03-21
+
+- Update updates page
 
 ## v0.13.0 - 2026-03-21
 
