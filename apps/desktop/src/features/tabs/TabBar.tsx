@@ -1138,6 +1138,9 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
   const isRightSidebar = isVertical && tabStripPosition === 'right';
   const tabRadius = 'var(--layoutTabRadius, 10px)';
   const borderWidth = 'var(--layoutBorderWidth, 1px)';
+  // Extend the scroll viewport left so the curve fits without shifting the tabs right.
+  const horizontalCurveBleed = `calc(${tabRadius} + ${borderWidth} + 4px)`;
+  const horizontalTabInset = `calc(${horizontalCurveBleed} + 2px)`;
 
   return (
     <div
@@ -1189,7 +1192,8 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
             WebkitAppRegion: !isVertical && (canScrollLeft || canScrollRight)
               ? 'no-drag'
               : dragRegionsTemporarilyDisabled ? 'no-drag' : 'drag',
-            padding: isVertical ? 6 : '0 4px',
+            marginLeft: isVertical ? undefined : `calc(-1 * ${horizontalCurveBleed} - 2px)`,
+            padding: isVertical ? 6 : `0 4px 0 ${horizontalTabInset}`,
             paddingBottom: isVertical ? 6 : 1,
           }}
         >
@@ -1363,7 +1367,7 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
                   paddingBottom: 0,
                   justifyContent: tab.isPinned && !isVertical ? 'center' : undefined,
                   position: tab.isPinned ? 'sticky' : 'relative',
-                  left: tab.isPinned && !isVertical ? `calc(${pinnedIndex} * (38px + ${TAB_STRIP_GAP}))` : undefined,
+                  left: tab.isPinned && !isVertical ? `calc(${horizontalTabInset} + ${pinnedIndex} * (38px + ${TAB_STRIP_GAP}))` : undefined,
                   top: tab.isPinned && isVertical ? `calc(${pinnedIndex} * (${TAB_ROW_HEIGHT} + ${TAB_STRIP_GAP}))` : undefined,
                   marginBottom: isVertical && groupCollapsed ? `calc(-1 * ${TAB_STRIP_GAP})` : 0,
                   marginRight:
