@@ -1,6 +1,6 @@
 import ContextMenu from './ContextMenu';
 import { usePromptPresence } from '../hooks/usePromptPresence';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Bookmark,
   AppWindow,
@@ -15,6 +15,7 @@ import {
   Plus,
   Printer,
   RotateCw,
+  Search,
   Settings2,
   SquareArrowOutUpRight,
   TriangleAlert,
@@ -33,6 +34,9 @@ import {
 } from '../features/settings/browserSettings';
 import { markPendingHttpsUpgrade, toHttpsUrlFromHttp } from '../features/security/unsecureSitePolicy';
 import { electron } from '../electronBridge';
+import { listHistoryEntries, type HistoryEntry } from '../features/history/clientHistory';
+import { getAddressUrl } from '../features/history/addressInput';
+import { getAddressSuggestions } from '../features/history/addressSuggestions';
 
 const MENU_ANIMATION_MS = 150;
 
@@ -155,6 +159,71 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
   } = useTabs();
   const { addBookmark, bookmarks, deleteBookmark } = useBookmarks();
   const [input, setInput] = useState('');
+  const [addressFocused, setAddressFocused] = useState(false);
+  const [suggestionsDismissed, setSuggestionsDismissed] = useState(false);
+  const [selectedSuggestion, setSelectedSuggestion] = useState(-1);
+  const [historyEntries, setHistoryEntries] = useState<HistoryEntry[]>([]);
+  const localInputRef = useRef<HTMLInputElement | null>(null);
+  const addressInputRef = inputRef ?? localInputRef;
+  const addressFieldRef = useRef<HTMLDivElement | null>(null);
+  const suggestionsId = useId();
+  const suggestions = useMemo(
+    () => getAddressSuggestions(input, bookmarks, historyEntries, tabs),
+    [input, bookmarks, historyEntries, tabs],
+  );
+  const suggestionsOpen = addressFocused && !suggestionsDismissed && suggestions.length > 0;
+  const selectedIndex = selectedSuggestion < suggestions.length ? selectedSuggestion : -1;
+  const suggestionsRequest = useMemo(
+    () => suggestionsOpen ? { requestId: 'address-suggestions', items: suggestions } : null,
+    [suggestionsOpen, suggestions],
+  );
+  const {
+    displayed: displayedSuggestions,
+    closing: suggestionsClosing,
+    animated: suggestionsAnimated,
+  } = usePromptPresence(suggestionsRequest);
+  const addressShellRef = useRef<HTMLDivElement | null>(null);
+  const suggestionsItemsRef = useRef<HTMLDivElement | null>(null);
+  const suggestionsVisible = displayedSuggestions !== null;
+  useLayoutEffect(() => {
+    const shell = addressShellRef.current;
+    const field = addressInputRef.current;
+    const wrapper = addressFieldRef.current;
+    const items = suggestionsItemsRef.current;
+    if (!shell || !field || !wrapper) return;
+    const syncHeight = () => {
+      const fieldHeight = field.getBoundingClientRect().height;
+      wrapper.style.setProperty('--address-bar-radius', `${fieldHeight / 2}px`);
+      wrapper.style.setProperty('--address-bar-height', `${fieldHeight}px`);
+      const extraHeight = suggestionsVisible && !suggestionsClosing && items
+        ? items.getBoundingClientRect().height : 0;
+      shell.style.height = `${fieldHeight + extraHeight}px`;
+    };
+    syncHeight();
+    const observer = new ResizeObserver(syncHeight);
+    observer.observe(field);
+    if (items) observer.observe(items);
+    return () => observer.disconnect();
+  }, [addressInputRef, suggestionsVisible, suggestionsClosing]);
+
+  useEffect(() => {
+    if (!addressFocused) return;
+    let cancelled = false;
+    setHistoryEntries([]);
+    void listHistoryEntries().then((entries) => {
+      if (!cancelled) setHistoryEntries(entries);
+    }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [addressFocused]);
+
+  useEffect(() => {
+    const dismiss = () => {
+      setAddressFocused(false);
+      setSuggestionsDismissed(true);
+    };
+    window.addEventListener('blur', dismiss);
+    return () => window.removeEventListener('blur', dismiss);
+  }, []);
   const [reloadMenuAnchor, setReloadMenuAnchor] = useState<{ x: number; y: number } | null>(null);
   const closeReloadMenu = useCallback(() => setReloadMenuAnchor(null), []);
   useEffect(() => { setReloadMenuAnchor(null); }, [activeId]);
@@ -230,95 +299,33 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
     closeSiteSettings();
   }, [closeMenu, closeSiteSettings]);
 
+  const activeTab = tabs.find((t) => t.id === activeId);
+  const activeUrl = activeTab?.url;
   useEffect(() => {
-    const activeTab = tabs.find((t) => t.id === activeId);
-    if (!activeTab) return;
+    if (!activeUrl) return;
 
-    if (activeTab.url === getBrowserSettings().newTabPage) {
+    if (activeUrl === getBrowserSettings().newTabPage) {
       setInput('');
     } else {
-      setInput(activeTab.url);
+      setInput(activeUrl);
     }
-  }, [tabs, activeId]);
+    setSuggestionsDismissed(true);
+    setSelectedSuggestion(-1);
+  }, [activeUrl, activeId]);
 
-  const activeTab = tabs.find((t) => t.id === activeId);
   const activePageInfo = readSiteSettingsPageInfo(activeTab?.url);
   const activePermissionRequest = permissionRequests[0] ?? null;
   const { displayed: displayedPermissionRequest, closing: permissionClosing, animated: permissionAnimated } = usePromptPresence(activePermissionRequest);
 
-  const isSupportedProtocol = (value: string) => {
-    const schemeMatch = value.match(/^([a-z][a-z0-9+.-]*:)/i);
-    if (!schemeMatch) return false;
-    const scheme = schemeMatch[1].toLowerCase();
-    return (
-      scheme === 'http:' ||
-      scheme === 'https:' ||
-      scheme === 'file:' ||
-      scheme === 'about:' ||
-      scheme === 'mira:' ||
-      scheme === 'data:' ||
-      scheme === 'view-source:'
-    );
-  };
-
-  const isIpv4Host = (hostname: string) => {
-    const parts = hostname.split('.');
-    if (parts.length !== 4) return false;
-    return parts.every((part) => {
-      if (!/^\d{1,3}$/.test(part)) return false;
-      const value = Number.parseInt(part, 10);
-      return value >= 0 && value <= 255;
-    });
-  };
-
-  const isLikelyDomainOrHost = (hostname: string) => {
-    const normalized = hostname.trim().toLowerCase();
-    if (!normalized) return false;
-    if (normalized === 'localhost') return true;
-    if (isIpv4Host(normalized)) return true;
-    if (normalized.includes(':')) return true; // IPv6 style host
-    if (!normalized.includes('.')) return false;
-
-    const labels = normalized.split('.');
-    return labels.every(
-      (label) =>
-        label.length > 0 &&
-        label.length <= 63 &&
-        /^[a-z0-9-]+$/i.test(label) &&
-        !label.startsWith('-') &&
-        !label.endsWith('-'),
-    );
-  };
-
-  const isLikelyDomainOrUrl = (value: string) => {
-    if (/\s/.test(value)) return false;
-    if (isSupportedProtocol(value)) return true;
-
-    // Check for host:port format (e.g., localhost:3000) before rejecting as unknown scheme
-    const schemeLikeMatch = value.match(/^([a-z][a-z0-9+.-]*):(.*)/i);
-    if (schemeLikeMatch) {
-      const afterColon = schemeLikeMatch[2];
-      // If after colon is just a port number, it's host:port, not a scheme
-      const isPort = /^\d+$/.test(afterColon) && Number(afterColon) > 0 && Number(afterColon) <= 65535;
-      if (!isPort) return false;
-    }
-
-    const candidate = value.startsWith('//') ? `https:${value}` : `https://${value}`;
-    try {
-      const parsed = new URL(candidate);
-      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
-      return isLikelyDomainOrHost(parsed.hostname);
-    } catch {
-      return false;
-    }
-  };
-
-  const go = () => {
-    const raw = input.trim();
+  const go = (value = input) => {
+    const raw = value.trim();
     if (!raw) return;
+    setSuggestionsDismissed(true);
+    setSelectedSuggestion(-1);
 
     let finalUrl: string;
-    if (isSupportedProtocol(raw)) {
+    const addressUrl = getAddressUrl(raw);
+    if (addressUrl) {
       if (/^http:\/\//i.test(raw)) {
         const httpsUrl = toHttpsUrlFromHttp(raw);
         if (httpsUrl) {
@@ -327,9 +334,7 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
           return;
         }
       }
-      finalUrl = raw;
-    } else if (isLikelyDomainOrUrl(raw)) {
-      finalUrl = raw.startsWith('//') ? `https:${raw}` : `https://${raw}`;
+      finalUrl = addressUrl;
     } else {
       const settings = getBrowserSettings();
       finalUrl = getSearchUrlFromInput(
@@ -731,11 +736,36 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
         {isPageLoading ? <X size={16} strokeWidth={1.9} aria-hidden="true" /> : <ReloadIcon />}
       </button>
 
-      <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
+      <div
+        ref={addressFieldRef}
+        className={`address-field ${suggestionsVisible ? 'address-field-expanded' : ''} ${suggestionsAnimated ? 'address-field-animated' : ''}`}
+        style={{ position: 'relative', flex: 1, minWidth: 0 }}
+      >
         <input
-          ref={inputRef}
+          ref={addressInputRef}
           value={input}
-          onChange={(e) => setInput(e.target.value)}
+          onChange={(e) => {
+            setInput(e.target.value);
+            setSuggestionsDismissed(false);
+            setSelectedSuggestion(-1);
+          }}
+          onFocus={() => {
+            setAddressFocused(true);
+            setSuggestionsDismissed(false);
+            setSelectedSuggestion(-1);
+          }}
+          onBlur={() => {
+            setAddressFocused(false);
+            setSelectedSuggestion(-1);
+          }}
+          role="combobox"
+          aria-label="Search or enter address"
+          aria-autocomplete="list"
+          aria-expanded={suggestionsOpen}
+          aria-controls={suggestionsOpen ? suggestionsId : undefined}
+          aria-activedescendant={suggestionsOpen && selectedIndex >= 0 ? `${suggestionsId}-${selectedIndex}` : undefined}
+          autoComplete="off"
+          spellCheck={false}
           onContextMenu={(e) => {
             const settings = getBrowserSettings();
             if (!settings.nativeTextFieldContextMenu) return;
@@ -752,21 +782,87 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
               .catch(() => undefined);
           }}
           onKeyDown={(e) => {
+            if (e.nativeEvent.isComposing) return;
+            if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && suggestions.length > 0) {
+              e.preventDefault();
+              setSuggestionsDismissed(false);
+              setSelectedSuggestion(
+                !suggestionsOpen || selectedIndex < 0
+                  ? e.key === 'ArrowDown' ? 0 : suggestions.length - 1
+                  : (selectedIndex + (e.key === 'ArrowDown' ? 1 : -1) + suggestions.length) % suggestions.length,
+              );
+              return;
+            }
+            if (e.key === 'Escape' && suggestionsOpen) {
+              e.preventDefault();
+              e.stopPropagation();
+              setSuggestionsDismissed(true);
+              setSelectedSuggestion(-1);
+              return;
+            }
+            if (e.key === 'Tab' && !e.shiftKey && suggestionsOpen) {
+              e.preventDefault();
+              setInput(suggestions[selectedIndex >= 0 ? selectedIndex : 0].value);
+              setSuggestionsDismissed(true);
+              setSelectedSuggestion(-1);
+              return;
+            }
             if (e.key !== 'Enter') return;
-            go();
+            e.preventDefault();
+            go(suggestionsOpen && selectedIndex >= 0 ? suggestions[selectedIndex].value : input);
             e.currentTarget.blur();
           }}
-          placeholder="Enter URL"
-          className="theme-input"
+          placeholder="Search or enter address"
+          className="theme-input address-input"
           style={{
             width: '100%',
-            borderRadius: 999,
             padding: '6px 14px',
             minHeight: 'var(--layoutNavButtonHeight, 30px)',
             fontSize: 16,
             paddingRight: showBookmarkButton ? '40px' : '14px',
           }}
         />
+        <div ref={addressShellRef} className="address-field-shell">
+        {displayedSuggestions && (
+          <div
+            id={suggestionsId}
+            role="listbox"
+            aria-label="Address suggestions"
+            aria-hidden={suggestionsClosing || undefined}
+            inert={suggestionsClosing}
+            className={`address-suggestions ${suggestionsClosing ? 'address-suggestions-closing' : ''}`}
+          >
+            <div ref={suggestionsItemsRef} className="address-suggestions-items">
+            {displayedSuggestions.items.map((suggestion, index) => {
+              const Icon = suggestion.kind === 'bookmark' ? Bookmark : suggestion.kind === 'history' ? History : suggestion.kind === 'navigation' ? Globe : Search;
+              return (
+                <div
+                  key={`${suggestion.kind}-${suggestion.value}`}
+                  id={`${suggestionsId}-${index}`}
+                  role="option"
+                  aria-selected={selectedIndex === index}
+                  className={`address-suggestion ${selectedIndex === index ? 'address-suggestion-selected' : ''}`}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onMouseMove={() => setSelectedSuggestion(index)}
+                  onClick={() => {
+                    setInput(suggestion.value);
+                    go(suggestion.value);
+                    setAddressFocused(false);
+                    addressInputRef.current?.blur();
+                  }}
+                >
+                  <Icon size={16} aria-hidden="true" />
+                  <span className="address-suggestion-text">
+                    <span className="address-suggestion-title">{suggestion.title}</span>
+                    {(suggestion.kind === 'bookmark' || suggestion.kind === 'history') && suggestion.title !== suggestion.value && <span className="address-suggestion-url">{suggestion.value}</span>}
+                  </span>
+                </div>
+              );
+            })}
+            </div>
+          </div>
+        )}
+        </div>
         {showBookmarkButton && (
           <button
             onClick={handleBookmarkCurrentPage}
