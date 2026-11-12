@@ -4,7 +4,7 @@
   "author": "Mira Community <mirathebrowser@gmail.com>",
   "license": "MIT",
   "private": true,
-  "version": "1.1.1",
+  "version": "1.1.2",
   "type": "module",
   "main": "electron/main.ts",
   "homepage": "https://mira.fatalmistake02.com",

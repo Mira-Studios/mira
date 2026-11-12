@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v1.1.2 - 2026-11-12
+
 ### Added
 
 - Add history save time setting
