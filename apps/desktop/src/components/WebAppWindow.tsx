@@ -6,6 +6,7 @@ import WebAppTitleBar from './WebAppTitleBar';
 import SiteInteractionPrompts from './SiteInteractionPrompts';
 import DownloadProvider from '../features/downloads/DownloadProvider';
 import DownloadButton from './DownloadButton';
+import DevToolsDock from './DevToolsDock';
 import { usePromptPresence } from '../hooks/usePromptPresence';
 import { DeviceConnectionsControl } from './DeviceConnectionsButton';
 import {
@@ -31,7 +32,6 @@ type Guest = HTMLElement & {
   stop: () => void;
   print: () => void;
   focus: () => void;
-  openDevTools: () => void;
   findInPage: (text: string, options?: { forward?: boolean; findNext?: boolean }) => void;
   stopFindInPage: (action: 'clearSelection') => void;
 };
@@ -73,6 +73,9 @@ function AppContent({ item }: { item: WebAppWindowInfo }) {
   useEffect(() => {
     const syncSettings = () => {
       const settings = getBrowserSettings();
+      void electron?.ipcRenderer
+        .invoke('settings-set-devtools-open-mode', settings.devToolsOpenMode)
+        .catch(() => undefined);
       setAnimationsEnabled(settings.animationsEnabled);
       applyTheme(getThemeById(settings.themeId));
       applyLayout(getLayoutById(settings.layoutId));
@@ -161,7 +164,13 @@ function AppContent({ item }: { item: WebAppWindowInfo }) {
       else if (command === 'close-tab' || command === 'close-window')
         void ipc.invoke('window-close');
       else if (command === 'toggle-fullscreen') void ipc.invoke('window-fullscreen-toggle');
-      else if (command === 'toggle-devtools') view.openDevTools();
+      else if (command === 'toggle-devtools') {
+        void ipc.invoke('webview-open-devtools', {
+          webContentsId: view.getWebContentsId(),
+          mode: getBrowserSettings().devToolsOpenMode === 'side' ? 'right' : 'detach',
+          toggle: true,
+        }).catch(() => undefined);
+      }
       else if (command === 'find-in-page') {
         setFindOpen(true);
         findInput.current?.focus();
@@ -292,21 +301,25 @@ function AppContent({ item }: { item: WebAppWindowInfo }) {
         </div>
       )}
       <div className="web-app-content">
-        <webview
-          ref={(element) => {
-            guest.current = element as Guest | null;
-          }}
-          src={item.startUrl}
-        />
-        {failed && (
-          <div className="web-app-load-error">
-            <h2>Couldn’t load {item.name}</h2>
-            <p>Check your connection and try again.</p>
-            <button className="theme-btn" onClick={() => guest.current?.reload()}>
-              Try again
-            </button>
-          </div>
-        )}
+        <div style={{ flex: 1, minWidth: 0, position: 'relative', display: 'flex' }}>
+          <webview
+            ref={(element) => {
+              guest.current = element as Guest | null;
+            }}
+            src={item.startUrl}
+          />
+          {failed && (
+            <div className="web-app-load-error">
+              <h2>Couldn’t load {item.name}</h2>
+              <p>Check your connection and try again.</p>
+              <button className="theme-btn" onClick={() => guest.current?.reload()}>
+                Try again
+              </button>
+            </div>
+          )}
+        </div>
+        <DevToolsDock getWebContentsId={getSourceId} />
+        <DevToolsDock />
       </div>
       {permission && (
         <div

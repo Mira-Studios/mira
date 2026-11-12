@@ -11,6 +11,7 @@
 
 - First tab curve got cut off when active
 - Improve YouTube ad blocking
+- Dev tools can open docked
 
 ## v1.1.1 - 2026-11-01
 

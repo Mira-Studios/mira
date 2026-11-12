@@ -20,6 +20,7 @@
     "build:nsis": "vite build && electron-builder --publish never --win nsis",
     "lint": "eslint .",
     "test:youtube-ads": "electron tests/youtubeAdBeta.electron.ts",
+    "test:devtools": "electron tests/devTools.electron.ts",
     "preview": "vite preview",
     "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json,css,md}\""
   },

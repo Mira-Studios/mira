@@ -2,6 +2,7 @@ import { normalizeTabGroup, orderGroupedTabs, moveTabGroup as moveGroupTabs, rem
 import { promptDialog } from '../../components/appDialogs';
 import { createContext, useContext, useState, useReducer, useCallback, useEffect, useRef } from 'react';
 import { electron } from '../../electronBridge';
+import type { DevToolsDockState } from '../../../electron/devTools';
 import { 
   getBrowserSettings, 
   saveBrowserSettings, 
@@ -512,6 +513,14 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
   >({});
 
   const webviewMap = useRef<Record<string, WebviewElement>>({});
+  const [dockedDevToolsIds, setDockedDevToolsIds] = useState<number[]>([]);
+  useEffect(() => {
+    const ipc = electron?.ipcRenderer;
+    if (!ipc) return;
+    const changed = (_event: unknown, state: DevToolsDockState) => setDockedDevToolsIds(state.ids);
+    ipc.on('devtools-dock-state', changed);
+    return () => ipc.off('devtools-dock-state', changed);
+  }, []);
   const hydratedRef = useRef(false);
   const recentIpcTabOpenRef = useRef<{ url: string; openedAt: number } | null>(null);
   const didConsumeIncomingUrlsRef = useRef(false);
@@ -2088,40 +2097,34 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
     const wv = webviewMap.current[activeId];
     if (!wv) return;
 
-    if (typeof wv.isDevToolsOpened === 'function' && wv.isDevToolsOpened()) {
-      if (typeof wv.closeDevTools === 'function') {
-        wv.closeDevTools();
-      }
-      return;
-    }
-
     const devToolsOpenMode = getBrowserSettings().devToolsOpenMode;
-    if (devToolsOpenMode === 'side') {
-      const ipc = electron?.ipcRenderer;
-      if (ipc && typeof wv.getWebContentsId === 'function') {
-        const webContentsId = wv.getWebContentsId();
-        if (typeof webContentsId === 'number' && Number.isFinite(webContentsId)) {
-          void ipc
-            .invoke<boolean>('webview-open-devtools', {
-              webContentsId,
-              mode: 'right',
-            })
-            .then((opened) => {
-              if (!opened && typeof wv.openDevTools === 'function') {
-                wv.openDevTools();
-              }
-            })
-            .catch(() => {
-              if (typeof wv.openDevTools === 'function') {
-                wv.openDevTools();
-              }
-            });
-          return;
-        }
+    const ipc = electron?.ipcRenderer;
+    if (ipc && typeof wv.getWebContentsId === 'function') {
+      const webContentsId = wv.getWebContentsId();
+      if (typeof webContentsId === 'number' && Number.isFinite(webContentsId)) {
+        void ipc
+          .invoke<boolean>('webview-open-devtools', {
+            webContentsId,
+            mode: devToolsOpenMode === 'side' ? 'right' : 'detach',
+            toggle: true,
+          })
+          .then((opened) => {
+            if (!opened && typeof wv.openDevTools === 'function') {
+              wv.openDevTools();
+            }
+          })
+          .catch(() => {
+            if (typeof wv.openDevTools === 'function') {
+              wv.openDevTools();
+            }
+          });
+        return;
       }
     }
 
-    if (typeof wv.openDevTools === 'function') {
+    if (wv.isDevToolsOpened?.()) {
+      wv.closeDevTools?.();
+    } else if (typeof wv.openDevTools === 'function') {
       wv.openDevTools();
     }
   };
@@ -2265,6 +2268,14 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
   );
 
   useEffect(() => {
+    const hasDevTools = (tabId: string) => {
+      const view = webviewMap.current[tabId];
+      if (!view) return false;
+      try {
+        const id = view.getWebContentsId?.();
+        return (id !== undefined && dockedDevToolsIds.includes(id)) || view.isDevToolsOpened();
+      } catch { return false; }
+    };
     const sleepInactiveTabs = async () => {
       const now = Date.now();
       setTabs((currentTabs) => {
@@ -2286,7 +2297,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
             return tab;
           }
 
-          if (tab.restoreDeferred) return tab;
+          if (tab.restoreDeferred || hasDevTools(tab.id)) return tab;
           const shouldSleep = now - tab.lastActiveAt >= tabSleepAfterMs;
           if (shouldSleep && !tab.isSleeping) {
             changed = true;
@@ -2330,7 +2341,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
       let nextCheckInMs: number | null = null;
 
       for (const tab of tabs) {
-        if (tab.id === activeId || tab.isSleeping || tab.restoreDeferred) continue;
+        if (tab.id === activeId || tab.isSleeping || tab.restoreDeferred || hasDevTools(tab.id)) continue;
         const remainingMs = Math.max(tab.lastActiveAt + tabSleepAfterMs - now, 0);
         if (nextCheckInMs === null || remainingMs < nextCheckInMs) {
           nextCheckInMs = remainingMs;
@@ -2353,7 +2364,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
         tabSleepTimerRef.current = null;
       }
     };
-  }, [tabs, activeId, tabSleepAfterMs]);
+  }, [tabs, activeId, tabSleepAfterMs, dockedDevToolsIds]);
 
   // Cleanup effect for component unmount
   useEffect(() => {

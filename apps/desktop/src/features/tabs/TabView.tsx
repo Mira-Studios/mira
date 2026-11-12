@@ -6,6 +6,7 @@ import { BROWSER_SETTINGS_CHANGED_EVENT, getBrowserSettings } from '../settings/
 import { getThemeById } from '../themes/themeLoader';
 import { electron } from '../../electronBridge';
 import ContextMenu, { type ContextMenuEntry } from '../../components/ContextMenu';
+import DevToolsDock from '../../components/DevToolsDock';
 import {
   isLikelyAuthUrl,
   shouldAllowNativePopupWindow,
@@ -1727,7 +1728,7 @@ export default function TabView() {
   ]);
 
   return (
-    <div style={{ flex: 1, position: 'relative', width: '100%', height: '100%', display: 'flex' }}>
+    <div style={{ flex: 1, minWidth: 0, position: 'relative', width: '100%', height: '100%', display: 'flex' }}>
       {renderTabs.map((tab) => {
         const isVisible = tab.id === activeId;
         if (tab.restoreDeferred && !isVisible) return null;
@@ -1753,66 +1754,69 @@ export default function TabView() {
                 {renderInternal(tab.url, tab.reloadToken)}
               </div>
             ) : (
-              <div style={{ flex: 1, position: 'relative', width: '100%', height: '100%', background: '#fff' }}>
-                <webview
-                  partition={electron?.privatePartition}
-                  guestinstance={tab.transferredGuestInstance}
-                  data-mira-tracked-src={
-                    tab.transferredGuestInstance ? normalizeComparableUrl(tab.url) : undefined
-                  }
-                  ref={getWebviewRefCallback(tab.id)}
-                  style={{ flex: 1, width: '100%', height: '100%' }}
-                />
-                {(() => {
-                  const externalError = externalErrorByTabId[tab.id];
-                  if (!externalError) return null;
-                  const ErrorPage =
-                    pages[externalError.route] ??
-                    (externalError.route === 'errors/external-404'
-                      ? pages['errors/404']
-                      : pages['errors/network']);
-                  if (ErrorPage) {
+              <div style={{ flex: 1, position: 'relative', width: '100%', height: '100%', background: '#fff', display: 'flex' }}>
+                <div style={{ flex: 1, minWidth: 0, position: 'relative' }}>
+                  <webview
+                    partition={electron?.privatePartition}
+                    guestinstance={tab.transferredGuestInstance}
+                    data-mira-tracked-src={
+                      tab.transferredGuestInstance ? normalizeComparableUrl(tab.url) : undefined
+                    }
+                    ref={getWebviewRefCallback(tab.id)}
+                    style={{ flex: 1, width: '100%', height: '100%' }}
+                  />
+                  {(() => {
+                    const externalError = externalErrorByTabId[tab.id];
+                    if (!externalError) return null;
+                    const ErrorPage =
+                      pages[externalError.route] ??
+                      (externalError.route === 'errors/external-404'
+                        ? pages['errors/404']
+                        : pages['errors/network']);
+                    if (ErrorPage) {
+                      return (
+                        <div
+                          style={{
+                            position: 'absolute',
+                            inset: 0,
+                            zIndex: 1,
+                            background: 'var(--bg)',
+                          }}
+                        >
+                          <ErrorPage />
+                        </div>
+                      );
+                    }
+
                     return (
                       <div
                         style={{
                           position: 'absolute',
                           inset: 0,
                           zIndex: 1,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexDirection: 'column',
+                          gap: 12,
                           background: 'var(--bg)',
+                          color: 'var(--text1)',
                         }}
                       >
-                        <ErrorPage />
+                        <div>Failed to load this page.</div>
+                        <button
+                          type="button"
+                          onClick={reload}
+                          className="theme-btn theme-btn-go"
+                          style={{ padding: '8px 14px', fontSize: 14 }}
+                        >
+                          Reload
+                        </button>
                       </div>
                     );
-                  }
-
-                  return (
-                    <div
-                      style={{
-                        position: 'absolute',
-                        inset: 0,
-                        zIndex: 1,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        flexDirection: 'column',
-                        gap: 12,
-                        background: 'var(--bg)',
-                        color: 'var(--text1)',
-                      }}
-                    >
-                      <div>Failed to load this page.</div>
-                      <button
-                        type="button"
-                        onClick={reload}
-                        className="theme-btn theme-btn-go"
-                        style={{ padding: '8px 14px', fontSize: 14 }}
-                      >
-                        Reload
-                      </button>
-                    </div>
-                  );
-                })()}
+                  })()}
+                </div>
+                <DevToolsDock active={isVisible} getWebContentsId={() => webviewMap.current[tab.id]?.getWebContentsId?.()} />
               </div>
             )}
           </div>

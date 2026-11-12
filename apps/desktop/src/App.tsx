@@ -16,6 +16,7 @@ import { BookmarksProvider } from './features/bookmarks/BookmarksProvider';
 import { electron } from './electronBridge';
 import Onboarding from './browser_pages/Onboarding';
 import WebAppWindow from './components/WebAppWindow';
+import DevToolsDock from './components/DevToolsDock';
 import {
   BROWSER_SETTINGS_CHANGED_EVENT,
   BROWSER_SETTINGS_STORAGE_KEY,
@@ -326,6 +327,7 @@ function Browser() {
       const overlayColor = rootStyles.getPropertyValue('--surfaceBg').trim() || '#1a2029';
 
       void Promise.allSettled([
+        electron.ipcRenderer.invoke('settings-set-devtools-open-mode', settings.devToolsOpenMode),
         electron.ipcRenderer.invoke('settings-set-window-suspension', {
           enabled: settings.suspendMinimizedWindows,
           delayMs: getMinimizedWindowSleepAfterMs(settings),
@@ -483,7 +485,10 @@ function Browser() {
           {!hideBars && !addressBarInTopBar && <AddressBar inputRef={addressInputRef} />}
           {!hideBars && showBookmarksBar && <BookmarksBar />}
           <FindBar open={findBarOpen} focusToken={findBarFocusToken} onClose={closeFindBar} />
-          <TabView />
+          <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
+            <TabView />
+            <DevToolsDock />
+          </div>
         </div>
       </div>
 

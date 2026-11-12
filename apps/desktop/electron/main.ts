@@ -26,6 +26,7 @@ import os from 'node:os';
 import { isExplicitPopupRequest } from './popupPolicy.ts';
 import { setupDeviceConnections, setupDeviceSession, hasWindowDeviceActivity } from './deviceConnections.ts';
 import { setupPageZoom } from './pageZoom.ts';
+import { createDevToolsController } from './devTools.ts';
 import { setupWebApps, isWebAppWindow, openWebAppFromArgv, queueWebAppLaunch } from './webApps.ts';
 import { WEB_APP_TITLEBAR_HEIGHT } from './webAppPolicy.ts';
 import { setupWindowSuspension, revealRestoredWindow } from './windowSuspension.ts';
@@ -443,7 +444,6 @@ interface WindowTitleBarOverlayState {
   symbolColor: string;
   height: number;
   preferNativeOverlay: boolean;
-  suppressForDockedDevToolsCount: number;
 }
 
 const DEFAULT_TITLEBAR_OVERLAY_COLOR = '#00000000';
@@ -460,7 +460,6 @@ function getOrCreateTitleBarOverlayState(win: BrowserWindow): WindowTitleBarOver
     symbolColor: DEFAULT_TITLEBAR_SYMBOL_COLOR,
     height: isWebAppWindow(win.id) ? WEB_APP_TITLEBAR_HEIGHT : DEFAULT_TITLEBAR_OVERLAY_HEIGHT,
     preferNativeOverlay: isWindows,
-    suppressForDockedDevToolsCount: 0,
   };
   windowTitleBarOverlayState.set(win.id, created);
   return created;
@@ -469,14 +468,14 @@ function getOrCreateTitleBarOverlayState(win: BrowserWindow): WindowTitleBarOver
 function isTitleBarOverlayActive(win: BrowserWindow): boolean {
   if (!isWindows || win.isDestroyed()) return false;
   const overlayState = getOrCreateTitleBarOverlayState(win);
-  return overlayState.preferNativeOverlay && overlayState.suppressForDockedDevToolsCount === 0;
+  return overlayState.preferNativeOverlay;
 }
 
 function applyWindowTitleBarOverlay(win: BrowserWindow): boolean {
   if (!isWindows || win.isDestroyed()) return false;
 
   const overlayState = getOrCreateTitleBarOverlayState(win);
-  const shouldEnable = overlayState.preferNativeOverlay && overlayState.suppressForDockedDevToolsCount === 0;
+  const shouldEnable = overlayState.preferNativeOverlay;
 
   if (shouldEnable) {
     win.setTitleBarOverlay({
@@ -484,8 +483,6 @@ function applyWindowTitleBarOverlay(win: BrowserWindow): boolean {
       symbolColor: overlayState.symbolColor,
       height: overlayState.height,
     });
-  } else {
-    win.setTitleBarOverlay(false);
   }
 
   if (!win.webContents.isDestroyed()) {
@@ -494,24 +491,7 @@ function applyWindowTitleBarOverlay(win: BrowserWindow): boolean {
   return shouldEnable;
 }
 
-function suppressTitleBarOverlayForDockedDevTools(win: BrowserWindow): () => void {
-  const overlayState = getOrCreateTitleBarOverlayState(win);
-  overlayState.suppressForDockedDevToolsCount += 1;
-  applyWindowTitleBarOverlay(win);
-
-  let released = false;
-  return () => {
-    if (released) return;
-    released = true;
-    const latest = windowTitleBarOverlayState.get(win.id);
-    if (!latest) return;
-
-    latest.suppressForDockedDevToolsCount = Math.max(0, latest.suppressForDockedDevToolsCount - 1);
-    if (!win.isDestroyed()) {
-      applyWindowTitleBarOverlay(win);
-    }
-  };
-}
+const devTools = createDevToolsController();
 
 function isRestorableSessionTabUrl(url: string): boolean {
   return url.trim().toLowerCase() !== 'mira://newtab';
@@ -4021,10 +4001,10 @@ function toggleFocusedBrowserDevTools(): boolean {
   // Get the active webContents for this window from our tracking
   const activeWebContents = activeWebContentsByWindow.get(focusedWindow.id);
   if (activeWebContents && !activeWebContents.isDestroyed()) {
-    if (activeWebContents.isDevToolsOpened()) {
-      activeWebContents.closeDevTools();
+    if (devTools.isOpen(activeWebContents)) {
+      devTools.close(activeWebContents);
     } else {
-      activeWebContents.openDevTools();
+      return devTools.open(activeWebContents, focusedWindow);
     }
     return true;
   }
@@ -4034,10 +4014,10 @@ function toggleFocusedBrowserDevTools(): boolean {
   if (!focused || focused.isDestroyed()) return false;
   if (!focused.hostWebContents) return false;
 
-  if (focused.isDevToolsOpened()) {
-    focused.closeDevTools();
+  if (devTools.isOpen(focused)) {
+    devTools.close(focused);
   } else {
-    focused.openDevTools();
+    return devTools.open(focused, focusedWindow);
   }
   return true;
 }
@@ -4045,11 +4025,11 @@ function toggleFocusedBrowserDevTools(): boolean {
 function toggleWindowDevTools(win: BrowserWindow): boolean {
   if (win.isDestroyed()) return false;
   try {
-    const wasOpen = win.webContents.isDevToolsOpened();
+    const wasOpen = devTools.isOpen(win.webContents);
     if (wasOpen) {
-      win.webContents.closeDevTools();
+      devTools.close(win.webContents);
     } else {
-      win.webContents.openDevTools({ mode: 'detach' });
+      if (!devTools.open(win.webContents, win)) return false;
     }
     logDebug('shortcut', 'toggleWindowDevTools', {
       windowId: win.id,
@@ -4076,6 +4056,11 @@ function setupAdBlocker(ses: Electron.Session = session.defaultSession) {
 
 function setupBlockingSettingsHandlers() {
   setupYoutubeAdBlockingSettings(() => youtubeAdBetaEnabled);
+  ipcMain.handle('settings-set-devtools-open-mode', (event, value: unknown) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win || win.isDestroyed() || win.webContents !== event.sender) return false;
+    return devTools.setMode(win, value);
+  });
   ipcMain.handle('settings-set-window-suspension', (event, value: unknown) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win || event.sender !== win.webContents) return false;
@@ -4192,6 +4177,7 @@ function setupMainFrameHttpErrorReporter(ses: Electron.Session = session.default
 }
 
 function setupWindowControlsHandlers() {
+  devTools.setupIpc();
   ipcMain.handle('window-new-private', (event) => {
     if (event.sender.hostWebContents) return false;
     createWindow(BrowserWindow.fromWebContents(event.sender) ?? undefined, undefined, undefined, { private: true });
@@ -4353,12 +4339,14 @@ function setupWindowControlsHandlers() {
       : -1;
     if (id <= 0) {
       activeWebContentsByWindow.delete(hostWindow.id);
+      devTools.setActive(hostWindow, -1);
       return false;
     }
 
     const target = electronWebContents.fromId(id);
     if (!target || target.isDestroyed()) {
       activeWebContentsByWindow.delete(hostWindow.id);
+      devTools.setActive(hostWindow, -1);
       return false;
     }
 
@@ -4369,6 +4357,7 @@ function setupWindowControlsHandlers() {
     }
 
     activeWebContentsByWindow.set(hostWindow.id, target);
+    devTools.setActive(hostWindow, target.id);
     return true;
   });
 
@@ -4593,6 +4582,7 @@ function setupWindowControlsHandlers() {
       webContentsId?: unknown;
       mode?: unknown;
       activate?: unknown;
+      toggle?: unknown;
     };
     const webContentsId =
       typeof candidate.webContentsId === 'number' && Number.isFinite(candidate.webContentsId)
@@ -4617,31 +4607,14 @@ function setupWindowControlsHandlers() {
         ? candidate.mode
         : 'right';
 
-    const wantsDockedMode = nextMode === 'left' || nextMode === 'right' || nextMode === 'bottom';
-    let releaseOverlaySuppression: (() => void) | null = null;
-    if (isWindows && wantsDockedMode) {
-      releaseOverlaySuppression = suppressTitleBarOverlayForDockedDevTools(hostWindow);
-      const cleanupSuppression = () => {
-        if (!releaseOverlaySuppression) return;
-        releaseOverlaySuppression();
-        releaseOverlaySuppression = null;
-      };
-      target.once('devtools-closed', cleanupSuppression);
-      target.once('destroyed', cleanupSuppression);
-    }
-
-    try {
-      target.openDevTools({
-        mode: nextMode,
-        activate: candidate.activate !== false,
-      });
+    if (candidate.toggle === true && devTools.isOpen(target)) {
+      devTools.close(target);
       return true;
-    } catch {
-      if (releaseOverlaySuppression) {
-        releaseOverlaySuppression();
-      }
-      return false;
     }
+    return devTools.open(target, hostWindow, {
+      mode: nextMode,
+      activate: candidate.activate !== false,
+    });
   });
 
   ipcMain.handle('webview-show-native-context-menu', (event, payload: unknown) => {
@@ -5053,6 +5026,7 @@ function setupWindowControlsHandlers() {
           target.copyImageAt(x, y);
           return true;
         case 'inspect-element':
+          if (!devTools.open(target, hostWindow)) return false;
           target.inspectElement(x, y);
           return true;
         case 'edit-undo':
@@ -5684,7 +5658,7 @@ function createWindow(
   }, () => loadRendererShell(win), async () => {
     const isBusy = () => {
       if (isQuitting || win.isDestroyed() || !win.isMinimized() || win.webContents.isLoading()
-        || win.webContents.isDevToolsOpened() || win.getChildWindows().some(child => !child.isDestroyed())
+        || devTools.hasOpen(win) || win.webContents.isDevToolsOpened() || win.getChildWindows().some(child => !child.isDestroyed())
         || hasWindowDeviceActivity(win.id) || hasPendingWindowInteraction(win.id)
         || pendingDetachedTabTransferByWindowId.has(win.id) || activeDetachedWindowDragBySourceWindowId.has(win.id)
         || [...pendingSitePermissionRequests.values()].some(request => request.hostWindowId === win.id)) return true;
@@ -5709,7 +5683,6 @@ function createWindow(
     overlayState.symbolColor = DEFAULT_TITLEBAR_SYMBOL_COLOR;
     overlayState.height = DEFAULT_TITLEBAR_OVERLAY_HEIGHT;
     overlayState.preferNativeOverlay = true;
-    overlayState.suppressForDockedDevToolsCount = 0;
     applyWindowTitleBarOverlay(win);
   }
 
