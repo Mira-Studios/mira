@@ -1,18 +1,18 @@
 import { getAddressUrl } from './addressInput.ts';
 
-type AddressSource = { title: string; url?: string; children?: AddressSource[] };
+type AddressSource = { id?: string; windowId?: number; title: string; url?: string; children?: AddressSource[] };
 
 export type AddressSuggestion = {
   title: string;
   value: string;
-  kind: 'bookmark' | 'history' | 'search' | 'navigation';
-};
+} & ({ kind: 'tab'; tabId: string; windowId?: number } | { kind: 'bookmark' | 'history' | 'search' | 'navigation'; tabId?: never });
 
 export function getAddressSuggestions(
   input: string,
   bookmarks: AddressSource[],
   history: AddressSource[],
   pages: AddressSource[] = [],
+  activeTabId?: string | null,
 ): AddressSuggestion[] {
   const query = input.trim().toLowerCase();
   if (!query) return [];
@@ -39,13 +39,22 @@ export function getAddressSuggestions(
 
   const matches: AddressSuggestion[] = [];
   const seen = new Set<string>();
+  for (const page of pages) {
+    const url = page.url?.trim();
+    if (!page.id || (page.windowId === undefined && page.id === activeTabId) || !url || seen.has(urlKey(url))) continue;
+    const title = page.title.trim() && page.title.trim() !== url ? page.title.trim() : titles.get(urlKey(url)) || url;
+    if (!url.toLowerCase().includes(query) && !title.toLowerCase().includes(query)) continue;
+    seen.add(urlKey(url));
+    matches.push({ title, value: url, kind: 'tab', tabId: page.id,
+      ...(page.windowId === undefined ? {} : { windowId: page.windowId }) });
+  }
   const collect = (sources: AddressSource[], kind: 'bookmark' | 'history') => {
     for (const source of sources) {
       const url = source.url?.trim();
       const title = url ? titles.get(urlKey(url)) || url : source.title;
-      if (url && !seen.has(url) &&
+      if (url && !seen.has(urlKey(url)) &&
           (url.toLowerCase().includes(query) || title.toLowerCase().includes(query))) {
-        seen.add(url);
+        seen.add(urlKey(url));
         matches.push({ title, value: url, kind });
       }
       if (source.children) collect(source.children, kind);
@@ -57,7 +66,8 @@ export function getAddressSuggestions(
   // Prefer addresses starting with the query; preserve source and recency order on ties.
   const startsWithQuery = (value: string) =>
     value.toLowerCase().replace(/^https?:\/\/(www\.)?/, '').startsWith(query);
-  matches.sort((a, b) => Number(startsWithQuery(b.value)) - Number(startsWithQuery(a.value)));
+  matches.sort((a, b) => Number(b.kind === 'tab') - Number(a.kind === 'tab') ||
+    Number(startsWithQuery(b.value)) - Number(startsWithQuery(a.value)));
   const value = input.trim();
   const isAddress = getAddressUrl(value) !== null;
   return [

@@ -1299,6 +1299,13 @@ textarea {
   font-size: 13px;
 }
 
+.address-suggestion-action {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 11px;
+  opacity: 0.65;
+}
+
 .address-suggestion-url {
   font-size: 11px;
   opacity: 0.65;

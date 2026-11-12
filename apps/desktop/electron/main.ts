@@ -1,4 +1,5 @@
 import { HistoryStore } from './historyStore.ts';
+import { setupOpenTabHandlers } from './openTabHandlers.ts';
 import { normalizeTabGroup, orderGroupedTabs, TAB_GROUP_COLORS, type TabGroup } from './tabGroups.ts';
 import { addClosedTab, addClosedWindow, pruneRecentlyClosed, restoreClosedEntry, type RecentlyClosedEntry } from './recentlyClosed.ts';
 import {
@@ -6164,6 +6165,12 @@ app.whenReady().then(async () => {
   setupVersionHandlers();
   setupPerformanceHandlers();
   setupSessionHandlers();
+  setupOpenTabHandlers({
+    scope: win => isWebAppWindow(win.id) || onboardingWindowIds.has(win.id) ? null
+      : privatePartitionsByWindow.get(win.id) ?? 'regular',
+    ready: win => !win.webContents.isLoadingMainFrame() &&
+      !windowSuspensionById.get(win.id)?.isUnloaded && !windowSuspensionById.get(win.id)?.isRestoring,
+  });
   setupSiteInteractions(getHostWindowForContents, async (win) => {
     const remainingWindows = BrowserWindow.getAllWindows().filter((candidate) => !candidate.isDestroyed() && candidate.id !== win.id);
     if ((!isMacOS || quitOnLastWindowClose) && remainingWindows.length === 0) await runCloseAutoUpdate();

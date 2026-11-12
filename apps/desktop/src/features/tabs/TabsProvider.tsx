@@ -1742,6 +1742,8 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
         });
         return changed ? nextTabs : currentTabs;
       });
+      // Keep close/navigation actions in this event on the newly selected tab.
+      activeIdRef.current = id;
       setActiveId(id);
     },
     [activeId],
@@ -2395,6 +2397,28 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
     if (restorePromptOpen) return;
     persistSession(tabs, activeId);
   }, [tabs, activeId, restorePromptOpen]);
+
+  useEffect(() => {
+    const ipc = electron?.ipcRenderer;
+    if (!ipc) return;
+    const activate = (_event: unknown, payload: unknown) => {
+      if (!payload || typeof payload !== 'object') return;
+      const { tabId, requestId } = payload as { tabId?: unknown; requestId?: unknown };
+      if (typeof tabId !== 'string' || typeof requestId !== 'string') return;
+      const activated = tabsRef.current.some(tab => tab.id === tabId);
+      if (activated) setActive(tabId);
+      void ipc.invoke('open-tabs-activation-result', { requestId, activated }).catch(() => undefined);
+    };
+    ipc.on('open-tab-activate', activate);
+    return () => ipc.off('open-tab-activate', activate);
+  }, [setActive]);
+
+  useEffect(() => {
+    if (!hydratedRef.current || restorePromptOpen) return;
+    void electron?.ipcRenderer.invoke('open-tabs-update', tabs.map(tab => ({
+      id: tab.id, title: tab.title, url: tab.url,
+    }))).catch(() => undefined);
+  }, [tabs, restorePromptOpen]);
 
   useEffect(() => {
     const ipc = electron?.ipcRenderer;

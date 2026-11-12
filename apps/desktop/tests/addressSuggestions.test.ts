@@ -89,3 +89,46 @@ test('retains one URL label when no page title is available', () => {
   const url = 'https://example.com/';
   assert.equal(getAddressSuggestions('example', [], [{ title: url, url }])[0].title, url);
 });
+
+test('finds open tabs by title and URL and preserves the tab to activate', () => {
+  const pages = [{ id: 'docs', title: 'Project documentation', url: 'https://example.com/docs' }];
+  for (const query of ['project', 'example.com/docs']) {
+    assert.deepEqual(getAddressSuggestions(query, [], [], pages)[0], {
+      title: 'Project documentation', value: pages[0].url, kind: 'tab', tabId: 'docs',
+    });
+  }
+});
+
+test('prioritizes open tabs and replaces duplicate bookmark and history results', () => {
+  const url = 'https://example.com/';
+  const suggestions = getAddressSuggestions('example', [{ title: 'Saved example', url }], [
+    { title: 'Example history', url },
+    { title: 'Other', url: 'https://example.org/' },
+  ], [
+    { id: 'first', title: 'Example open', url },
+    { id: 'duplicate', title: 'Example duplicate', url },
+  ]);
+  assert.equal(suggestions[0].kind, 'tab');
+  assert.equal(suggestions[0].tabId, 'first');
+  assert.equal(suggestions[0].title, 'Example open');
+  assert.equal(suggestions.filter(item => item.value === url).length, 1);
+});
+
+test('excludes the active tab while retaining another tab with the same URL', () => {
+  const pages = [
+    { id: 'active', title: 'Example active', url: 'https://example.com/' },
+    { id: 'other', title: 'Example other', url: 'https://example.com/' },
+  ];
+  assert.equal(getAddressSuggestions('example', [], [], pages, 'active')[0].tabId, 'other');
+  assert.equal(getAddressSuggestions('example', [], [], [pages[0]], 'active').some(item => item.kind === 'tab'), false);
+});
+
+test('keeps the five-item limit when many tabs match, including internal pages', () => {
+  const pages = Array.from({ length: 10 }, (_, index) => ({
+    id: `tab-${index}`, title: `Settings ${index}`, url: `mira://Settings#${index}`,
+  }));
+  const suggestions = getAddressSuggestions('settings', [], [], pages);
+  assert.equal(suggestions.length, 5);
+  assert.equal(suggestions.filter(item => item.kind === 'tab').length, 4);
+  assert.equal(suggestions[4].kind, 'search');
+});

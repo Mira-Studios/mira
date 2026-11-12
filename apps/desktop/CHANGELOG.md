@@ -6,6 +6,7 @@
 
 - Add history save time setting
 - Search/site suggestions taken from history and bookmarks
+- Switch to tab in suggestions
 
 ### Fixed
 

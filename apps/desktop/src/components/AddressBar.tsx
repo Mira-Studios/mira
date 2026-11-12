@@ -36,7 +36,8 @@ import { markPendingHttpsUpgrade, toHttpsUrlFromHttp } from '../features/securit
 import { electron } from '../electronBridge';
 import { listHistoryEntries, subscribeHistoryChanges, type HistoryEntry } from '../features/history/clientHistory';
 import { getAddressUrl } from '../features/history/addressInput';
-import { getAddressSuggestions } from '../features/history/addressSuggestions';
+import { getAddressSuggestions, type AddressSuggestion } from '../features/history/addressSuggestions';
+import type { OpenTab } from '../../electron/openTabs';
 
 const MENU_ANIMATION_MS = 150;
 
@@ -155,6 +156,7 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
     openDownloads,
     openBookmarks,
     setActive,
+    closeTab,
     printPage,
   } = useTabs();
   const { addBookmark, bookmarks, deleteBookmark } = useBookmarks();
@@ -163,13 +165,15 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
   const [suggestionsDismissed, setSuggestionsDismissed] = useState(false);
   const [selectedSuggestion, setSelectedSuggestion] = useState(-1);
   const [historyEntries, setHistoryEntries] = useState<HistoryEntry[]>([]);
+  const [otherWindowTabs, setOtherWindowTabs] = useState<OpenTab[]>([]);
   const localInputRef = useRef<HTMLInputElement | null>(null);
   const addressInputRef = inputRef ?? localInputRef;
+  const completedSuggestionRef = useRef<AddressSuggestion | null>(null);
   const addressFieldRef = useRef<HTMLDivElement | null>(null);
   const suggestionsId = useId();
   const suggestions = useMemo(
-    () => getAddressSuggestions(input, bookmarks, historyEntries, tabs),
-    [input, bookmarks, historyEntries, tabs],
+    () => getAddressSuggestions(input, bookmarks, historyEntries, [...tabs, ...otherWindowTabs], activeId),
+    [input, bookmarks, historyEntries, tabs, otherWindowTabs, activeId],
   );
   const suggestionsOpen = addressFocused && !suggestionsDismissed && suggestions.length > 0;
   const selectedIndex = selectedSuggestion < suggestions.length ? selectedSuggestion : -1;
@@ -220,6 +224,24 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
     refresh();
     const unsubscribe = subscribeHistoryChanges(refresh);
     return () => { cancelled = true; unsubscribe(); };
+  }, [addressFocused]);
+
+  useEffect(() => {
+    const ipc = electron?.ipcRenderer;
+    if (!addressFocused || !ipc) return;
+    let cancelled = false;
+    let revision = 0;
+    const refresh = () => {
+      const currentRevision = ++revision;
+      void ipc.invoke<OpenTab[]>('open-tabs-list').then(entries => {
+        if (!cancelled && currentRevision === revision) setOtherWindowTabs(Array.isArray(entries) ? entries : []);
+      }).catch(() => {
+        if (!cancelled && currentRevision === revision) setOtherWindowTabs([]);
+      });
+    };
+    refresh();
+    ipc.on('open-tabs-changed', refresh);
+    return () => { cancelled = true; ipc.off('open-tabs-changed', refresh); };
   }, [addressFocused]);
 
   useEffect(() => {
@@ -317,6 +339,7 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
     }
     setSuggestionsDismissed(true);
     setSelectedSuggestion(-1);
+    completedSuggestionRef.current = null;
   }, [activeUrl, activeId]);
 
   const activePageInfo = readSiteSettingsPageInfo(activeTab?.url);
@@ -353,6 +376,28 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
     }
 
     navigate(finalUrl);
+  };
+
+  const selectSuggestion = (suggestion: AddressSuggestion) => {
+    completedSuggestionRef.current = null;
+    setInput(suggestion.value);
+    setSuggestionsDismissed(true);
+    setSelectedSuggestion(-1);
+    if (suggestion.kind === 'tab' && suggestion.windowId !== undefined) {
+      const sourceTabId = activeId;
+      void electron?.ipcRenderer.invoke<boolean>('open-tabs-activate', {
+        windowId: suggestion.windowId, tabId: suggestion.tabId,
+      }).then(activated => {
+        if (activated && sourceTabId) return closeTab(sourceTabId);
+      }).catch(() => undefined);
+    } else if (suggestion.kind === 'tab' && tabs.some(tab => tab.id === suggestion.tabId)) {
+      setActive(suggestion.tabId);
+      if (activeId && activeId !== suggestion.tabId) void closeTab(activeId);
+    } else {
+      go(suggestion.value);
+    }
+    setAddressFocused(false);
+    addressInputRef.current?.blur();
   };
 
   const canGoBack = activeTab && activeTab.historyIndex > 0;
@@ -751,11 +796,13 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
           ref={addressInputRef}
           value={input}
           onChange={(e) => {
+            completedSuggestionRef.current = null;
             setInput(e.target.value);
             setSuggestionsDismissed(false);
             setSelectedSuggestion(-1);
           }}
           onFocus={() => {
+            completedSuggestionRef.current = null;
             setAddressFocused(true);
             setSuggestionsDismissed(false);
             setSelectedSuggestion(-1);
@@ -808,14 +855,19 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
             }
             if (e.key === 'Tab' && !e.shiftKey && suggestionsOpen) {
               e.preventDefault();
-              setInput(suggestions[selectedIndex >= 0 ? selectedIndex : 0].value);
+              const suggestion = suggestions[selectedIndex >= 0 ? selectedIndex : 0];
+              completedSuggestionRef.current = suggestion;
+              setInput(suggestion.value);
               setSuggestionsDismissed(true);
               setSelectedSuggestion(-1);
               return;
             }
             if (e.key !== 'Enter') return;
             e.preventDefault();
-            go(suggestionsOpen && selectedIndex >= 0 ? suggestions[selectedIndex].value : input);
+            const suggestion = suggestionsOpen && selectedIndex >= 0 ? suggestions[selectedIndex]
+              : completedSuggestionRef.current?.value === input ? completedSuggestionRef.current : null;
+            if (suggestion) selectSuggestion(suggestion);
+            else go();
             e.currentTarget.blur();
           }}
           placeholder="Search or enter address"
@@ -840,7 +892,7 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
           >
             <div ref={suggestionsItemsRef} className="address-suggestions-items">
             {displayedSuggestions.items.map((suggestion, index) => {
-              const Icon = suggestion.kind === 'bookmark' ? Bookmark : suggestion.kind === 'history' ? History : suggestion.kind === 'navigation' ? Globe : Search;
+              const Icon = suggestion.kind === 'tab' ? AppWindow : suggestion.kind === 'bookmark' ? Bookmark : suggestion.kind === 'history' ? History : suggestion.kind === 'navigation' ? Globe : Search;
               return (
                 <div
                   key={`${suggestion.kind}-${suggestion.value}`}
@@ -850,18 +902,14 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
                   className={`address-suggestion ${selectedIndex === index ? 'address-suggestion-selected' : ''}`}
                   onMouseDown={(event) => event.preventDefault()}
                   onMouseMove={() => setSelectedSuggestion(index)}
-                  onClick={() => {
-                    setInput(suggestion.value);
-                    go(suggestion.value);
-                    setAddressFocused(false);
-                    addressInputRef.current?.blur();
-                  }}
+                  onClick={() => selectSuggestion(suggestion)}
                 >
                   <Icon size={16} aria-hidden="true" />
                   <span className="address-suggestion-text">
                     <span className="address-suggestion-title">{suggestion.title}</span>
-                    {(suggestion.kind === 'bookmark' || suggestion.kind === 'history') && suggestion.title !== suggestion.value && <span className="address-suggestion-url">{suggestion.value}</span>}
+                    {(suggestion.kind === 'tab' || suggestion.kind === 'bookmark' || suggestion.kind === 'history') && suggestion.title !== suggestion.value && <span className="address-suggestion-url">{suggestion.value}</span>}
                   </span>
+                  {suggestion.kind === 'tab' && <span className="address-suggestion-action">Switch to tab</span>}
                 </div>
               );
             })}
