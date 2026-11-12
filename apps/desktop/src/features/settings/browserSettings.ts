@@ -1,5 +1,7 @@
 import { DEFAULT_THEME_ID } from '../themes/themeLoader';
 import { DEFAULT_LAYOUT_ID } from '../layouts/layoutLoader';
+import { DEFAULT_HISTORY_RETENTION_DAYS, normalizeHistoryRetentionDays, pruneHistoryEntries } from '../../../electron/historyPolicy';
+import type { HistoryRetentionDays } from '../../../electron/historyPolicy';
 
 export type TabSleepUnit = 'seconds' | 'minutes' | 'hours';
 export type TabSleepMode = 'freeze' | 'discard';
@@ -56,6 +58,7 @@ export const DEFAULT_SEARCH_ENGINE_SHORTCUT_CHARS: SearchEngineShortcutChars = {
 };
 
 export type BrowserSettings = {
+  historyRetentionDays: HistoryRetentionDays;
   newTabPage: string;
   themeId: string;
   rawFileDarkModeEnabled: boolean;
@@ -94,6 +97,7 @@ export type BrowserSettings = {
 };
 
 export const DEFAULT_BROWSER_SETTINGS: BrowserSettings = {
+  historyRetentionDays: DEFAULT_HISTORY_RETENTION_DAYS,
   newTabPage: 'mira://NewTab',
   themeId: DEFAULT_THEME_ID,
   rawFileDarkModeEnabled: true,
@@ -512,6 +516,7 @@ export function normalizeBrowserSettings(value: unknown): BrowserSettings {
     showBookmarkButton: normalizeShowBookmarkButton(candidate.showBookmarkButton),
     showBookmarksBar: normalizeShowBookmarksBar(candidate.showBookmarksBar),
     cookiesEnabled: normalizeCookiesEnabled(candidate.cookiesEnabled),
+    historyRetentionDays: normalizeHistoryRetentionDays(candidate.historyRetentionDays),
     dev: normalizeDevSetting(candidate.dev ?? candidate.hiddenDevSettingEnabled),
   };
 }
@@ -666,12 +671,24 @@ export function getBrowserSettings(): BrowserSettings {
  * Merges, normalizes, persists, and broadcasts updated browser settings.
  */
 export function saveBrowserSettings(next: Partial<BrowserSettings>): BrowserSettings {
+  const previous = getBrowserSettings();
   const merged = {
-    ...getBrowserSettings(),
+    ...previous,
     ...next,
   };
   const normalized = normalizeBrowserSettings(merged);
 
+  if (normalized.historyRetentionDays !== previous.historyRetentionDays) {
+    try {
+      const history: unknown = JSON.parse(localStorage.getItem('mira_history') || '[]');
+      localStorage.setItem('mira_history', JSON.stringify(pruneHistoryEntries(
+        Array.isArray(history) ? history : [], normalized.historyRetentionDays,
+      )));
+    } catch {
+      // An unreadable fallback history must not prevent saving the preference.
+      try { localStorage.removeItem('mira_history'); } catch { /* Storage may be unavailable. */ }
+    }
+  }
   try {
     localStorage.setItem(BROWSER_SETTINGS_STORAGE_KEY, JSON.stringify(normalized));
   } catch {

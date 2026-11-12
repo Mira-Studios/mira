@@ -1,3 +1,4 @@
+import { HistoryStore } from './historyStore.ts';
 import { normalizeTabGroup, orderGroupedTabs, TAB_GROUP_COLORS, type TabGroup } from './tabGroups.ts';
 import { addClosedTab, addClosedWindow, pruneRecentlyClosed, restoreClosedEntry, type RecentlyClosedEntry } from './recentlyClosed.ts';
 import {
@@ -64,20 +65,12 @@ const downloadMap = new Map<string, DownloadItem>();
 const downloadWindowById = new Map<string, number>();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const HISTORY_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const isMacOS = process.platform === 'darwin';
 const isWindows = process.platform === 'win32';
 const ENABLE_APP_DEBUG_LOGS = true; // Set to false for shipping builds.
 const incomingBrowserUrlQueue: string[] = [];
 const APP_STATE_FILE = 'app-state.json';
 const SITE_PERMISSIONS_FILE = 'site-permissions.json';
-
-interface HistoryEntry {
-  id: string;
-  url: string;
-  title: string;
-  visitedAt: number;
-}
 
 interface TabSessionSnapshot {
   group?: TabGroup;
@@ -212,7 +205,7 @@ interface MailtoNavigationTarget {
   title: string;
 }
 
-let historyCache: HistoryEntry[] = [];
+const historyStore = new HistoryStore(app.getPath('userData'));
 const OPEN_TAB_DEDUPE_WINDOW_MS = 500;
 const recentOpenTabByHost = new Map<number, { url: string; openedAt: number }>();
 const NEW_WINDOW_SHORTCUT_DEDUPE_MS = 250;
@@ -896,10 +889,6 @@ function shouldBlockRequest(url: string, resourceType: string): boolean {
   }
 }
 
-function getHistoryFilePath() {
-  return path.join(app.getPath('userData'), 'history.json');
-}
-
 function normalizeIncomingBrowserArgValue(rawValue: string): string {
   const trimmed = rawValue.trim();
   if (trimmed.length >= 2 && trimmed.startsWith('"') && trimmed.endsWith('"')) {
@@ -1001,7 +990,7 @@ function getRecentMailProviderCandidates(): Array<{ url: string; timestamp: numb
     }
   }
 
-  for (const entry of historyCache) {
+  for (const entry of historyStore.snapshot()) {
     const url = typeof entry.url === 'string' ? entry.url.trim() : '';
     if (!url) continue;
     const visitedAt = Number.isFinite(entry.visitedAt) ? entry.visitedAt : 0;
@@ -1861,97 +1850,6 @@ function shouldShowOnboarding(): boolean {
   return onboardingCompleted !== true;
 }
 
-function pruneHistory(entries: HistoryEntry[]): HistoryEntry[] {
-  const cutoff = Date.now() - HISTORY_RETENTION_MS;
-  return entries
-    .filter((entry) => entry.visitedAt >= cutoff)
-    .sort((a, b) => b.visitedAt - a.visitedAt);
-}
-
-async function persistHistory() {
-  await fs.writeFile(getHistoryFilePath(), JSON.stringify(historyCache, null, 0), 'utf-8');
-}
-
-async function loadHistory() {
-  try {
-    const raw = await fs.readFile(getHistoryFilePath(), 'utf-8');
-    const parsed = JSON.parse(raw) as HistoryEntry[];
-    historyCache = pruneHistory(Array.isArray(parsed) ? parsed : []);
-    await persistHistory();
-  } catch {
-    historyCache = [];
-  }
-}
-
-async function addHistoryEntry(payload: { url?: string; title?: string }) {
-  const url = payload.url?.trim();
-  if (!url || url.startsWith('mira://')) return;
-
-  const now = Date.now();
-  const title = payload.title?.trim() || url;
-  const latest = historyCache[0];
-
-  if (latest && latest.url === url && now - latest.visitedAt < 1500) {
-    return;
-  }
-
-  historyCache = pruneHistory([
-    {
-      id: uuidv4(),
-      url,
-      title,
-      visitedAt: now,
-    },
-    ...historyCache,
-  ]);
-
-  await persistHistory();
-}
-
-async function updateHistoryEntryTitle(payload: { url?: string; title?: string }): Promise<boolean> {
-  const url = payload.url?.trim();
-  const title = payload.title?.trim();
-  if (!url || !title || title === url) return false;
-
-  const match = historyCache.find((entry) => entry.url === url);
-  if (match) {
-    if (match.title === title) return false;
-    match.title = title;
-  } else {
-    historyCache = pruneHistory([
-      {
-        id: uuidv4(),
-        url,
-        title,
-        visitedAt: Date.now(),
-      },
-      ...historyCache,
-    ]);
-  }
-
-  await persistHistory();
-  return true;
-}
-
-async function deleteHistoryEntry(id: string): Promise<boolean> {
-  const normalizedId = id.trim();
-  if (!normalizedId) return false;
-
-  const next = historyCache.filter((entry) => entry.id !== normalizedId);
-  if (next.length === historyCache.length) return false;
-
-  historyCache = next;
-  await persistHistory();
-  return true;
-}
-
-async function clearHistory(): Promise<boolean> {
-  if (!historyCache.length) return false;
-  historyCache = [];
-  await persistHistory();
-  return true;
-}
-
 function normalizeTabSessionSnapshot(value: unknown, includeBlank = false): TabSessionSnapshot | null {
   if (typeof value !== 'object' || !value) return null;
   const candidate = value as Record<string, unknown>;
@@ -2613,30 +2511,42 @@ function setupPerformanceHandlers() {
   });
 }
 
+function broadcastHistoryChange() {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed() && !win.webContents.isDestroyed()) win.webContents.send('history-changed');
+  }
+}
+
 function setupHistoryHandlers() {
+  ipcMain.handle('settings-set-history-retention', async (event, value: unknown) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win || event.sender !== win.webContents || isPrivateContents(event.sender)) return false;
+    const retention = await historyStore.setRetention(value);
+    broadcastHistoryChange();
+    return retention;
+  });
   ipcMain.handle('history-add', async (event, payload: { url?: string; title?: string }) => {
     if (isPrivateContents(event.sender)) return false;
-    await addHistoryEntry(payload ?? {});
-    return true;
+    const changed = await historyStore.add(payload ?? {});
+    if (changed) broadcastHistoryChange();
+    return changed;
   });
-
-  ipcMain.handle('history-list', async () => {
-    historyCache = pruneHistory(historyCache);
-    await persistHistory();
-    return historyCache;
-  });
-
+  ipcMain.handle('history-list', () => historyStore.list());
   ipcMain.handle('history-update-title', async (event, payload: { url?: string; title?: string }) => {
     if (isPrivateContents(event.sender)) return false;
-    return updateHistoryEntryTitle(payload ?? {});
+    const changed = await historyStore.updateTitle(payload ?? {});
+    if (changed) broadcastHistoryChange();
+    return changed;
   });
-
   ipcMain.handle('history-delete', async (_, id: string) => {
-    return deleteHistoryEntry(typeof id === 'string' ? id : '');
+    const changed = await historyStore.delete(typeof id === 'string' ? id : '');
+    if (changed) broadcastHistoryChange();
+    return changed;
   });
-
   ipcMain.handle('history-clear', async () => {
-    return clearHistory();
+    const changed = await historyStore.clear();
+    broadcastHistoryChange();
+    return changed;
   });
 }
 
@@ -6357,7 +6267,13 @@ app.whenReady().then(async () => {
   // Best-effort registration for the custom mira:// protocol so OS deep links open in Mira.
   setAsDefaultForProtocol('mira');
 
-  await loadHistory().catch(() => undefined);
+  await historyStore.load().catch((error) => {
+    logDebug('history', 'load-error', { message: error instanceof Error ? error.message : String(error) });
+  });
+  const historyExpiryTimer = setInterval(() => {
+    void historyStore.list().then(broadcastHistoryChange).catch(() => undefined);
+  }, 60_000);
+  historyExpiryTimer.unref();
   await loadCachedAdBlockHosts().catch(() => undefined);
   await loadBundledTrackerBlockHosts().catch(() => undefined);
   await loadPersistedAppState().catch(() => undefined);

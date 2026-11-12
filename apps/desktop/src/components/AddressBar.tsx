@@ -34,7 +34,7 @@ import {
 } from '../features/settings/browserSettings';
 import { markPendingHttpsUpgrade, toHttpsUrlFromHttp } from '../features/security/unsecureSitePolicy';
 import { electron } from '../electronBridge';
-import { listHistoryEntries, type HistoryEntry } from '../features/history/clientHistory';
+import { listHistoryEntries, subscribeHistoryChanges, type HistoryEntry } from '../features/history/clientHistory';
 import { getAddressUrl } from '../features/history/addressInput';
 import { getAddressSuggestions } from '../features/history/addressSuggestions';
 
@@ -209,11 +209,17 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
   useEffect(() => {
     if (!addressFocused) return;
     let cancelled = false;
+    let revision = 0;
     setHistoryEntries([]);
-    void listHistoryEntries().then((entries) => {
-      if (!cancelled) setHistoryEntries(entries);
-    }).catch(() => undefined);
-    return () => { cancelled = true; };
+    const refresh = () => {
+      const currentRevision = ++revision;
+      void listHistoryEntries().then((entries) => {
+        if (!cancelled && currentRevision === revision) setHistoryEntries(entries);
+      }).catch(() => undefined);
+      };
+    refresh();
+    const unsubscribe = subscribeHistoryChanges(refresh);
+    return () => { cancelled = true; unsubscribe(); };
   }, [addressFocused]);
 
   useEffect(() => {

@@ -331,6 +331,7 @@ function Browser() {
           delayMs: getMinimizedWindowSleepAfterMs(settings),
         }),
         electron.ipcRenderer.invoke('settings-set-ad-block-enabled', settings.adBlockEnabled),
+        ...(!electron.isPrivate ? [electron.ipcRenderer.invoke('settings-set-history-retention', settings.historyRetentionDays)] : []),
         electron.ipcRenderer.invoke('settings-set-youtube-ad-beta-enabled', settings.youtubeAdBlockBetaEnabled),
         electron.ipcRenderer.invoke(
           'settings-set-tracker-block-enabled',

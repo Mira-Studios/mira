@@ -1,4 +1,6 @@
 import { electron } from '../../electronBridge';
+import { BROWSER_SETTINGS_CHANGED_EVENT, BROWSER_SETTINGS_STORAGE_KEY, getBrowserSettings } from '../settings/browserSettings';
+import { pruneHistoryEntries } from '../../../electron/historyPolicy';
 
 export interface HistoryEntry {
   id: string;
@@ -7,14 +9,11 @@ export interface HistoryEntry {
   visitedAt: number;
 }
 
-const HISTORY_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const DEV_HISTORY_KEY = 'mira_history';
+const HISTORY_CHANGED_EVENT = 'mira:history-changed';
 
 function prune(entries: HistoryEntry[]): HistoryEntry[] {
-  const cutoff = Date.now() - HISTORY_RETENTION_MS;
-  return entries
-    .filter((entry) => entry.visitedAt >= cutoff)
-    .sort((a, b) => b.visitedAt - a.visitedAt);
+  return pruneHistoryEntries(entries, getBrowserSettings().historyRetentionDays);
 }
 
 function loadLocal(): HistoryEntry[] {
@@ -30,13 +29,31 @@ function loadLocal(): HistoryEntry[] {
 
 function saveLocal(entries: HistoryEntry[]) {
   localStorage.setItem(DEV_HISTORY_KEY, JSON.stringify(prune(entries)));
+  window.dispatchEvent(new Event(HISTORY_CHANGED_EVENT));
+}
+
+/** Refresh history views after mutations or a retention change in any window. */
+export function subscribeHistoryChanges(callback: () => void): () => void {
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === DEV_HISTORY_KEY || event.key === BROWSER_SETTINGS_STORAGE_KEY || event.key === null) callback();
+  };
+  window.addEventListener(HISTORY_CHANGED_EVENT, callback);
+  window.addEventListener(BROWSER_SETTINGS_CHANGED_EVENT, callback);
+  window.addEventListener('storage', onStorage);
+  electron?.ipcRenderer.on('history-changed', callback);
+  return () => {
+    window.removeEventListener(HISTORY_CHANGED_EVENT, callback);
+    window.removeEventListener(BROWSER_SETTINGS_CHANGED_EVENT, callback);
+    window.removeEventListener('storage', onStorage);
+    electron?.ipcRenderer.off('history-changed', callback);
+  };
 }
 
 /**
  * Adds a new visit entry unless the URL is internal or a near-duplicate of the latest visit.
  */
 export async function addHistoryEntry(url: string, title: string): Promise<void> {
-  if (electron?.isPrivate) return;
+  if (electron?.isPrivate || getBrowserSettings().historyRetentionDays === 0) return;
   const normalized = url.trim();
   if (!normalized || normalized.startsWith('mira://')) return;
 
@@ -70,7 +87,7 @@ export async function addHistoryEntry(url: string, title: string): Promise<void>
  * Updates a stored history title for an existing URL, or creates an entry in fallback mode.
  */
 export async function updateHistoryEntryTitle(url: string, title: string): Promise<boolean> {
-  if (electron?.isPrivate) return false;
+  if (electron?.isPrivate || getBrowserSettings().historyRetentionDays === 0) return false;
   const normalizedUrl = url.trim();
   const normalizedTitle = title.trim();
   if (!normalizedUrl || normalizedUrl.startsWith('mira://') || !normalizedTitle) return false;
@@ -114,7 +131,8 @@ export async function listHistoryEntries(): Promise<HistoryEntry[]> {
   }
 
   const entries = loadLocal();
-  saveLocal(entries);
+  // Reading must not broadcast another change and recursively refresh subscribers.
+  localStorage.setItem(DEV_HISTORY_KEY, JSON.stringify(entries));
   return entries;
 }
 

@@ -5,8 +5,10 @@ import './Settings.css';
 import { useTabs } from '../features/tabs/TabsProvider';
 import { useDownloads } from '../features/downloads/DownloadProvider';
 import { clearHistoryEntries } from '../features/history/clientHistory';
+import { HISTORY_RETENTION_OPTIONS, normalizeHistoryRetentionDays } from '../../electron/historyPolicy';
 import {
   DEFAULT_BROWSER_SETTINGS,
+  BROWSER_SETTINGS_CHANGED_EVENT,
   SEARCH_ENGINE_OPTIONS,
   getBrowserSettings,
   getSearchEngineShortcuts,
@@ -312,6 +314,35 @@ export default function Settings() {
   );
   const [showBookmarksBar, setShowBookmarksBar] = useState(() => initialSettings.showBookmarksBar);
   const [cookiesEnabled, setCookiesEnabled] = useState(() => initialSettings.cookiesEnabled);
+  const [historyRetentionDays, setHistoryRetentionDays] = useState(() => initialSettings.historyRetentionDays);
+  const [isSavingHistoryRetention, setIsSavingHistoryRetention] = useState(false);
+  const [historyRetentionError, setHistoryRetentionError] = useState('');
+  useEffect(() => {
+    const sync = () => setHistoryRetentionDays(getBrowserSettings().historyRetentionDays);
+    window.addEventListener('storage', sync);
+    window.addEventListener(BROWSER_SETTINGS_CHANGED_EVENT, sync);
+    return () => {
+      window.removeEventListener('storage', sync);
+      window.removeEventListener(BROWSER_SETTINGS_CHANGED_EVENT, sync);
+    };
+  }, []);
+  const changeHistoryRetention = async (value: string) => {
+    const next = normalizeHistoryRetentionDays(value === 'forever' ? value : Number(value));
+    setIsSavingHistoryRetention(true);
+    setHistoryRetentionError('');
+    try {
+      if (electron?.ipcRenderer) {
+        const result = await electron.ipcRenderer.invoke('settings-set-history-retention', next);
+        if (result !== next) throw new Error('History preference could not be saved.');
+      }
+      saveBrowserSettings({ historyRetentionDays: next });
+      setHistoryRetentionDays(next);
+    } catch {
+      setHistoryRetentionError('Could not save the history preference. Please try again.');
+    } finally {
+      setIsSavingHistoryRetention(false);
+    }
+  };
   const [themes, setThemes] = useState<ThemeEntry[]>(() => getAllThemes());
   const [layouts, setLayouts] = useState<LayoutEntry[]>(() => getAllLayouts());
   const [themeDropdownOpen, setThemeDropdownOpen] = useState(false);
@@ -1987,21 +2018,42 @@ export default function Settings() {
           {activeSection === 'privacy-security' && (
             <div className="privacy-content">
               {!privacySecuritySubsection && (
-                <SettingsGroup>
-                  <div className="settings-card-header"><h3 className="settings-card-title">Sites</h3></div>
-                  <div className="privacy-navigation">
-                    <button type="button" className="privacy-navigation-row" onClick={() => openPrivacySubsection('site-permissions')}>
-                      <Shield size={20} aria-hidden="true" />
-                      <span><strong>Site permissions</strong><small>Control what websites can access.</small></span>
-                      <ChevronRight size={17} aria-hidden="true" />
-                    </button>
-                    <button type="button" className="privacy-navigation-row" onClick={() => openPrivacySubsection('cookies')}>
-                      <Cookie size={20} aria-hidden="true" />
-                      <span><strong>Cookies and site data</strong><small>Manage data stored by websites.</small></span>
-                      <ChevronRight size={17} aria-hidden="true" />
-                    </button>
-                  </div>
-                </SettingsGroup>
+                <>
+                  <SettingsGroup>
+                    <div className="settings-card-header"><h3 className="settings-card-title">Browsing history</h3></div>
+                    <label htmlFor="history-retention" className="settings-setting-row">
+                      <span className="settings-setting-meta">
+                        <span className="settings-setting-label">Keep browsing history</span>
+                        <span className="settings-setting-description">Older entries are deleted automatically. Never save history clears existing history and stops recording visits.</span>
+                      </span>
+                      <select
+                        id="history-retention"
+                        disabled={electron?.isPrivate || isSavingHistoryRetention}
+                        className="theme-input settings-select-input settings-select-limit settings-setting-control"
+                        value={historyRetentionDays}
+                        onChange={(event) => { void changeHistoryRetention(event.currentTarget.value); }}
+                      >
+                        {HISTORY_RETENTION_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                      </select>
+                    </label>
+                    {historyRetentionError && <p className="privacy-notice" role="alert">{historyRetentionError}</p>}
+                  </SettingsGroup>
+                  <SettingsGroup>
+                    <div className="settings-card-header"><h3 className="settings-card-title">Sites</h3></div>
+                    <div className="privacy-navigation">
+                      <button type="button" className="privacy-navigation-row" onClick={() => openPrivacySubsection('site-permissions')}>
+                        <Shield size={20} aria-hidden="true" />
+                        <span><strong>Site permissions</strong><small>Control what websites can access.</small></span>
+                        <ChevronRight size={17} aria-hidden="true" />
+                      </button>
+                      <button type="button" className="privacy-navigation-row" onClick={() => openPrivacySubsection('cookies')}>
+                        <Cookie size={20} aria-hidden="true" />
+                        <span><strong>Cookies and site data</strong><small>Manage data stored by websites.</small></span>
+                        <ChevronRight size={17} aria-hidden="true" />
+                      </button>
+                    </div>
+                  </SettingsGroup>
+                </>
               )}
 
               {privacySecuritySubsection === 'cookies' && (

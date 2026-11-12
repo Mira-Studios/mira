@@ -5,8 +5,10 @@ import {
   clearHistoryEntries,
   deleteHistoryEntry,
   listHistoryEntries,
+  subscribeHistoryChanges,
 } from '../features/history/clientHistory';
 import type { HistoryEntry } from '../features/history/clientHistory';
+import { getBrowserSettings } from '../features/settings/browserSettings';
 
 function formatDayHeading(ts: number): string {
   const date = new Date(ts);
@@ -35,25 +37,34 @@ export default function History() {
   const [items, setItems] = useState<HistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [isClearing, setIsClearing] = useState(false);
+  const [retention, setRetention] = useState(() => getBrowserSettings().historyRetentionDays);
 
   useEffect(() => {
     let mounted = true;
-    listHistoryEntries()
-      .then((list) => {
-        if (!mounted) return;
-        setItems(Array.isArray(list) ? list : []);
-      })
-      .catch(() => {
-        if (!mounted) return;
-        setItems([]);
-      })
-      .finally(() => {
-        if (!mounted) return;
-        setLoading(false);
-      });
+    let revision = 0;
+    const refresh = () => {
+      const currentRevision = ++revision;
+      setRetention(getBrowserSettings().historyRetentionDays);
+      listHistoryEntries()
+        .then((list) => {
+          if (!mounted || currentRevision !== revision) return;
+          setItems(Array.isArray(list) ? list : []);
+        })
+        .catch(() => {
+          if (!mounted || currentRevision !== revision) return;
+          setItems([]);
+        })
+        .finally(() => {
+          if (!mounted || currentRevision !== revision) return;
+          setLoading(false);
+        });
+      };
+    refresh();
+    const unsubscribe = subscribeHistoryChanges(refresh);
 
     return () => {
       mounted = false;
+      unsubscribe();
     };
   }, []);
 
@@ -113,7 +124,7 @@ export default function History() {
 
       {loading && <div>Loading history...</div>}
       {!loading && items.length === 0 && (
-        <div className="theme-text2">No history yet. Entries are kept for 7 days.</div>
+        <div className="theme-text2">{retention === 0 ? 'Browsing history is turned off.' : retention === 'forever' ? 'No history yet. History is kept until you delete it.' : `No history yet. Entries are kept for ${retention} ${retention === 1 ? 'day' : 'days'}.`}</div>
       )}
 
       {sections.map((section) => (

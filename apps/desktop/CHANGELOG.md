@@ -2,10 +2,14 @@
 
 ## Unreleased
 
+### Added
+
+- Add history save time setting
+- Search/site suggestions taken from history and bookmarks
+
 ### Fixed
 
 - First tab curve got cut off when active
-- Search/site suggestions taken from history and bookmarks
 
 ## v1.1.1 - 2026-11-01
 
