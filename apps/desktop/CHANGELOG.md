@@ -10,6 +10,7 @@
 ### Fixed
 
 - First tab curve got cut off when active
+- Improve YouTube ad blocking
 
 ## v1.1.1 - 2026-11-01
 

@@ -19,6 +19,7 @@
     "build:portable": "vite build && electron-builder --publish never --win portable --config.compression=store",
     "build:nsis": "vite build && electron-builder --publish never --win nsis",
     "lint": "eslint .",
+    "test:youtube-ads": "electron tests/youtubeAdBeta.electron.ts",
     "preview": "vite preview",
     "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json,css,md}\""
   },

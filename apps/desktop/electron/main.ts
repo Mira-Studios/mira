@@ -32,7 +32,7 @@ import { setupWindowSuspension, revealRestoredWindow } from './windowSuspension.
 import { normalizeWindowSuspensionSettings, type MinimizedWindowLifecycle } from './minimizedWindowLifecycle.ts';
 import { areWindowContentsIdle, hasWindowDownloads } from './windowSuspensionSafety.ts';
 import { setupWindowSuspensionFrames } from './windowSuspensionFrames.ts';
-import { installYoutubeAdBeta } from './youtubeAdBeta.js';
+import { applyYoutubeAdBeta, registerYoutubeAdPreload, setupYoutubeAdBlockingSettings } from './youtubeAdBlocking.ts';
 import {
   setupSiteInteractions, consumeUnloadDecision, confirmContentsClose, allowContentsClose,
   requestWindowClose, canCloseWindow, confirmWindowClose, allowWindowClose, markWindowCloseAllowed, requestAppDialog, requestUnloadDialog,
@@ -128,6 +128,7 @@ interface DetachedWindowDragSession {
 
 interface PersistedAppState {
   onboardingCompleted?: boolean;
+  youtubeAdBetaEnabled?: boolean;
 }
 
 type SitePermissionSetting = 'allow' | 'ask' | 'block';
@@ -337,14 +338,13 @@ type AutoUpdateMode =
 let configuredAutoUpdateMode: AutoUpdateMode = 'off';
 let configuredAutoUpdateIncludePrerelease = false;
 let onboardingCompleted = false;
+let appStateWrite = Promise.resolve();
 const GITHUB_RELEASES_API_URL = 'https://api.github.com/repos/FatalMistake02/mira/releases?per_page=40';
 const isPortableBuild = process.platform === 'win32' && !!process.env.PORTABLE_EXECUTABLE_FILE;
 const AD_BLOCK_CACHE_FILE = 'adblock-hosts-v1.txt';
 const AD_BLOCK_FETCH_TIMEOUT_MS = 15000;
 const AD_BLOCK_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const TRACKER_BLOCK_LOCAL_FILE = path.join('src', 'assets', 'trackers.txt');
-const YOUTUBE_AD_CPN_TTL_MS = 30 * 60 * 1000;
-const MAX_TRACKED_YOUTUBE_AD_CPNS = 512;
 
 const DEFAULT_BLOCKED_AD_HOSTS = [
   'doubleclick.net',
@@ -437,90 +437,6 @@ function buildBlockRuleIndex(rules: Set<string>): BlockRuleIndex {
 
 let blockedTrackerRuleIndex = buildBlockRuleIndex(blockedTrackerRules);
 let blockedAdRuleIndex = buildBlockRuleIndex(blockedAdRules);
-const trackedYoutubeAdCpns = new Map<string, number>();
-
-/**
- * Returns whether a hostname is a YouTube domain.
- */
-function isYoutubeHost(hostname: string): boolean {
-  return hostname === 'youtube.com' || hostname.endsWith('.youtube.com');
-}
-
-/**
- * Returns whether a hostname is a Google Video CDN domain.
- */
-function isGoogleVideoHost(hostname: string): boolean {
-  return hostname === 'googlevideo.com' || hostname.endsWith('.googlevideo.com');
-}
-
-/**
- * Normalizes and validates ad CPN tokens extracted from requests.
- */
-function normalizeCpnToken(value: string | null): string | null {
-  if (!value) return null;
-  const normalized = value.trim();
-  if (!normalized) return null;
-  if (normalized.length > 128) return null;
-  if (!/^[A-Za-z0-9_-]+$/.test(normalized)) return null;
-  return normalized;
-}
-
-function pruneTrackedYoutubeAdCpns(now: number): void {
-  for (const [cpn, expiresAt] of trackedYoutubeAdCpns) {
-    if (expiresAt <= now) trackedYoutubeAdCpns.delete(cpn);
-  }
-}
-
-function rememberYoutubeAdCpn(cpn: string, now: number): void {
-  pruneTrackedYoutubeAdCpns(now);
-  trackedYoutubeAdCpns.set(cpn, now + YOUTUBE_AD_CPN_TTL_MS);
-
-  if (trackedYoutubeAdCpns.size <= MAX_TRACKED_YOUTUBE_AD_CPNS) return;
-  const oldest = Array.from(trackedYoutubeAdCpns.entries()).sort((a, b) => a[1] - b[1]);
-  const overflow = trackedYoutubeAdCpns.size - MAX_TRACKED_YOUTUBE_AD_CPNS;
-  for (let i = 0; i < overflow; i += 1) {
-    const entry = oldest[i];
-    if (!entry) break;
-    trackedYoutubeAdCpns.delete(entry[0]);
-  }
-}
-
-function rememberYoutubeAdCpnFromUrl(parsed: URL): void {
-  const host = parsed.hostname.toLowerCase();
-  if (!isYoutubeHost(host)) return;
-
-  const pathname = parsed.pathname.toLowerCase();
-  const isAdSignalPath =
-    pathname.startsWith('/api/stats/ads') ||
-    pathname.startsWith('/pcs/activeview') ||
-    pathname.startsWith('/pagead/interaction') ||
-    pathname.startsWith('/pagead/adview');
-  if (!isAdSignalPath) return;
-
-  const adCpn = normalizeCpnToken(parsed.searchParams.get('ad_cpn'));
-  if (!adCpn) return;
-  rememberYoutubeAdCpn(adCpn, Date.now());
-}
-
-function shouldBlockYouTubeAdPlaybackByCpn(parsed: URL): boolean {
-  if (!adBlockEnabled) return false;
-
-  const host = parsed.hostname.toLowerCase();
-  const pathname = parsed.pathname.toLowerCase();
-  if (!isGoogleVideoHost(host) || pathname !== '/videoplayback') return false;
-
-  const cpn = normalizeCpnToken(parsed.searchParams.get('cpn'));
-  if (!cpn) return false;
-
-  const now = Date.now();
-  pruneTrackedYoutubeAdCpns(now);
-  const expiresAt = trackedYoutubeAdCpns.get(cpn);
-  if (!expiresAt || expiresAt <= now) {
-    if (expiresAt) trackedYoutubeAdCpns.delete(cpn);
-    return false;
-  }
-  return true;
-}
 
 interface WindowTitleBarOverlayState {
   color: string;
@@ -877,10 +793,8 @@ function shouldBlockRequest(url: string, resourceType: string): boolean {
 
     const host = parsed.hostname.toLowerCase();
     const pathname = parsed.pathname.toLowerCase();
-    if (adBlockEnabled) {
-      rememberYoutubeAdCpnFromUrl(parsed);
-      if (shouldBlockYouTubeAdPlaybackByCpn(parsed)) return true;
-    }
+    // Do not cancel Google Video streams based on ad telemetry tokens. Aborting
+    // those media requests can strand the player before it switches to content.
     const adBlocked = adBlockEnabled && isBlockedByRules(host, pathname, blockedAdRuleIndex);
     const trackerBlocked = trackerBlockEnabled && isBlockedByRules(host, pathname, blockedTrackerRuleIndex);
     return adBlocked || trackerBlocked;
@@ -1824,6 +1738,7 @@ function normalizeAppState(value: unknown): PersistedAppState {
   const candidate = value as PersistedAppState;
   return {
     onboardingCompleted: candidate.onboardingCompleted === true,
+    youtubeAdBetaEnabled: candidate.youtubeAdBetaEnabled === true,
   };
 }
 
@@ -1833,16 +1748,22 @@ async function loadPersistedAppState(): Promise<void> {
     const parsed = JSON.parse(raw) as unknown;
     const normalized = normalizeAppState(parsed);
     onboardingCompleted = normalized.onboardingCompleted === true;
+    youtubeAdBetaEnabled = normalized.youtubeAdBetaEnabled === true;
   } catch {
     onboardingCompleted = false;
+    youtubeAdBetaEnabled = false;
   }
 }
 
 async function persistAppState(): Promise<void> {
   const payload: PersistedAppState = {
     onboardingCompleted,
+    youtubeAdBetaEnabled,
   };
-  await fs.writeFile(getAppStateFilePath(), JSON.stringify(payload), 'utf-8');
+  // Preserve the latest preference when multiple windows update it together.
+  appStateWrite = appStateWrite.catch(() => undefined).then(() =>
+    fs.writeFile(getAppStateFilePath(), JSON.stringify(payload), 'utf-8'));
+  await appStateWrite;
 }
 
 function shouldShowOnboarding(): boolean {
@@ -2709,20 +2630,11 @@ function prepareWebviewHistoryRestore(params: { src?: string }): void {
   if (params.src === 'about:blank#mira-restore-history') params.src = '';
 }
 
-async function applyYoutubeAdBeta(contents: WebContents): Promise<void> {
-  if (contents.isDestroyed()) return;
-  try {
-    const url = new URL(contents.getURL());
-    if (!(url.hostname === 'youtube.com' || url.hostname.endsWith('.youtube.com'))) return;
-    await contents.executeJavaScript(`(${installYoutubeAdBeta.toString()})(${youtubeAdBetaEnabled})`);
-  } catch { /* A page may navigate while its settings are being updated. */ }
-}
-
 function setupWebviewTabOpenHandler() {
   app.on('web-contents-created', (_, contents) => {
     if (contents.getType() === 'webview') {
       setupWindowSuspensionFrames(contents);
-      contents.on('dom-ready', () => { void applyYoutubeAdBeta(contents); });
+      contents.on('dom-ready', () => { void applyYoutubeAdBeta(contents, youtubeAdBetaEnabled); });
       const publishAudio = (audible: boolean) => {
         if (contents.isDestroyed()) return;
         const host = contents.hostWebContents;
@@ -4155,6 +4067,7 @@ function toggleWindowDevTools(win: BrowserWindow): boolean {
 }
 
 function setupAdBlocker(ses: Electron.Session = session.defaultSession) {
+  registerYoutubeAdPreload(ses);
   ses.webRequest.onBeforeRequest((details, callback) => {
     callback({ cancel: shouldBlockRequest(details.url, details.resourceType) });
   });
@@ -4162,6 +4075,7 @@ function setupAdBlocker(ses: Electron.Session = session.defaultSession) {
 }
 
 function setupBlockingSettingsHandlers() {
+  setupYoutubeAdBlockingSettings(() => youtubeAdBetaEnabled);
   ipcMain.handle('settings-set-window-suspension', (event, value: unknown) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win || event.sender !== win.webContents) return false;
@@ -4171,7 +4085,6 @@ function setupBlockingSettingsHandlers() {
   });
   ipcMain.handle('settings-set-ad-block-enabled', async (_, enabled: unknown) => {
     adBlockEnabled = enabled !== false;
-    if (!adBlockEnabled) trackedYoutubeAdCpns.clear();
     return adBlockEnabled;
   });
 
@@ -4179,9 +4092,12 @@ function setupBlockingSettingsHandlers() {
     const nextEnabled = enabled === true;
     if (youtubeAdBetaEnabled === nextEnabled) return youtubeAdBetaEnabled;
     youtubeAdBetaEnabled = nextEnabled;
+    // Restored tabs and standalone YouTube web apps can load before the browser
+    // shell sends its preferences. Keep this setting available at document start.
+    await persistAppState().catch(() => undefined);
     await Promise.all(electronWebContents.getAllWebContents()
       .filter((contents) => contents.getType() === 'webview' && !contents.isDestroyed())
-      .map(applyYoutubeAdBeta));
+      .map((contents) => applyYoutubeAdBeta(contents, youtubeAdBetaEnabled)));
     return youtubeAdBetaEnabled;
   });
 
@@ -4256,18 +4172,6 @@ function setupBlockingSettingsHandlers() {
 function setupMainFrameHttpErrorReporter(ses: Electron.Session = session.defaultSession) {
   ses.webRequest.onCompleted((details) => {
     if (details.resourceType !== 'mainFrame') return;
-
-    if (adBlockEnabled) {
-      try {
-        const parsed = new URL(details.url);
-        const protocol = parsed.protocol.toLowerCase();
-        if (protocol === 'http:' || protocol === 'https:') {
-          rememberYoutubeAdCpnFromUrl(parsed);
-        }
-      } catch {
-        // Ignore invalid URLs from request details.
-      }
-    }
 
     if (typeof details.webContentsId !== 'number' || details.webContentsId <= 0) return;
     // Preserve server-provided authentication, verification, and error pages.
