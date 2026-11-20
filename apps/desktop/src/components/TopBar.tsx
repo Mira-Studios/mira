@@ -188,6 +188,7 @@ export default function TopBar({
           ref={brandIconRef}
           src={appIcon}
           alt="Mira"
+          draggable={false}
           style={{ width: 16, height: 16, flexShrink: 0 }}
         />
         <img
@@ -197,6 +198,7 @@ export default function TopBar({
           height={2000}
           alt=""
           aria-hidden="true"
+          draggable={false}
           style={{ height: 25, width: 'auto', marginLeft: -6, transform: 'translateY(1px)' }}
         />
       </div>

@@ -97,6 +97,12 @@ type MoveTabToNewWindowOptions = {
   dragMode?: boolean;
   pointerOffsetX?: number;
   pointerOffsetY?: number;
+  targetWindowId?: number;
+  insertionIndex?: number;
+  closeSourceOnComplete?: boolean;
+  moveExistingWindow?: boolean;
+  windowPointerOffsetX?: number;
+  windowPointerOffsetY?: number;
 };
 
 type NewTabToRightOptions = {
@@ -111,6 +117,8 @@ type DetachedTabTransferPayload = {
   tab: Tab;
   guestInstance?: string;
   webContentsId?: number;
+  append?: boolean;
+  insertionIndex?: number;
 };
 
 type MailtoDispatchResponse = {
@@ -161,7 +169,7 @@ type TabsContextType = {
     id: string,
     position?: DetachedTabWindowPosition,
     options?: MoveTabToNewWindowOptions,
-  ) => void;
+  ) => Promise<boolean>;
   navigate: (url: string, tabId?: string, options?: { fromWebview?: boolean }) => void;
   navigateToNewTabPage: () => void;
   goBack: () => void;
@@ -422,6 +430,8 @@ function normalizeDetachedTabTransfer(
     tab,
     guestInstance,
     webContentsId,
+    append: value.append === true,
+    insertionIndex: typeof value.insertionIndex === 'number' ? value.insertionIndex : undefined,
   };
 }
 
@@ -606,6 +616,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
   const lastReopenClosedTabAtRef = useRef(0);
   const zoomFactorByTabRef = useRef<Record<string, number>>({});
   const bootDetachedTransferHandledRef = useRef(false);
+  const handledTransfersRef = useRef(new Set<string>());
   const activeFindInPageMatches = findInPageMatchesByTab[activeId] ?? {
     activeMatchOrdinal: 0,
     matches: 0,
@@ -646,14 +657,14 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
   }, []);
 
   const applyDetachedTransfer = useCallback((payload: unknown) => {
-    if (bootDetachedTransferHandledRef.current) return true;
     const detachedTransfer = normalizeDetachedTabTransfer(
       payload,
       getBrowserSettings().newTabPage,
     );
     if (!detachedTransfer) return false;
-
-    bootDetachedTransferHandledRef.current = true;
+    if (handledTransfersRef.current.has(detachedTransfer.transferId)) return true;
+    handledTransfersRef.current.add(detachedTransfer.transferId);
+    if (!detachedTransfer.append) bootDetachedTransferHandledRef.current = true;
     const now = Date.now();
     const transferredTab: Tab = {
       ...detachedTransfer.tab,
@@ -663,8 +674,13 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
       detachedTransferId: detachedTransfer.transferId,
       transferredWebContentsId: detachedTransfer.webContentsId,
     };
-    startupIncomingUrlsRef.current = [];
-    setTabs([transferredTab]);
+    if (!detachedTransfer.append) startupIncomingUrlsRef.current = [];
+    setTabs(current => {
+      if (!detachedTransfer.append) return [transferredTab];
+      const next = current.filter(tab => tab.id !== transferredTab.id);
+      next.splice(Math.min(next.length, detachedTransfer.insertionIndex ?? next.length), 0, transferredTab);
+      return orderGroupedTabs(orderPinnedTabs(next));
+    });
     setActiveId(transferredTab.id);
 
     if (!detachedTransfer.guestInstance) {
@@ -1659,8 +1675,8 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
   const moveTabToNewWindow = useCallback(
     async (id: string, position?: DetachedTabWindowPosition, options?: MoveTabToNewWindowOptions) => {
       const tabToMove = tabsRef.current.find((tab) => tab.id === id);
-      if (!tabToMove) return;
-      if (isEditorUrl(tabToMove.url) && !await checkEditor(id, 'move this tab')) return;
+      if (!tabToMove) return false;
+      if (isEditorUrl(tabToMove.url) && !await checkEditor(id, 'move this tab')) return false;
 
       const url = tabToMove.url.trim();
       const ipc = electron?.ipcRenderer;
@@ -1704,31 +1720,55 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
           pointerOffsetX: options?.pointerOffsetX,
           pointerOffsetY: options?.pointerOffsetY,
           position,
+          targetWindowId: options?.targetWindowId,
+          insertionIndex: options?.insertionIndex,
+          closeSourceOnComplete: options?.closeSourceOnComplete,
+          moveExistingWindow: options?.moveExistingWindow,
+          windowPointerOffsetX: options?.windowPointerOffsetX,
+          windowPointerOffsetY: options?.windowPointerOffsetY,
         };
 
-        void ipc
+        return await ipc
           .invoke<{ transferId?: unknown } | null>('window-detach-tab-to-new-window', payload)
           .then((result) => {
             const transferId =
               result && typeof result.transferId === 'string' ? result.transferId.trim() : '';
-            if (transferId) {
-              return;
-            }
+            if (transferId) return true;
+            if (options?.targetWindowId !== undefined) return false;
             void ipc.invoke('window-new-with-url', url).catch(() => undefined);
             finalizeDetachedTabMove(id);
+            return true;
           })
           .catch(() => {
+            if (options?.targetWindowId !== undefined) return false;
             void ipc.invoke('window-new-with-url', url).catch(() => undefined);
             finalizeDetachedTabMove(id);
+            return true;
           });
-        return;
       }
 
       window.open(url || window.location.href, '_blank', 'noopener,noreferrer');
       finalizeDetachedTabMove(id);
+      return true;
     },
     [finalizeDetachedTabMove],
   );
+
+  useEffect(() => {
+    const ipc = electron?.ipcRenderer;
+    if (!ipc) return;
+    const moveDraggedTab = (_event: unknown, payload: unknown) => {
+      if (!isRecord(payload) || typeof payload.tabId !== 'string'
+        || typeof payload.targetWindowId !== 'number') return;
+      void moveTabToNewWindow(payload.tabId, undefined, {
+        targetWindowId: payload.targetWindowId,
+        insertionIndex: typeof payload.insertionIndex === 'number' ? payload.insertionIndex : undefined,
+        closeSourceOnComplete: tabsRef.current.length === 1,
+      });
+    };
+    ipc.on('window-move-dragged-tab', moveDraggedTab);
+    return () => ipc.off('window-move-dragged-tab', moveDraggedTab);
+  }, [moveTabToNewWindow]);
 
   const setActive = useCallback(
     (id: string) => {

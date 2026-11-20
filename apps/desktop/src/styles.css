@@ -1361,6 +1361,14 @@ textarea {
   color: var(--tabText, var(--surfaceText));
 }
 
+/* Tab gestures belong to the renderer, including inside the native title bar. */
+.theme-tab,
+.theme-tab [data-tab-content],
+.theme-tab [data-tab-content] * {
+  -webkit-app-region: no-drag;
+}
+
+
 .tab-animations-enabled .theme-tab {
   transition:
     min-width var(--tabEnterExitMs, 180ms) cubic-bezier(0.2, 0, 0.2, 1),

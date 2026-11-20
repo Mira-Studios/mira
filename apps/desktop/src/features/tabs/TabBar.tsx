@@ -133,6 +133,35 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
   const [draggedTabWidth, setDraggedTabWidth] = useState<number | null>(null);
   const [draggedTabHeight, setDraggedTabHeight] = useState<number | null>(null);
   const [dragUsesNativeWindow, setDragUsesNativeWindow] = useState(false);
+  const [outgoingTabId, setOutgoingTabId] = useState<string | null>(null);
+  const [incomingTab, setIncomingTab] = useState<{ index: number; tab: Pick<Tab, 'id' | 'url' | 'title' | 'favicon' | 'isPinned'> } | null>(null);
+  const incomingTabRef = useRef<typeof incomingTab>(null);
+  const previousIncomingSlotRef = useRef<string | null>(null);
+  const publishDropLayoutRef = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    const ipc = electron?.ipcRenderer;
+    if (!ipc) return;
+    const hover = (_event: unknown, payload: unknown) => {
+      const value = payload as typeof incomingTab;
+      const next = value && Number.isInteger(value.index) && typeof value.tab?.id === 'string'
+        && typeof value.tab.url === 'string' && typeof value.tab.title === 'string' ? value : null;
+      incomingTabRef.current = next;
+      setIncomingTab(next);
+      if (!next) requestAnimationFrame(() => publishDropLayoutRef.current?.());
+    };
+    const receiveTab = (_event: unknown, payload: unknown) => {
+      const id = (payload as { tab?: { id?: unknown } } | null)?.tab?.id;
+      if (typeof id === 'string') setOutgoingTabId(current => current === id ? null : current);
+    };
+    ipc.on('window-detached-tab-bootstrap', receiveTab);
+    ipc.on('window-tab-drag-hover', hover);
+    return () => {
+      ipc.off('window-detached-tab-bootstrap', receiveTab);
+      ipc.off('window-tab-drag-hover', hover);
+      ipc.send('window-tab-drop-layout', null);
+    };
+  }, []);
+
   const [dragRegionsTemporarilyDisabled, setDragRegionsTemporarilyDisabled] = useState(false);
   const [transitionSuppressedTabId, setTransitionSuppressedTabId] = useState<string | null>(null);
   const [settledActiveId, setSettledActiveId] = useState(activeId);
@@ -695,9 +724,10 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
       }
     };
 
-    const onMouseMove = (event: MouseEvent) => {
+    const onMouseMove = (event: PointerEvent) => {
       if ((event.buttons & 1) === 0) {
-        endDrag();
+        // Native capture/restore can synthesize a zero-button move.
+        // The captured pointer-up owns the release.
         return;
       }
 
@@ -725,10 +755,12 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
           const outsideY = containerRect
             ? getOutsideDistance(event.clientY, containerRect.top, containerRect.bottom)
             : 0;
-          if (Math.max(outsideX, outsideY) >= TAB_DETACH_THRESHOLD_PX) {
+          if (tabsRef.current.length === 1 || Math.max(outsideX, outsideY) >= TAB_DETACH_THRESHOLD_PX) {
+            document.body.setPointerCapture(event.pointerId);
             dragDetachedRef.current = true;
             setDragUsesNativeWindow(true);
-            moveTabToNewWindow(
+            if (tabsRef.current.length > 1) setOutgoingTabId(draggingTabId);
+            void moveTabToNewWindow(
               draggingTabId,
               {
                 screenX: event.screenX,
@@ -736,10 +768,17 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
               },
               {
                 dragMode: true,
+                moveExistingWindow: tabsRef.current.length === 1,
+                windowPointerOffsetX: startX,
+                windowPointerOffsetY: startY,
                 pointerOffsetX: dragPointerToLeftRef.current,
                 pointerOffsetY: dragPointerToTopRef.current,
               },
-            );
+            ).then((moved) => {
+              if (!moved) { setOutgoingTabId(null); endDrag(); return; }
+              // A quick release can arrive before the new window has been created.
+              if (didEndDrag) void electron?.ipcRenderer?.invoke('window-release-detached-tab-drag').catch(() => undefined);
+            });
           }
         }
 
@@ -858,15 +897,17 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
 
     };
 
-    window.addEventListener('mousemove', onMouseMove);
-    window.addEventListener('mouseup', endDrag);
-    window.addEventListener('blur', endDrag);
-    document.addEventListener('mouseup', endDrag, true);
+    const onBlur = () => { if (!dragDetachedRef.current) endDrag(); };
+    window.addEventListener('pointermove', onMouseMove);
+    window.addEventListener('pointerup', endDrag);
+    const onCancel = () => { if (!dragDetachedRef.current) endDrag(); };
+    window.addEventListener('pointercancel', onCancel);
+    window.addEventListener('blur', onBlur);
     return () => {
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', endDrag);
-      window.removeEventListener('blur', endDrag);
-      document.removeEventListener('mouseup', endDrag, true);
+      window.removeEventListener('pointermove', onMouseMove);
+      window.removeEventListener('pointerup', endDrag);
+      window.removeEventListener('pointercancel', onCancel);
+      window.removeEventListener('blur', onBlur);
     };
   }, [
     draggingTabId,
@@ -878,6 +919,47 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
     scheduleDragRegionRefresh,
     suppressReleasedTabTransition,
   ]);
+
+  useLayoutEffect(() => {
+    const strip = scrollRef.current;
+    const ipc = electron?.ipcRenderer;
+    if (!strip || !ipc) return;
+    let frame = 0;
+    const publish = () => {
+      if (incomingTabRef.current || strip.querySelector('[data-tab-drop-preview]')) return;
+      const rect = (orientation === 'horizontal' ? strip.parentElement?.parentElement ?? strip : strip).getBoundingClientRect();
+      ipc.send('window-tab-drop-layout', {
+        left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom,
+        vertical: orientation === 'vertical',
+        tabs: tabs.filter(tab => tab.id !== outgoingTabId).flatMap((tab, index) => {
+          const element = tabElementRefs.current[tab.id];
+          if (!element || tab.group?.collapsed) return [];
+          const bounds = element.getBoundingClientRect();
+          const transform = new DOMMatrixReadOnly(getComputedStyle(element).transform);
+          return [{ id: tab.id, index, midpoint: orientation === 'vertical'
+            ? (bounds.top + bounds.bottom) / 2 - transform.m42
+            : (bounds.left + bounds.right) / 2 - transform.m41 }];
+        }),
+      });
+    };
+    const schedule = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(publish);
+    };
+    publishDropLayoutRef.current = publish;
+    const observer = new ResizeObserver(schedule);
+    observer.observe(strip);
+    strip.addEventListener('scroll', schedule, { passive: true });
+    window.addEventListener('resize', schedule);
+    publish();
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+      strip.removeEventListener('scroll', schedule);
+      window.removeEventListener('resize', schedule);
+      if (publishDropLayoutRef.current === publish) publishDropLayoutRef.current = null;
+    };
+  }, [tabs, orientation, outgoingTabId]);
 
   // Follow the real tab through its pin/unpin width animation while dragging.
   useLayoutEffect(() => {
@@ -916,6 +998,9 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
 
   useLayoutEffect(() => {
     const nextRects: Record<string, DOMRect> = {};
+    const incomingSlot = incomingTab ? `${incomingTab.tab.id}:${incomingTab.index}` : null;
+    const previewChanged = previousIncomingSlotRef.current !== incomingSlot;
+    previousIncomingSlotRef.current = incomingSlot;
     const nextOrder = renderedTabs.map((item) => item.tab.id);
     const previousOrder = previousLayoutOrderRef.current;
     const nextIds = new Set(nextOrder);
@@ -976,7 +1061,7 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
       nextRects[tabId] = nextRect;
       // Branding/resizing can move the whole strip. Do not replay that movement
       // as a tab reorder when metadata updates after the layout has settled.
-      if (!orderChanged && !membershipChanged) continue;
+      if (!orderChanged && !membershipChanged && !previewChanged) continue;
       if (!prevRect) continue;
       if (tabId === releasedDragTabId) continue;
       const delta = isVertical ? prevRect.top - nextRect.top : prevRect.left - nextRect.left;
@@ -985,7 +1070,7 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
 
       const deltaAbs = Math.abs(delta);
       // Loosen thresholds while dragging so surrounding tabs animate during swaps.
-      const isDeliberateReorder = draggingGroupId || membershipChanged ? deltaAbs > 2 : draggingTabId
+      const isDeliberateReorder = previewChanged || draggingGroupId || membershipChanged ? deltaAbs > 2 : draggingTabId
         ? deltaAbs > 4 && deltaAbs < 600
         : deltaAbs > 10 && deltaAbs < 200;
       if (!isDeliberateReorder) continue;
@@ -1020,7 +1105,7 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
     if (releasedDragTabId) {
       releasedDragTabIdRef.current = null;
     }
-  }, [renderedTabs, draggingTabId, draggingGroupId, animationsEnabled, orientation]);
+  }, [renderedTabs, draggingTabId, draggingGroupId, animationsEnabled, orientation, incomingTab]);
 
   useEffect(() => {
     if (dragRegionsTemporarilyDisabled) return;
@@ -1147,6 +1232,27 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
   const horizontalCurveBleed = `calc(${tabRadius} + ${borderWidth} + 4px)`;
   const horizontalTabInset = `calc(${horizontalCurveBleed} + 2px)`;
 
+  const displayedTabs = renderedTabs.filter(({ tab }) => tab.id !== outgoingTabId);
+  const previewTabs = incomingTab ? displayedTabs.filter(({ tab, phase }) => phase !== 'exiting' && tab.id !== incomingTab.tab.id) : [];
+  const previewBeforeId = incomingTab ? previewTabs[incomingTab.index]?.tab.id : undefined;
+  const incomingPreview = incomingTab ? (
+    <div key="incoming-tab" data-tab-drop-preview={incomingTab.tab.id} aria-hidden="true"
+      className="theme-tab theme-tab-selected"
+      style={{ height: TAB_ROW_HEIGHT, display: 'flex', alignItems: 'center', gap: 6,
+        flex: isVertical ? '0 0 auto' : incomingTab.tab.isPinned ? '0 0 38px' : `1 1 ${TAB_TARGET_WIDTH}`,
+        minWidth: isVertical ? 0 : incomingTab.tab.isPinned ? 38 : TAB_MIN_WIDTH,
+        maxWidth: isVertical ? undefined : incomingTab.tab.isPinned ? 38 : TAB_TARGET_WIDTH,
+        padding: '0 10px', boxSizing: 'border-box', borderRadius: tabRadius,
+        background: 'var(--surfaceBgHover, var(--tabBgHover))',
+        pointerEvents: 'none', opacity: 0.9, overflow: 'hidden',
+      }}>
+      <TabFavicon url={incomingTab.tab.url} src={getDisplayFavicon(incomingTab.tab.url, incomingTab.tab.favicon)} size={16} />
+      {!incomingTab.tab.isPinned && <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        {getDisplayTitle(incomingTab.tab.url, incomingTab.tab.title)}
+      </span>}
+    </div>
+  ) : null;
+
   return (
     <div
       className={[
@@ -1194,15 +1300,16 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
             alignItems: isVertical ? 'stretch' : 'center',
             height: isVertical ? '100%' : 'calc(100% + 1px)',
             boxSizing: 'border-box',
-            WebkitAppRegion: !isVertical && (canScrollLeft || canScrollRight)
-              ? 'no-drag'
-              : dragRegionsTemporarilyDisabled ? 'no-drag' : 'drag',
-            marginLeft: isVertical ? undefined : `calc(-1 * ${horizontalCurveBleed} - 2px)`,
-            padding: isVertical ? 6 : `0 4px 0 ${horizontalTabInset}`,
+            // Keep overflow's native hit region inside the actual viewport.
+            // Dropping the decorative left bleed also keeps scrolled tabs from
+            // creating drag-blocking rectangles over the compact logo.
+            WebkitAppRegion: canScrollLeft || canScrollRight || dragRegionsTemporarilyDisabled ? 'no-drag' : 'drag',
+            marginLeft: isVertical || canScrollLeft || canScrollRight || dragRegionsTemporarilyDisabled ? undefined : `calc(-1 * ${horizontalCurveBleed} - 2px)`,
+            padding: isVertical ? 6 : `0 4px 0 ${canScrollLeft || canScrollRight || dragRegionsTemporarilyDisabled ? '2px' : horizontalTabInset}`,
             paddingBottom: isVertical ? 6 : 1,
           }}
         >
-          {renderedTabs.flatMap(({ tab, phase }, index) => {
+          {displayedTabs.flatMap(({ tab, phase }, index) => {
             const displayFavicon = getDisplayFavicon(tab.url, tab.favicon, tab.restoreDeferred);
             const displayTitle = getDisplayTitle(tab.url, tab.title);
             const audio = tabAudioState[tab.id];
@@ -1211,9 +1318,9 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
             const faviconSize = isInternalTab ? 22 : 16;
             const isExiting = phase === 'exiting';
             const isCollapsed = phase !== 'stable';
-            const pinnedIndex = renderedTabs.findIndex(item => item.tab.id === tab.id);
+            const pinnedIndex = displayedTabs.findIndex(item => item.tab.id === tab.id);
             const group = tab.isPinned ? undefined : tab.group;
-            const groupStart = group && renderedTabs.findIndex(item => item.tab.group?.id === group.id) === index;
+            const groupStart = group && displayedTabs.findIndex(item => item.tab.group?.id === group.id) === index;
             const groupColor = group && TAB_GROUP_COLORS[group.color];
             const groupCollapsed = group?.collapsed === true;
             const sizeCollapsed = isCollapsed || groupCollapsed;
@@ -1222,6 +1329,7 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
             const groupCount = group ? tabs.filter(tab => tab.group?.id === group.id).length : 0;
 
             return [
+              tab.id === previewBeforeId ? incomingPreview : null,
               groupStart ? <button
                 key={`group:${group.id}`}
                 type="button"
@@ -1280,11 +1388,14 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
                     setActive(tab.id);
                   }
                 }}
-                onMouseDown={(event) => {
+                onPointerDown={(event) => {
                   if (isExiting) return;
                   if (event.button !== 0) return;
                   const eventTarget = event.target as HTMLElement | null;
                   if (eventTarget?.closest('[data-tab-drag-ignore="true"]')) return;
+                  // Ordinary presses keep their click target. Only a detached drag
+                  // transfers capture to the shell before the tab disappears.
+                  event.currentTarget.setPointerCapture(event.pointerId);
                   cancelScheduledDragRegionRefresh();
                   const targetEl = tabElementRefs.current[tab.id];
                   if (targetEl) {
@@ -1372,7 +1483,7 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
                     : isVertical && isActive ? (isRightSidebar ? '0 6px 0 16px' : '0 12px 0 10px') : '0 6px 0 10px',
                   paddingBottom: 0,
                   justifyContent: tab.isPinned && !isVertical ? 'center' : undefined,
-                  position: tab.isPinned ? 'sticky' : 'relative',
+                  position: incomingTab?.tab.id === tab.id ? 'absolute' : tab.isPinned ? 'sticky' : 'relative',
                   left: tab.isPinned && !isVertical ? `calc(${horizontalTabInset} + ${pinnedIndex} * (38px + ${TAB_STRIP_GAP}))` : undefined,
                   top: tab.isPinned && isVertical ? `calc(${pinnedIndex} * (${TAB_ROW_HEIGHT} + ${TAB_STRIP_GAP}))` : undefined,
                   marginBottom: isVertical && groupCollapsed ? `calc(-1 * ${TAB_STRIP_GAP})` : 0,
@@ -1394,9 +1505,9 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
                       : 0,
                   background:
                     tab.id === activeId ? 'var(--surfaceBgHover, var(--tabBgHover))' : tab.isPinned ? 'var(--surfaceBg, var(--tabBg))' : undefined,
-                  opacity: sizeCollapsed
+                  opacity: sizeCollapsed || incomingTab?.tab.id === tab.id
                     ? 0
-                    : draggingTabId === tab.id && draggedTabPosition
+                    : draggingTabId === tab.id && draggedTabPosition && !dragUsesNativeWindow
                       ? 0  // Completely hide when overlay is visible (actual dragging)
                       : 1,
                   borderBottomColor: isActive
@@ -1479,6 +1590,7 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
               </div>,
             ];
           })}
+          {incomingTab && !previewBeforeId ? incomingPreview : null}
           <button
             onClick={() => newTab()}
             className="theme-btn theme-btn-nav nav-icon-btn tab-new-tab-btn"

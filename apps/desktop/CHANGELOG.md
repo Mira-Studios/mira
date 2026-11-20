@@ -7,6 +7,10 @@
 - File editing
 - New Tab background
 
+### Improved
+
+- Tab dragging in and out of windows
+
 ## v1.1.2 - 2026-11-12
 
 ### Added

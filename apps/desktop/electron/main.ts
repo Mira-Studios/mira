@@ -1,3 +1,4 @@
+import { detachedTabBounds, tabDropIndex, type TabDropLayout } from './tabDrag.ts';
 import { HistoryStore } from './historyStore.ts';
 import { setupOpenTabHandlers } from './openTabHandlers.ts';
 import { normalizeTabGroup, orderGroupedTabs, TAB_GROUP_COLORS, type TabGroup } from './tabGroups.ts';
@@ -119,6 +120,12 @@ interface DetachedTabTransferPayload {
   attached?: boolean;
   deferSourceFinalize?: boolean;
   releaseRequested?: boolean;
+  moveExistingWindow?: boolean;
+  sourceFinalized?: boolean;
+  append?: boolean;
+  insertionIndex?: number;
+  closeSourceOnComplete?: boolean;
+  dropTarget?: { windowId: number; index: number };
 }
 
 interface DetachedWindowDragSession {
@@ -128,6 +135,7 @@ interface DetachedWindowDragSession {
   pointerOffsetX: number;
   pointerOffsetY: number;
   timer: NodeJS.Timeout;
+  hoverTarget?: { windowId: number; index: number };
 }
 
 interface PersistedAppState {
@@ -220,6 +228,7 @@ const recentRendererRecoveryByWindow = new Map<number, number>();
 const pendingInitialUrlByWindowId = new Map<number, string>();
 const pendingDetachedTabTransferByWindowId = new Map<number, DetachedTabTransferPayload>();
 const detachedTabTransferById = new Map<string, DetachedTabTransferPayload>();
+const tabDropLayouts = new Map<number, TabDropLayout>();
 const activeDetachedWindowDragBySourceWindowId = new Map<number, DetachedWindowDragSession>();
 const SHORTCUT_DEVTOOLS_SUPPRESS_MS = 500;
 const activeWebContentsByWindow = new Map<number, WebContents>();
@@ -1855,7 +1864,7 @@ function normalizeDetachedTabTransferRequest(
 } | null {
   if (typeof value !== 'object' || !value) return null;
   const candidate = value as Record<string, unknown>;
-  const tab = normalizeTabSessionSnapshot(candidate.tab);
+  const tab = normalizeTabSessionSnapshot(candidate.tab, true);
   if (!tab) return null;
 
   const guestInstance =
@@ -1980,19 +1989,78 @@ function finalizeDetachedTransferIfReady(transferId: string): boolean {
   const transfer = detachedTabTransferById.get(transferId);
   if (!transfer) return false;
   if (!transfer.attached) return false;
+  const sourceWindow = BrowserWindow.fromId(transfer.sourceWindowId);
+  if (!transfer.moveExistingWindow && !transfer.sourceFinalized && sourceWindow && !sourceWindow.isDestroyed()) {
+    transfer.sourceFinalized = true;
+    sourceWindow.webContents.send('detached-tab-transfer-complete', {
+      transferId, tabId: transfer.tab.id,
+    });
+  }
   if (transfer.deferSourceFinalize && !transfer.releaseRequested) return false;
 
   detachedTabTransferById.delete(transferId);
   pendingDetachedTabTransferByWindowId.delete(transfer.targetWindowId);
 
-  const sourceWindow = BrowserWindow.fromId(transfer.sourceWindowId);
-  if (sourceWindow && !sourceWindow.isDestroyed()) {
-    sourceWindow.webContents.send('detached-tab-transfer-complete', {
-      transferId,
-      tabId: transfer.tab.id,
+  if (transfer.closeSourceOnComplete && sourceWindow && !sourceWindow.isDestroyed()) {
+    recentlyClosedWindowSnapshots.delete(sourceWindow.id);
+    markWindowCloseAllowed(sourceWindow);
+    sourceWindow.close();
+  }
+  if (transfer.append) {
+    const destination = BrowserWindow.fromId(transfer.targetWindowId);
+    if (destination && !destination.isDestroyed()) {
+      if (destination.isMinimized()) destination.restore();
+      destination.focus();
+    }
+  }
+  if (transfer.dropTarget) {
+    const detachedWindow = BrowserWindow.fromId(transfer.targetWindowId);
+    detachedWindow?.webContents.send('window-move-dragged-tab', {
+      tabId: transfer.tab.id, targetWindowId: transfer.dropTarget.windowId,
+      insertionIndex: transfer.dropTarget.index,
     });
   }
   return true;
+}
+
+function findTabDropTarget(draggedWindowId: number, tabId: string): { windowId: number; index: number } | undefined {
+  const cursor = screen.getCursorScreenPoint();
+  for (const candidate of BrowserWindow.getAllWindows()) {
+    if (candidate.id === draggedWindowId || candidate.isDestroyed() || !candidate.isVisible()
+      || candidate.isMinimized() || isWebAppWindow(candidate.id)
+      || privatePartitionsByWindow.get(candidate.id) !== privatePartitionsByWindow.get(draggedWindowId)) continue;
+    const layout = tabDropLayouts.get(candidate.id);
+    if (!layout) continue;
+    const bounds = candidate.getContentBounds();
+    const zoom = candidate.webContents.getZoomFactor();
+    const index = tabDropIndex(layout, (cursor.x - bounds.x) / zoom, (cursor.y - bounds.y) / zoom, tabId);
+    if (index !== null) return { windowId: candidate.id, index };
+  }
+}
+
+function updateTabDragHover(session: DetachedWindowDragSession, next: DetachedWindowDragSession['hoverTarget']): void {
+  const previous = session.hoverTarget;
+  if (previous?.windowId === next?.windowId && previous?.index === next?.index) return;
+  if (previous && previous.windowId !== next?.windowId) {
+    BrowserWindow.fromId(previous.windowId)?.webContents.send('window-tab-drag-hover', null);
+  }
+  session.hoverTarget = next;
+  const draggedWindow = BrowserWindow.fromId(session.targetWindowId);
+  if (draggedWindow && !draggedWindow.isDestroyed()) {
+    // Opacity preserves the source's pointer capture while the tab appears in the destination strip.
+    draggedWindow.setOpacity(next ? 0 : 1);
+    if (!next && previous) draggedWindow.moveTop();
+  }
+  if (next) {
+    const target = BrowserWindow.fromId(next.windowId);
+    const transfer = detachedTabTransferById.get(session.transferId);
+    if (target && transfer) {
+      target.moveTop();
+      target.webContents.send('window-tab-drag-hover', {
+        index: next.index, tab: transfer.tab,
+      });
+    }
+  }
 }
 
 function stopDetachedWindowDragSession(
@@ -2003,10 +2071,12 @@ function stopDetachedWindowDragSession(
   if (!session) return false;
 
   clearInterval(session.timer);
+  updateTabDragHover(session, undefined);
   activeDetachedWindowDragBySourceWindowId.delete(sourceWindowId);
 
   const transfer = detachedTabTransferById.get(session.transferId);
   if (transfer && options?.requestFinalize) {
+    transfer.dropTarget = findTabDropTarget(session.targetWindowId, transfer.tab.id);
     transfer.releaseRequested = true;
     finalizeDetachedTransferIfReady(transfer.transferId);
   }
@@ -2038,6 +2108,8 @@ function startDetachedWindowDragSession(
       return;
     }
 
+    const session = activeDetachedWindowDragBySourceWindowId.get(transfer.sourceWindowId);
+    if (session) updateTabDragHover(session, findTabDropTarget(targetWindow.id, transfer.tab.id));
     const cursorPoint = screen.getCursorScreenPoint();
     const bounds = targetWindow.getBounds();
     const nextX = cursorPoint.x - pointerOffsetX;
@@ -4203,27 +4275,62 @@ function setupWindowControlsHandlers() {
     return true;
   });
 
-  ipcMain.handle('window-detach-tab-to-new-window', (event, payload: unknown) => {
+  ipcMain.handle('window-detach-tab-to-new-window', async (event, payload: unknown) => {
     const sourceWindow = BrowserWindow.fromWebContents(event.sender);
     if (!sourceWindow || sourceWindow.isDestroyed()) return null;
 
     const normalized = normalizeDetachedTabTransferRequest(payload);
     if (!normalized) return null;
 
-    const detachedWindow = createWindow(
+    const request = payload as { targetWindowId?: unknown; insertionIndex?: unknown; closeSourceOnComplete?: unknown;
+      moveExistingWindow?: unknown; windowPointerOffsetX?: number; windowPointerOffsetY?: number };
+    if (normalized.dragMode && request.moveExistingWindow === true) {
+      let offsetX = Number.isFinite(request.windowPointerOffsetX) ? request.windowPointerOffsetX! : normalized.pointerOffsetX ?? 140;
+      const offsetY = Number.isFinite(request.windowPointerOffsetY) ? request.windowPointerOffsetY! : normalized.pointerOffsetY ?? 18;
+      if (sourceWindow.isMaximized() || sourceWindow.isFullScreen()) {
+        const cursor = screen.getCursorScreenPoint();
+        // Native restore is asynchronous. Moving before these events can leave the
+        // window maximized or overwrite its restored bounds with fullscreen dimensions.
+        const exitState = (eventName: 'leave-full-screen' | 'unmaximize', change: () => void) =>
+          new Promise<void>((resolve) => {
+            const done = () => { sourceWindow.off(eventName, done); sourceWindow.off('closed', done); resolve(); };
+            sourceWindow.once(eventName, done);
+            sourceWindow.once('closed', done);
+            change();
+          });
+        if (sourceWindow.isFullScreen()) await exitState('leave-full-screen', () => sourceWindow.setFullScreen(false));
+        if (sourceWindow.isDestroyed()) return null;
+        if (sourceWindow.isMaximized()) await exitState('unmaximize', () => sourceWindow.unmaximize());
+        if (sourceWindow.isDestroyed()) return null;
+        const bounds = detachedTabBounds(screen.getDisplayNearestPoint(cursor).workAreaSize, cursor.x, cursor.y);
+        offsetX = Math.min(offsetX, bounds.width - 40);
+        sourceWindow.setBounds(bounds);
+      }
+      const transferId = uuidv4();
+      const transfer: DetachedTabTransferPayload = {
+        transferId, sourceWindowId: sourceWindow.id, targetWindowId: sourceWindow.id,
+        tab: normalized.tab, attached: true, deferSourceFinalize: true, moveExistingWindow: true,
+      };
+      detachedTabTransferById.set(transferId, transfer);
+      startDetachedWindowDragSession(transfer, offsetX, offsetY);
+      return { transferId };
+    }
+    const existingWindow = typeof request.targetWindowId === 'number'
+      ? BrowserWindow.fromId(request.targetWindowId) : null;
+    if (request.targetWindowId !== undefined && (!existingWindow || existingWindow.isDestroyed()
+      || existingWindow.id === sourceWindow.id || isWebAppWindow(existingWindow.id)
+      || privatePartitionsByWindow.get(existingWindow.id) !== privatePartitionsByWindow.get(sourceWindow.id))) return null;
+    const detachedWindow = existingWindow ?? createWindow(
       sourceWindow,
       undefined,
       undefined,
       {
-        initialBounds:
-          typeof normalized.x === 'number' && typeof normalized.y === 'number'
-            ? {
-                x: normalized.x - 140,
-                y: normalized.y - 18,
-                width: 1200,
-                height: 800,
-              }
-            : undefined,
+        initialBounds: detachedTabBounds(
+          screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workAreaSize,
+          normalized.x ?? screen.getCursorScreenPoint().x,
+          normalized.y ?? screen.getCursorScreenPoint().y,
+          normalized.pointerOffsetX, normalized.pointerOffsetY,
+        ),
         maximize: false,
         showInactive: normalized.dragMode === true,
       },
@@ -4239,6 +4346,10 @@ function setupWindowControlsHandlers() {
       attached: false,
       deferSourceFinalize: normalized.dragMode === true,
       releaseRequested: false,
+      append: !!existingWindow,
+      insertionIndex: typeof request.insertionIndex === 'number' && Number.isFinite(request.insertionIndex)
+        ? Math.max(0, Math.floor(request.insertionIndex)) : undefined,
+      closeSourceOnComplete: request.closeSourceOnComplete === true,
     };
     pendingDetachedTabTransferByWindowId.set(detachedWindow.id, transfer);
     detachedTabTransferById.set(transferId, transfer);
@@ -4253,6 +4364,15 @@ function setupWindowControlsHandlers() {
     }
 
     return { transferId };
+  });
+
+  ipcMain.on('window-tab-drop-layout', (event, layout: TabDropLayout | null) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win || event.sender !== win.webContents) return;
+    if (!layout) { tabDropLayouts.delete(win.id); return; }
+    if (![layout.left, layout.top, layout.right, layout.bottom].every(Number.isFinite)
+      || !Array.isArray(layout.tabs) || !layout.tabs.every(tab => Number.isInteger(tab.index) && Number.isFinite(tab.midpoint))) return;
+    tabDropLayouts.set(win.id, layout);
   });
 
   ipcMain.handle('window-consume-initial-url', (event) => {
@@ -5813,6 +5933,7 @@ function createWindow(
   });
 
   win.on('closed', () => {
+    tabDropLayouts.delete(win.id);
     windowSuspensionById.delete(win.id);
     suspendedWindowRestoreById.delete(win.id);
     liveWindowSnapshots.delete(win.id);
