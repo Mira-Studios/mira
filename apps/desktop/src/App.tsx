@@ -26,6 +26,7 @@ import {
   type TabStripPosition,
 } from './features/settings/browserSettings';
 import { applyTheme } from './features/themes/applyTheme';
+import { useBackgroundImageWarmup } from './features/themes/useNewTabAppearance';
 import { getThemeById } from './features/themes/themeLoader';
 import { applyLayout } from './features/layouts/applyLayout';
 import { getLayoutById } from './features/layouts/layoutLoader';
@@ -250,6 +251,7 @@ function Browser() {
     restoreRevision,
     isFullscreen,
   } = useTabs();
+  useBackgroundImageWarmup(/^mira:\/\/newtab(?:[?#/]|$)/i.test(tabs.find((tab) => tab.id === activeId)?.url ?? ''));
   const [settledRestoreRevision, setSettledRestoreRevision] = useState(-1);
   const isRestoringLayout = settledRestoreRevision !== restoreRevision;
   useLayoutEffect(() => {

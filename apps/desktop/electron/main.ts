@@ -43,6 +43,7 @@ import {
 import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { setupFileEditors } from './fileEditors.ts';
+import { setupBackgroundImages } from './backgroundImages.ts';
 
 // Isolate development before sessions or the single-instance lock use these paths.
 const isDevelopment = !app.isPackaged;
@@ -5125,6 +5126,7 @@ function setupWindowControlsHandlers() {
   });
 
   setupFileEditors();
+  setupBackgroundImages();
   ipcMain.handle('dialog-open-file-url', async (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     const result = await dialog.showOpenDialog(win && !win.isDestroyed() ? win : undefined, {

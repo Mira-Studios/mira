@@ -5,6 +5,7 @@
 ### Added
 
 - File editing
+- New Tab background
 
 ## v1.1.2 - 2026-11-12
 

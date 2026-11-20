@@ -12,6 +12,7 @@ import {
 import { getBrowserSettings, saveBrowserSettings } from '../features/settings/browserSettings';
 import { THEME_SCHEMA_VERSION, type Theme, type ThemeMode } from '../themes/types';
 import { getThemeColorDisplayName } from '../themes/colorVariableToDisplayName';
+import { normalizeBackgroundImageUrl } from '../themes/backgroundImage';
 
 const HEX_COLOR_PATTERN = /^#([0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
 const CSS_VAR_PATTERN = /^var\(\s*--([a-zA-Z0-9_-]+)(?:\s*,.+)?\)$/;
@@ -538,6 +539,7 @@ export default function ThemeCreator() {
   const [baseThemeId, setBaseThemeId] = useState<string>(initialThemeEntry?.id ?? '');
   const [themeName, setThemeName] = useState('My Theme');
   const [themeAuthor, setThemeAuthor] = useState('Me');
+  const [backgroundImageUrl, setBackgroundImageUrl] = useState(initialThemeEntry?.theme.backgroundImageUrl ?? '');
   const [themeMode, setThemeMode] = useState<ThemeMode>(
     initialThemeEntry?.theme.mode ?? defaultDarkTheme?.mode ?? 'dark',
   );
@@ -586,6 +588,7 @@ export default function ThemeCreator() {
     if (!fallbackTheme) return;
 
     setThemeMode(selectedThemeEntry.theme.mode);
+    setBackgroundImageUrl(selectedThemeEntry.theme.backgroundImageUrl ?? '');
     setColors(createEditableColors(selectedThemeEntry.theme, fallbackTheme));
     setFonts(createEditableFonts(selectedThemeEntry.theme, fallbackTheme));
   }, [selectedThemeEntry, defaultDarkTheme, defaultLightTheme]);
@@ -649,6 +652,10 @@ export default function ThemeCreator() {
   }, [livePreviewEnabled]);
 
   const handleExport = () => {
+    if (backgroundImageUrl.trim() && !normalizeBackgroundImageUrl(backgroundImageUrl)) {
+      setExportMessage('Enter an HTTP or HTTPS background image URL, or leave it blank.');
+      return;
+    }
     const trimmedName = themeName.trim() || 'My Theme';
     const trimmedAuthor = themeAuthor.trim() || 'Me';
     const payload: Theme = {
@@ -656,6 +663,7 @@ export default function ThemeCreator() {
       name: trimmedName,
       author: trimmedAuthor,
       mode: themeMode,
+      ...(backgroundImageUrl.trim() ? { backgroundImageUrl: normalizeBackgroundImageUrl(backgroundImageUrl) } : {}),
       colors,
       fonts,
     };
@@ -666,6 +674,9 @@ export default function ThemeCreator() {
 
   const handleExportLoadAndSelect = () => {
     try {
+      if (backgroundImageUrl.trim() && !normalizeBackgroundImageUrl(backgroundImageUrl)) {
+        throw new Error('Enter an HTTP or HTTPS background image URL, or leave it blank.');
+      }
       const trimmedName = themeName.trim() || 'My Theme';
       const trimmedAuthor = themeAuthor.trim() || 'Me';
       const payload: Theme = {
@@ -673,6 +684,7 @@ export default function ThemeCreator() {
         name: trimmedName,
         author: trimmedAuthor,
         mode: themeMode,
+        ...(backgroundImageUrl.trim() ? { backgroundImageUrl: normalizeBackgroundImageUrl(backgroundImageUrl) } : {}),
         colors,
         fonts,
       };
@@ -786,6 +798,12 @@ export default function ThemeCreator() {
             />
           </label>
 
+          <label className="creator-meta-field">
+            <span className="settings-setting-label">New Tab background image URL (optional)</span>
+            <input type="url" className="theme-input settings-text-input" placeholder="https://example.com/image.jpg"
+              value={backgroundImageUrl} onChange={(event) => { setBackgroundImageUrl(event.currentTarget.value); setExportMessage(''); }} />
+            <span className="settings-setting-description">Downloaded and cached when “Use theme background image” is enabled in Appearance settings.</span>
+          </label>
           <label className="creator-meta-field">
             <span className="settings-setting-label">Mode</span>
             <select

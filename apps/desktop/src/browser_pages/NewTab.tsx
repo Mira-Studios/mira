@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import miraLogo from '../assets/mira_logo.png';
+import { getBackgroundStyle, getNewTabBackgroundSource, useBackgroundImage, useNewTabAppearance } from '../features/themes/useNewTabAppearance';
 import { useTabs } from '../features/tabs/TabsProvider';
 import {
   DEFAULT_BROWSER_SETTINGS,
@@ -79,6 +80,8 @@ function isLikelyDomainOrUrl(value: string) {
 }
 
 export default function NewTab() {
+  const appearance = useNewTabAppearance();
+  const { image } = useBackgroundImage(getNewTabBackgroundSource(appearance));
   const [query, setQuery] = useState('');
   const [introState] = useState(() => {
     try {
@@ -146,7 +149,7 @@ export default function NewTab() {
         alignItems: 'center',
         justifyContent: 'flex-start',
         paddingTop: '12vh',
-        background: 'var(--bg)',
+        ...getBackgroundStyle(appearance, image),
         color: 'var(--text1)',
       }}
     >
@@ -227,7 +230,7 @@ export default function NewTab() {
           </>
         ) : null}
       </div>
-      <form
+      {appearance.showNewTabSearch && <form
         onSubmit={handleSearch}
         style={{ display: 'flex', width: '60%', maxWidth: 600, minWidth: 320, marginTop: 28 }}
       >
@@ -244,7 +247,7 @@ export default function NewTab() {
           }}
           className="theme-input"
         />
-      </form>
+      </form>}
     </div>
   );
 }

@@ -1,3 +1,42 @@
+.newtab-background-controls {
+  display: grid;
+  gap: 12px;
+  padding: 16px 0;
+}
+.newtab-background-preview {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  max-height: 220px;
+  border: 1px solid var(--surfaceBorder);
+  border-radius: 8px;
+}
+.newtab-background-actions,
+.newtab-background-url-input,
+.newtab-background-error {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.newtab-background-actions { flex-wrap: wrap; }
+.newtab-background-remove { margin-left: auto; }
+.newtab-background-url { display: grid; gap: 8px; }
+.newtab-background-url-input input { min-width: 0; flex: 1; }
+.newtab-background-url-input button { flex-shrink: 0; }
+.newtab-background-error {
+  color: var(--accentDanger, #ef4444);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.newtab-background-error span { flex: 1; min-width: 0; }
+.newtab-background-sliders { display: grid; gap: 10px; width: min(60%, 360px); }
+.newtab-background-sliders label { display: grid; gap: 5px; font-size: 12px; }
+.newtab-background-sliders label span { display: flex; justify-content: space-between; gap: 8px; }
+.newtab-background-sliders input { width: 100%; margin: 0; accent-color: var(--accentPrimary); }
+.newtab-background-sliders button { justify-self: end; }
+@media (max-width: 580px) {
+  .newtab-background-position { flex-direction: column; align-items: stretch; gap: 12px; }
+  .newtab-background-sliders { width: 100%; }
+}
 /* One squircle surface per settings group, with flat rows inside. */
 .settings-page.settings-redesign {
   position: relative;

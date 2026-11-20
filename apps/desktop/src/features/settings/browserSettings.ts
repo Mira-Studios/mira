@@ -1,4 +1,5 @@
 import { DEFAULT_THEME_ID } from '../themes/themeLoader';
+import { normalizeBackgroundImageSource } from '../../themes/backgroundImage';
 import { DEFAULT_LAYOUT_ID } from '../layouts/layoutLoader';
 import { DEFAULT_HISTORY_RETENTION_DAYS, normalizeHistoryRetentionDays, pruneHistoryEntries } from '../../../electron/historyPolicy';
 import type { HistoryRetentionDays } from '../../../electron/historyPolicy';
@@ -61,6 +62,12 @@ export type BrowserSettings = {
   historyRetentionDays: HistoryRetentionDays;
   newTabPage: string;
   themeId: string;
+  backgroundImage: string;
+  useThemeBackgroundImage: boolean;
+  showNewTabSearch: boolean;
+  backgroundImageFit: 'cover' | 'contain' | 'stretch' | 'original' | 'tile';
+  backgroundImagePositionX: number;
+  backgroundImagePositionY: number;
   rawFileDarkModeEnabled: boolean;
   animationsEnabled: boolean;
   nativeTextFieldContextMenu: boolean;
@@ -100,6 +107,12 @@ export const DEFAULT_BROWSER_SETTINGS: BrowserSettings = {
   historyRetentionDays: DEFAULT_HISTORY_RETENTION_DAYS,
   newTabPage: 'mira://NewTab',
   themeId: DEFAULT_THEME_ID,
+  backgroundImage: '',
+  useThemeBackgroundImage: false,
+  showNewTabSearch: true,
+  backgroundImageFit: 'cover',
+  backgroundImagePositionX: 50,
+  backgroundImagePositionY: 50,
   rawFileDarkModeEnabled: true,
   animationsEnabled: false,
   nativeTextFieldContextMenu: true,
@@ -464,6 +477,15 @@ export function normalizeBrowserSettings(value: unknown): BrowserSettings {
   return {
     newTabPage: normalizeNewTabPage(candidate.newTabPage),
     themeId: normalizeThemeId(candidate.themeId),
+    backgroundImage: normalizeBackgroundImageSource(candidate.backgroundImage),
+    useThemeBackgroundImage: candidate.useThemeBackgroundImage === true,
+    showNewTabSearch: candidate.showNewTabSearch !== false,
+    backgroundImageFit: ['cover', 'contain', 'stretch', 'original', 'tile'].includes(candidate.backgroundImageFit ?? '')
+      ? candidate.backgroundImageFit! : 'cover',
+    backgroundImagePositionX: typeof candidate.backgroundImagePositionX === 'number' && Number.isFinite(candidate.backgroundImagePositionX)
+      ? Math.min(100, Math.max(0, candidate.backgroundImagePositionX)) : 50,
+    backgroundImagePositionY: typeof candidate.backgroundImagePositionY === 'number' && Number.isFinite(candidate.backgroundImagePositionY)
+      ? Math.min(100, Math.max(0, candidate.backgroundImagePositionY)) : 50,
     rawFileDarkModeEnabled: normalizeRawFileDarkModeEnabled(candidate.rawFileDarkModeEnabled),
     animationsEnabled: normalizeAnimationsEnabled(candidate.animationsEnabled),
     nativeTextFieldContextMenu: normalizeNativeTextFieldContextMenu(

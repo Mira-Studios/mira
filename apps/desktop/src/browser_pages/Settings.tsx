@@ -2,6 +2,7 @@ import { confirmDialog } from '../components/appDialogs';
 import { Children, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import { AppWindow, Check, ChevronLeft, Cookie, Globe, RefreshCw, Trash2, ChevronDown, ChevronRight, ChevronUp, Code2, Palette, PanelsTopLeft, Search, Settings2, Shield } from 'lucide-react';
 import './Settings.css';
+import NewTabAppearanceSettings from './NewTabAppearanceSettings';
 import { useTabs } from '../features/tabs/TabsProvider';
 import { useDownloads } from '../features/downloads/DownloadProvider';
 import { clearHistoryEntries } from '../features/history/clientHistory';
@@ -1786,6 +1787,13 @@ export default function Settings() {
                     }}
                   />
                 </label>
+              </SettingsGroup>
+
+              <SettingsGroup>
+                <div className="settings-card-header">
+                  <h3 className="settings-card-title">New Tab appearance</h3>
+                </div>
+                <NewTabAppearanceSettings />
               </SettingsGroup>
 
               <SettingsGroup>

@@ -1,4 +1,5 @@
 import { THEME_SCHEMA_VERSION, type Theme, type ThemeMode } from '../../themes/types';
+import { normalizeBackgroundImageUrl } from '../../themes/backgroundImage';
 
 const modules = import.meta.glob('../../themes/*.json', { eager: true });
 
@@ -98,6 +99,8 @@ function normalizeTheme(value: unknown): Theme | null {
     mode,
     colors,
     fonts,
+    ...(normalizeBackgroundImageUrl(value.backgroundImageUrl)
+      ? { backgroundImageUrl: normalizeBackgroundImageUrl(value.backgroundImageUrl) } : {}),
   };
 }
 

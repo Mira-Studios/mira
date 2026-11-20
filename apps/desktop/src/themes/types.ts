@@ -23,4 +23,6 @@ export interface Theme {
   mode: ThemeMode;
   colors: ThemeColors;
   fonts?: ThemeFonts;
+  /** Optional New Tab wallpaper, downloaded and cached when the user enables it. */
+  backgroundImageUrl?: string;
 }

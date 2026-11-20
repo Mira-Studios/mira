@@ -22,6 +22,7 @@
     "test:youtube-ads": "electron tests/youtubeAdBeta.electron.ts",
     "test:devtools": "electron tests/devTools.electron.ts",
     "test:file-editors": "electron tests/fileEditors.electron.ts",
+    "test:background-images": "electron electron/backgroundImages.smoke.ts",
     "preview": "vite preview",
     "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json,css,md}\""
   },
