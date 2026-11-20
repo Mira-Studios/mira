@@ -15,6 +15,7 @@ type Request = {
   title?: string;
   confirmLabel?: string;
   cancelLabel?: string;
+  secondaryLabel?: string;
 };
 
 function Interaction({
@@ -51,13 +52,13 @@ function Interaction({
         previous.focus();
     };
   }, [passkey]);
-  const respond = (accepted: boolean) => {
+  const respond = (accepted: boolean, choice = value) => {
     if (closing) return;
     void electron?.ipcRenderer
       .invoke('site-interaction-respond', {
         requestId: request.requestId,
         accepted,
-        value,
+        value: choice,
       })
       .catch(() => undefined);
   };
@@ -126,6 +127,7 @@ function Interaction({
           />
         )}
         <div className="site-interaction-actions">
+          {request.secondaryLabel && <button className="theme-btn theme-btn-nav" onClick={() => respond(false, 'secondary')}>{request.secondaryLabel}</button>}
           {!alert && (
             <button
               ref={cancelButton}

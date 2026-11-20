@@ -6,6 +6,7 @@ import TabFavicon from './TabFavicon';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { ChevronDown, Pin, Plus, Volume2, VolumeX, X } from 'lucide-react';
 import { useTabs } from './TabsProvider';
+import { isEditorUrl } from '../editor/editorLifecycle';
 import type { Tab } from './types';
 import miraLogo from '../../assets/mira_logo.png';
 import ContextMenu, { type ContextMenuEntry } from '../../components/ContextMenu';
@@ -92,6 +93,7 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
     newTabToRight,
     newTab,
     reloadTab,
+    unloadEditorTab,
     duplicateTab,
     toggleTabPinned,
     createTabGroup,
@@ -530,6 +532,7 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
         shortcut: `${primaryShortcutLabel}+R`,
         onSelect: () => reloadTab(tabMenuState.tabId),
       },
+      ...(isEditorUrl(tabs[tabIndex]?.url || '') ? [{ type: 'item' as const, label: 'Unload Editor', onSelect: () => unloadEditorTab(tabMenuState.tabId) }] : []),
       {
         type: 'item',
         label: 'Duplicate',
@@ -572,6 +575,7 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
     orientation,
     newTabToRight,
     reloadTab,
+    unloadEditorTab,
     duplicateTab,
     toggleTabPinned,
     createTabGroup,
@@ -620,6 +624,7 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
         reloadTab(tabId);
         return;
       }
+      if (command === 'unload-editor') { unloadEditorTab(tabId); return; }
       if (command === 'duplicate') {
         duplicateTab(tabId);
         return;
@@ -639,7 +644,7 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
 
     ipc.on('tab-native-context-command', onNativeContextCommand);
     return () => ipc.off('tab-native-context-command', onNativeContextCommand);
-  }, [newTabToRight, reloadTab, duplicateTab, toggleTabPinned, createTabGroup, moveTabToGroup, closeTab, closeOtherTabs, closeTabsToRight, orientation]);
+  }, [newTabToRight, reloadTab, unloadEditorTab, duplicateTab, toggleTabPinned, createTabGroup, moveTabToGroup, closeTab, closeOtherTabs, closeTabsToRight, orientation]);
 
   useEffect(() => {
     if (!draggingTabId) return;
@@ -1325,6 +1330,7 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
                         groupId: tab.group?.id,
                         groups: groups.map(({ id, name }) => ({ id, name })),
                         isVertical,
+                        isEditor: isEditorUrl(tab.url),
                       })
                       .catch(() => undefined);
                     return;
@@ -1431,6 +1437,7 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
                   {displayTitle}
                 </span>}
                 {tab.isPinned && isVertical && <Pin size={12} aria-hidden="true" style={{ flexShrink: 0 }} />}
+                {tab.editorDirty && <span role="img" aria-label="Unsaved changes" title="Unsaved changes" style={{ width: 22, height: 22, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', alignSelf: 'center', flexShrink: 0 }}><span style={{ width: 7, height: 7, borderRadius: '50%', background: 'currentColor' }} /></span>}
                 {showAudio && <button
                   type="button"
                   data-tab-drag-ignore="true"

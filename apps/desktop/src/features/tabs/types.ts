@@ -37,6 +37,9 @@ export type Tab = {
   historyIndex: number;
   reloadToken: number;
   isSleeping: boolean;
+  /** Runtime only; unsaved text is never serialized into browser history or sessions. */
+  editorDirty?: boolean;
+  editorUnloaded?: boolean;
   lastActiveAt: number;
   /** Restored background content is not mounted until the tab is selected. */
   restoreDeferred?: boolean;

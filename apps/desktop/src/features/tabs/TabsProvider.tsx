@@ -29,6 +29,7 @@ import {
   restoreTimers,
 } from './tabStateManagement';
 import { isLikelyAuthUrl } from './popupFlows';
+import { isEditorUrl, checkEditor, saveEditor, findInEditor } from '../editor/editorLifecycle';
 
 const SESSION_STORAGE_KEY = 'mira.session.tabs.v1';
 const IPC_OPEN_TAB_DEDUPE_WINDOW_MS = 500;
@@ -130,6 +131,7 @@ type TabsContextType = {
   newTab: (url?: string, options?: { activate?: boolean; activateDelayMs?: number }) => void;
   newTabToRight: (id: string, url?: string, options?: NewTabToRightOptions) => string | undefined;
   reloadTab: (id: string) => void;
+  unloadEditorTab: (id: string) => void;
   duplicateTab: (id: string) => void;
   toggleTabPinned: (id: string) => void;
   createTabGroup: (tabId: string) => Promise<void>;
@@ -480,6 +482,13 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
     setTabs(current => current.map(tab => tab.group?.id === groupId ? { ...tab, group: undefined } : tab));
   }, []);
   const [activeId, setActiveId] = useState(initialTabRef.current.id);
+  useEffect(() => {
+    const state = (_: unknown, data: { id: string; dirty: boolean }) => {
+      setTabs(current => current.map(tab => tab.id === data.id && tab.editorDirty !== data.dirty ? { ...tab, editorDirty: data.dirty } : tab));
+    };
+    electron?.ipcRenderer.on('editor-state', state);
+    return () => electron?.ipcRenderer.off('editor-state', state);
+  }, []);
   const [tabAudioState, setTabAudioState] = useState<Record<string, { audible: boolean; muted: boolean }>>({});
   const [loadingTabIds, setLoadingTabIds] = useState<Set<string>>(() => new Set());
   const setTabLoading = useCallback((id: string, loading: boolean) => {
@@ -1108,6 +1117,9 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
             history: newHistory,
             historyIndex: newHistory.length - 1,
             reloadToken: tab.reloadToken,
+            isSleeping: false,
+            editorUnloaded: false,
+            editorDirty: false,
           };
         }),
       );
@@ -1497,6 +1509,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
     if (currentTabs.length === 1 && currentTabs[0]?.id === id && !closingGroupTabsRef.current.has(id)) return closeWindow();
     const tabToClose = currentTabs.find((tab) => tab.id === id);
     if (!tabToClose) return true;
+    if (isEditorUrl(tabToClose.url) && !await checkEditor(id, 'close this tab')) return false;
     const webContentsId = getWebContentsIdForTab(id);
     if (!tabToClose.url.startsWith('mira://') && webContentsId !== undefined && electron?.ipcRenderer) {
       return electron.ipcRenderer.invoke<boolean>('webview-request-close-tab', {
@@ -1644,9 +1657,10 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
   );
 
   const moveTabToNewWindow = useCallback(
-    (id: string, position?: DetachedTabWindowPosition, options?: MoveTabToNewWindowOptions) => {
+    async (id: string, position?: DetachedTabWindowPosition, options?: MoveTabToNewWindowOptions) => {
       const tabToMove = tabsRef.current.find((tab) => tab.id === id);
       if (!tabToMove) return;
+      if (isEditorUrl(tabToMove.url) && !await checkEditor(id, 'move this tab')) return;
 
       const url = tabToMove.url.trim();
       const ipc = electron?.ipcRenderer;
@@ -1735,6 +1749,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
                 ...tab,
                 lastActiveAt: nextLastActiveAt,
                 isSleeping: nextIsSleeping,
+                editorUnloaded: tab.id === id ? false : tab.editorUnloaded,
               };
             }
           }
@@ -1827,8 +1842,10 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
   }, []);
 
   const navigate = useCallback(
-    (url: string, tabId?: string, options?: { fromWebview?: boolean }) => {
+    async (url: string, tabId?: string, options?: { fromWebview?: boolean }) => {
       const targetTabId = tabId ?? activeId;
+      const previous = tabsRef.current.find(tab => tab.id === targetTabId);
+      if (previous && isEditorUrl(previous.url) && !await checkEditor(targetTabId, 'leave this file')) return;
       const requestedUrl = url.trim();
       if (isMailtoNavigationUrl(requestedUrl)) {
         void resolveMailtoTabTarget(requestedUrl).then((resolved) => {
@@ -1847,6 +1864,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
         && !!targetWebview
         && !targetTab.url.startsWith('mira://')
         && !normalizedRequestedUrl.startsWith('mira://')
+        && !isEditorUrl(normalizedRequestedUrl)
         && typeof targetWebview.loadURL === 'function';
 
       if (shouldUseLiveWebview) {
@@ -1901,8 +1919,9 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
     newTabRef.current = newTab;
   }, [newTab]);
 
-  const goBack = () => {
+  const goBack = async () => {
     const activeTab = tabsRef.current.find((tab) => tab.id === activeId);
+    if (activeTab && activeTab.historyIndex > 0 && isEditorUrl(activeTab.url) && !await checkEditor(activeId, 'leave this file')) return;
     const activeWebview = webviewMap.current[activeId];
     if (
       activeTab
@@ -1932,6 +1951,9 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
           ...tab,
           url: nextUrl,
           title: nextTitle,
+          isSleeping: false,
+          editorUnloaded: false,
+          editorDirty: false,
           favicon: nextUrl.startsWith('mira://') ? INTERNAL_FAVICON_URL : getNavigationMetadata(tab, nextUrl).favicon,
           historyIndex: newIdx,
         };
@@ -1939,8 +1961,9 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
     );
   };
 
-  const goForward = () => {
+  const goForward = async () => {
     const activeTab = tabsRef.current.find((tab) => tab.id === activeId);
+    if (activeTab && activeTab.historyIndex < activeTab.history.length - 1 && isEditorUrl(activeTab.url) && !await checkEditor(activeId, 'leave this file')) return;
     const activeWebview = webviewMap.current[activeId];
     if (
       activeTab
@@ -1970,6 +1993,9 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
           ...tab,
           url: nextUrl,
           title: nextTitle,
+          isSleeping: false,
+          editorUnloaded: false,
+          editorDirty: false,
           favicon: nextUrl.startsWith('mira://') ? INTERNAL_FAVICON_URL : getNavigationMetadata(tab, nextUrl).favicon,
           historyIndex: newIdx,
         };
@@ -1977,8 +2003,15 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
     );
   };
 
-  const reloadTab = useCallback((id: string) => {
+  const unloadEditorTab = useCallback(async (id: string) => {
+    if (!await checkEditor(id, 'unload this editor')) return;
+    setTabs(current => current.map(tab => tab.id === id ? { ...tab, editorUnloaded: true, isSleeping: true, editorDirty: false } : tab));
+  }, []);
+
+  const reloadTab = useCallback(async (id: string) => {
     if (!id) return;
+    const tab = tabsRef.current.find(tab => tab.id === id);
+    if (tab && isEditorUrl(tab.url) && !await checkEditor(id, 'reload this file')) return;
 
     const wv = webviewMap.current[id];
     if (wv && typeof wv.reload === 'function') {
@@ -1988,7 +2021,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
 
     setTabs((currentTabs) =>
       currentTabs.map((tab) =>
-        tab.id === id ? { ...tab, isSleeping: false, reloadToken: tab.reloadToken + 1 } : tab,
+        tab.id === id ? { ...tab, isSleeping: false, editorUnloaded: false, reloadToken: tab.reloadToken + 1 } : tab,
       ),
     );
   }, []);
@@ -2028,6 +2061,13 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
 
   const searchInPage = useCallback(
     (query: string, options?: FindInPageOptions) => {
+      if (isEditorUrl(tabsRef.current.find(tab => tab.id === activeId)?.url ?? '')) {
+        const requestId = (activeFindRequestIdByTabRef.current[activeId] ?? 0) + 1;
+        activeFindRequestIdByTabRef.current[activeId] = requestId;
+        lastFindQueryByTabRef.current[activeId] = query.trim();
+        findInEditor({ id: activeId, query: query.trim(), requestId, options });
+        return;
+      }
       const wv = webviewMap.current[activeId];
       if (!wv || typeof wv.findInPage !== 'function') return;
 
@@ -2080,6 +2120,9 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
   );
 
   const stopFindInPage = useCallback(() => {
+    if (isEditorUrl(tabsRef.current.find(tab => tab.id === activeId)?.url ?? '')) {
+      findInEditor({ id: activeId, query: '', requestId: (activeFindRequestIdByTabRef.current[activeId] ?? 0) + 1 });
+    }
     const wv = webviewMap.current[activeId];
     const hadSearch = activeFindRequestIdByTabRef.current[activeId] !== undefined
       || !!lastFindQueryByTabRef.current[activeId];
@@ -2145,6 +2188,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
 
   const savePage = useCallback(() => {
     const activeTab = tabs.find((tab) => tab.id === activeId);
+    if (activeTab && isEditorUrl(activeTab.url)) { void saveEditor(activeId); return; }
     if (!activeTab || activeTab.url.startsWith('mira://')) return;
 
     const wv = webviewMap.current[activeId];
@@ -2170,10 +2214,10 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
         if (typeof fileUrl !== 'string') return;
         const normalized = fileUrl.trim();
         if (!normalized) return;
-        navigate(normalized);
+        newTab(normalized);
       })
       .catch(() => undefined);
-  }, [navigate]);
+  }, [newTab]);
 
   const openViewSource = useCallback(() => {
     const activeTab = tabs.find((tab) => tab.id === activeId);
@@ -2284,6 +2328,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
         let changed = false;
         const nextTabs = currentTabs.map((tab) => {
           if (tab.id === activeId) {
+            if (tab.editorUnloaded) return tab;
             if (tab.isSleeping) {
               changed = true;
               // Restore tab state when waking up
@@ -2299,7 +2344,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
             return tab;
           }
 
-          if (tab.restoreDeferred || hasDevTools(tab.id)) return tab;
+          if (tab.restoreDeferred || tab.editorDirty || hasDevTools(tab.id)) return tab;
           const shouldSleep = now - tab.lastActiveAt >= tabSleepAfterMs;
           if (shouldSleep && !tab.isSleeping) {
             changed = true;
@@ -2343,7 +2388,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
       let nextCheckInMs: number | null = null;
 
       for (const tab of tabs) {
-        if (tab.id === activeId || tab.isSleeping || tab.restoreDeferred || hasDevTools(tab.id)) continue;
+        if (tab.id === activeId || tab.isSleeping || tab.editorDirty || tab.restoreDeferred || hasDevTools(tab.id)) continue;
         const remainingMs = Math.max(tab.lastActiveAt + tabSleepAfterMs - now, 0);
         if (nextCheckInMs === null || remainingMs < nextCheckInMs) {
           nextCheckInMs = remainingMs;
@@ -2586,6 +2631,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
         newTab,
         newTabToRight,
         reloadTab,
+        unloadEditorTab,
         duplicateTab,
         toggleTabPinned,
         createTabGroup,

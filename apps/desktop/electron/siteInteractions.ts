@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, webContents, type WebContents } from 'electron';
 import { randomUUID } from 'node:crypto';
+import { confirmEditorWindowClose } from './fileEditors.ts';
 
 type Kind = 'alert' | 'confirm' | 'prompt' | 'beforeunload' | 'passkey';
 type Answer = { accepted: boolean; value?: string };
@@ -58,6 +59,7 @@ function ask(source: WebContents, kind: Kind, data: Record<string, unknown>, rep
     title: data.app === true && typeof data.title === 'string' ? data.title.slice(0, 200) : undefined,
     confirmLabel: data.app === true && typeof data.confirmLabel === 'string' ? data.confirmLabel.slice(0, 60) : undefined,
     cancelLabel: data.app === true && typeof data.cancelLabel === 'string' ? data.cancelLabel.slice(0, 60) : undefined,
+    secondaryLabel: data.app === true && typeof data.secondaryLabel === 'string' ? data.secondaryLabel.slice(0, 60) : undefined,
   };
   pending.set(requestId, { source, hostId: host.id, kind, reply, clientId, payload });
   host.webContents.send('site-interaction-request', payload);
@@ -65,7 +67,7 @@ function ask(source: WebContents, kind: Kind, data: Record<string, unknown>, rep
 
 export function requestAppDialog(win: BrowserWindow, options: {
   kind?: 'alert' | 'confirm' | 'prompt'; title: string; message?: string;
-  confirmLabel?: string; cancelLabel?: string; defaultValue?: string;
+  confirmLabel?: string; cancelLabel?: string; secondaryLabel?: string; defaultValue?: string;
 }): Promise<Answer> {
   if (win.isDestroyed() || win.webContents.isDestroyed()) return Promise.resolve({ accepted: false });
   return new Promise((resolve) => ask(win.webContents, options.kind ?? 'confirm', { ...options, app: true }, resolve));
@@ -141,6 +143,7 @@ export async function allowWindowClose(win: BrowserWindow): Promise<void> {
 }
 
 export async function confirmWindowClose(win: BrowserWindow, commit = true): Promise<boolean> {
+  if (!await confirmEditorWindowClose(win)) return false;
   const guests = windowGuests(win);
   for (const contents of guests) {
     if (!await confirmContentsClose(contents)) return false;

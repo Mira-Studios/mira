@@ -7,6 +7,8 @@ import { getThemeById } from '../themes/themeLoader';
 import { electron } from '../../electronBridge';
 import ContextMenu, { type ContextMenuEntry } from '../../components/ContextMenu';
 import DevToolsDock from '../../components/DevToolsDock';
+import FileEditor from '../editor/FileEditor';
+import { isEditorUrl } from '../editor/editorLifecycle';
 import {
   isLikelyAuthUrl,
   shouldAllowNativePopupWindow,
@@ -448,7 +450,7 @@ const pages = Object.entries(modules).reduce<Record<string, React.ComponentType>
 );
 
 function isInternal(url: string) {
-  return url.startsWith('mira://');
+  return url.startsWith('mira://') || isEditorUrl(url);
 }
 
 function renderInternal(url: string, reloadToken: number) {
@@ -484,6 +486,7 @@ export default function TabView() {
     goBack,
     goForward,
     reload,
+    reloadTab,
     printPage,
     setActive,
   } = useTabs();
@@ -1732,6 +1735,9 @@ export default function TabView() {
       {renderTabs.map((tab) => {
         const isVisible = tab.id === activeId;
         if (tab.restoreDeferred && !isVisible) return null;
+        if (isEditorUrl(tab.url) && tab.isSleeping) {
+          return isVisible ? <div key={tab.id} style={{ padding: 24 }}>Editor unloaded. <button className="theme-btn theme-btn-nav" onClick={() => reloadTab(tab.id)}>Load editor</button></div> : null;
+        }
         if (tabSleepMode === 'discard' && tab.isSleeping && !isVisible) {
           return null;
         }
@@ -1749,7 +1755,7 @@ export default function TabView() {
               overflow: 'hidden',
             }}
           >
-            {isInternal(tab.url) ? (
+            {isEditorUrl(tab.url) ? <FileEditor key={`${tab.url}:${tab.reloadToken}`} tab={tab} active={isVisible} /> : isInternal(tab.url) ? (
               <div style={{ flex: 1, overflow: 'auto' }}>
                 {renderInternal(tab.url, tab.reloadToken)}
               </div>

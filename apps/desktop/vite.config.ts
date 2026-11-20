@@ -14,6 +14,7 @@ export default defineConfig({
     exclude: ['electron'],
   },
   build: {
+    rollupOptions: { input: { main: path.resolve(__dirname, 'index.html'), editor: path.resolve(__dirname, 'editor.html') } },
     outDir: 'dist',
     emptyOutDir: true,
   }

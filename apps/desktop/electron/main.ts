@@ -42,6 +42,7 @@ import {
 } from './siteInteractions.ts';
 import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
+import { setupFileEditors } from './fileEditors.ts';
 
 // Isolate development before sessions or the single-instance lock use these paths.
 const isDevelopment = !app.isPackaged;
@@ -4425,6 +4426,7 @@ function setupWindowControlsHandlers() {
       groupId?: unknown;
       groups?: unknown;
       isVertical?: unknown;
+      isEditor?: unknown;
     };
     const tabId = typeof candidate.tabId === 'string' ? candidate.tabId.trim() : '';
     if (!tabId) return false;
@@ -4463,6 +4465,7 @@ function setupWindowControlsHandlers() {
         accelerator: 'CommandOrControl+R',
         click: () => sendCommand('reload'),
       },
+      ...(candidate.isEditor === true ? [{ label: 'Unload Editor', click: () => sendCommand('unload-editor') }] : []),
       {
         label: 'Duplicate',
         click: () => sendCommand('duplicate'),
@@ -5121,6 +5124,7 @@ function setupWindowControlsHandlers() {
     return toggleWindowDevTools(win);
   });
 
+  setupFileEditors();
   ipcMain.handle('dialog-open-file-url', async (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     const result = await dialog.showOpenDialog(win && !win.isDestroyed() ? win : undefined, {

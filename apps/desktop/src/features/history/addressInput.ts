@@ -1,7 +1,27 @@
 import { topLevelDomains } from './topLevelDomains.ts';
 
+/** Accept native absolute paths without probing disks or network shares while typing. */
+export function getLocalFileUrl(input: string): string | null {
+  const trimmed = input.trim();
+  const value = trimmed.startsWith('"') && trimmed.endsWith('"') ? trimmed.slice(1, -1) : trimmed;
+  if (Array.from(value).some(char => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127)) return null;
+  const encodePath = (path: string) => path.split('/').map(encodeURIComponent).join('/');
+  if (/^[a-z]:[\\/]/i.test(value)) {
+    return new URL(`file:///${value[0].toUpperCase()}:/${encodePath(value.slice(3).replace(/\\/g, '/'))}`).href;
+  }
+  if (value.startsWith('\\\\')) {
+    const [host, ...parts] = value.slice(2).split('\\');
+    if (!host || !parts[0]) return null;
+    try { return new URL(`file://${host}/${encodePath(parts.join('/'))}`).href; } catch { return null; }
+  }
+  if (value.startsWith('/') && !value.startsWith('//')) return new URL(`file://${encodePath(value)}`).href;
+  return null;
+}
+
 /** Parse and validate an address without making requests as the user types. */
 export function getAddressUrl(input: string): string | null {
+  const fileUrl = getLocalFileUrl(input);
+  if (fileUrl) return fileUrl;
   const value = input.trim();
   if (!value || /[\s\\]/.test(value) ||
       Array.from(value).some(char => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127)) return null;

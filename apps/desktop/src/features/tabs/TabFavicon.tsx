@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import FileTypeIcon from './FileTypeIcon';
 
 type Props = { url: string; src?: string; size: number; deferred?: boolean };
 
@@ -36,6 +37,7 @@ export default function TabFavicon({ url, src, size, deferred = false }: Props) 
   }, [src, fallback, origin]);
 
   const displaySrc = loaded?.origin === origin ? loaded.src : undefined;
+  if (url.startsWith('file:')) return <FileTypeIcon url={url} size={size} />;
   const style = { width: size, height: size, borderRadius: 3, flexShrink: 0, pointerEvents: 'none' as const };
   return displaySrc ? (
     <img src={displaySrc} alt="" draggable={false} style={style} />

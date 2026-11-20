@@ -3,6 +3,19 @@ import { test } from 'node:test';
 import { getAddressSuggestions } from '../src/features/history/addressSuggestions.ts';
 import { getAddressUrl } from '../src/features/history/addressInput.ts';
 
+test('opens absolute file paths with either slash, spaces, quotes and literal URL punctuation', () => {
+  for (const value of ['C:\\Users\\you\\notes.txt', 'c:/Users/you/notes.txt', 'C:\\Users/you\\notes.txt', '"C:\\Users\\you\\notes.txt"']) {
+    assert.equal(getAddressUrl(value), 'file:///C:/Users/you/notes.txt');
+    assert.equal(getAddressSuggestions(value, [], [])[0].kind, 'navigation');
+  }
+  assert.equal(getAddressUrl('D:\\My Files\\100% #1?.txt'), 'file:///D:/My%20Files/100%25%20%231%3F.txt');
+  assert.equal(getAddressUrl('\\\\server\\share\\my file.txt'), 'file://server/share/my%20file.txt');
+  assert.equal(getAddressUrl('/home/you/my file.txt'), 'file:///home/you/my%20file.txt');
+  assert.equal(getAddressUrl('C:relative.txt'), null);
+  assert.equal(getAddressUrl('C:\\bad\u0000.txt'), null);
+  assert.equal(getAddressSuggestions('C:\\Users\\you', [], [{ title: 'notes.txt', url: 'file:///C:/Users/you/notes.txt' }])[0].kind, 'history');
+});
+
 test('caps suggestions at five including the typed search option', () => {
   const history = Array.from({ length: 10 }, (_, index) => ({
     title: `Example ${index}`, url: `https://example.com/${index}`,

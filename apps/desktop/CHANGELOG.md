@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- File editing
+
 ## v1.1.2 - 2026-11-12
 
 ### Added

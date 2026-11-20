@@ -1,4 +1,4 @@
-import { getAddressUrl } from './addressInput.ts';
+import { getAddressUrl, getLocalFileUrl } from './addressInput.ts';
 
 type AddressSource = { id?: string; windowId?: number; title: string; url?: string; children?: AddressSource[] };
 
@@ -14,7 +14,7 @@ export function getAddressSuggestions(
   pages: AddressSource[] = [],
   activeTabId?: string | null,
 ): AddressSuggestion[] {
-  const query = input.trim().toLowerCase();
+  const query = (getLocalFileUrl(input) ?? input.trim()).toLowerCase();
   if (!query) return [];
 
   const urlKey = (url: string) => {
