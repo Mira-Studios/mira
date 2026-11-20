@@ -1,8 +1,9 @@
 import { confirmDialog } from '../components/appDialogs';
 import { Children, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
-import { AppWindow, Check, ChevronLeft, Cookie, Globe, RefreshCw, Trash2, ChevronDown, ChevronRight, ChevronUp, Code2, Palette, PanelsTopLeft, Search, Settings2, Shield } from 'lucide-react';
+import { AppWindow, Check, ChevronLeft, Cookie, Globe, RefreshCw, Trash2, ChevronDown, ChevronRight, ChevronUp, Code2, Palette, PanelsTopLeft, Search, Settings2, Shield, UserRound } from 'lucide-react';
 import './Settings.css';
 import NewTabAppearanceSettings from './NewTabAppearanceSettings';
+import ProfileSettings from './ProfileSettings';
 import { useTabs } from '../features/tabs/TabsProvider';
 import { useDownloads } from '../features/downloads/DownloadProvider';
 import { clearHistoryEntries } from '../features/history/clientHistory';
@@ -108,7 +109,7 @@ type SetDefaultBrowserResponse = {
   };
 };
 
-type SettingsSectionId = 'general' | 'search' | 'appearance' | 'layout' | 'privacy-security' | 'app' | 'dev';
+type SettingsSectionId = 'general' | 'search' | 'appearance' | 'layout' | 'profiles' | 'privacy-security' | 'app' | 'dev';
 
 type PrivacySecuritySubsection = 'site-permissions' | 'cookies';
 
@@ -117,6 +118,7 @@ const SETTINGS_SECTION_ICONS = {
   search: Search,
   appearance: Palette,
   layout: PanelsTopLeft,
+  profiles: UserRound,
   'privacy-security': Shield,
   app: AppWindow,
   dev: Code2,
@@ -150,6 +152,7 @@ const SETTINGS_SECTION_TABS: Array<{
     id: 'app',
     label: 'App',
   },
+  { id: 'profiles', label: 'Profiles' },
 ];
 
 const APP_DATA_STORAGE_KEYS = [
@@ -246,6 +249,16 @@ function SettingsVisibility({ visible, animated, children }: SettingsVisibilityP
 }
 
 export default function Settings() {
+  const [revision, setRevision] = useState(0);
+  useEffect(() => {
+    const applied = () => setRevision(value => value + 1);
+    window.addEventListener('mira:profile-settings-applied', applied);
+    return () => window.removeEventListener('mira:profile-settings-applied', applied);
+  }, []);
+  return <SettingsContent key={revision} />;
+}
+
+function SettingsContent() {
   const AUTO_SAVE_DELAY_MS = 300;
   const SAVED_BADGE_MS = 1600;
 
@@ -310,6 +323,7 @@ export default function Settings() {
   );
   const [showPerfOverlay, setShowPerfOverlay] = useState(() => initialSettings.showPerfOverlay);
   const [showBookmarkButton, setShowBookmarkButton] = useState(() => initialSettings.showBookmarkButton);
+  const [showProfileMenu, setShowProfileMenu] = useState(() => initialSettings.showProfileMenu);
   const [verticalTabsAddressBarInTopBar, setVerticalTabsAddressBarInTopBar] = useState(
     () => initialSettings.verticalTabsAddressBarInTopBar,
   );
@@ -686,6 +700,7 @@ export default function Settings() {
         tabStripPosition,
         verticalTabsAddressBarInTopBar,
         showBookmarkButton,
+        showProfileMenu,
         showBookmarksBar,
       });
       setSaveStatus('saved');
@@ -732,6 +747,7 @@ export default function Settings() {
     tabStripPosition,
     verticalTabsAddressBarInTopBar,
     showBookmarkButton,
+    showProfileMenu,
     showBookmarksBar,
     cookiesEnabled,
   ]);
@@ -1079,9 +1095,9 @@ export default function Settings() {
   const isDevSettingsEnabled = initialSettings.dev;
   const settingsSectionTabs = useMemo<Array<{ id: SettingsSectionId; label: string }>>(
     () =>
-      isDevSettingsEnabled
-        ? [...SETTINGS_SECTION_TABS, { id: 'dev', label: 'Dev' }]
-        : SETTINGS_SECTION_TABS,
+      (isDevSettingsEnabled
+        ? [...SETTINGS_SECTION_TABS, { id: 'dev' as const, label: 'Dev' }]
+        : SETTINGS_SECTION_TABS).filter(section => !electron?.isPrivate || section.id !== 'profiles'),
     [isDevSettingsEnabled],
   );
   const settingsSectionIds = useMemo(
@@ -2000,6 +2016,13 @@ export default function Settings() {
                     }}
                   />
                 </div>
+                {!electron?.isPrivate && <div className="settings-setting-row">
+                  <label htmlFor="show-profile-menu" className="settings-setting-meta">
+                    <span className="settings-setting-label">Show profile menu in the toolbar</span>
+                  </label>
+                  <input id="show-profile-menu" type="checkbox" className="settings-toggle settings-setting-control"
+                    checked={showProfileMenu} onChange={e => { setShowProfileMenu(e.currentTarget.checked); setSaveStatus('saving'); }} />
+                </div>}
                 <div className="settings-setting-row">
                   <label htmlFor="show-bookmarks-bar" className="settings-setting-meta">
                     <span className="settings-setting-label">Show bookmarks bar</span>
@@ -2023,6 +2046,19 @@ export default function Settings() {
             </>
           )}
 
+          {!electron?.isPrivate && activeSection === 'profiles' && <>
+            <ProfileSettings />
+            <SettingsGroup>
+              <div className="settings-card-header"><h3 className="settings-card-title">Profile menu</h3></div>
+              <div className="settings-setting-row">
+                <label htmlFor="profiles-show-profile-menu" className="settings-setting-meta">
+                  <span className="settings-setting-label">Show profile menu in the toolbar</span>
+                </label>
+                <input id="profiles-show-profile-menu" type="checkbox" className="settings-toggle settings-setting-control"
+                  checked={showProfileMenu} onChange={e => { setShowProfileMenu(e.currentTarget.checked); setSaveStatus('saving'); }} />
+              </div>
+            </SettingsGroup>
+          </>}
           {activeSection === 'privacy-security' && (
             <div className="privacy-content">
               {!privacySecuritySubsection && (

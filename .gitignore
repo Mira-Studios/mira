@@ -48,3 +48,6 @@ dist/
 # Build output
 release/
 
+# Isolated desktop smoke-test data and screenshots
+.tmp/
+

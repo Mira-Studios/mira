@@ -1,0 +1,63 @@
+.profile-picker .site-interaction-close {
+  -webkit-app-region: no-drag;
+}
+.profile-picker-main {
+  display: flex;
+  flex-direction: column;
+  width: min(580px, 100%);
+  margin: auto;
+  padding: 32px;
+  box-sizing: border-box;
+  gap: 28px;
+  max-height: calc(100vh - 62px);
+  overflow-y: auto;
+}
+.profile-picker-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.profile-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 16px;
+}
+.profile-picker .profile-picker-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  min-height: 144px;
+  padding: 20px 12px;
+  border: 0;
+  border-radius: 24px;
+  corner-shape: squircle;
+  background: var(--settingsCardBg, var(--surfaceBg));
+  color: var(--text1);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.profile-picker .profile-picker-card:hover:not(:disabled) {
+  background: var(--navButtonBgHover);
+}
+.profile-picker-avatar,
+.profile-picker-avatar img {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+}
+.profile-picker-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.profile-picker-avatar img {
+  display: block;
+  object-fit: cover;
+}
+.profile-picker button:focus-visible {
+  outline: 2px solid var(--focusOutline, var(--accentPrimary));
+  outline-offset: 3px;
+}

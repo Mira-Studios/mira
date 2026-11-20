@@ -31,7 +31,13 @@ const windows = new Map<number, string>();
 const candidates = new Map<number, WebApp>();
 const generations = new Map<number, number>();
 const pendingInstalls = new Set<string>();
-const appKey = (id: string) => createHash('sha256').update(id).digest('hex').slice(0, 32);
+const hasProfileStorage = () => path.basename(path.dirname(app.getPath('userData'))) === 'Profiles';
+const profileId = () => {
+  const id = path.basename(app.getPath('userData'));
+  return /^[a-f0-9-]{36}$/.test(id) ? id : 'default';
+};
+// Keep migrated default-profile IDs stable; other profiles own distinct launchers.
+const appKey = (id: string) => createHash('sha256').update(profileId() === 'default' ? id : `${profileId()}:${id}`).digest('hex').slice(0, 32);
 const root = () => path.join(app.getPath('userData'), 'web-apps');
 let persistQueue = Promise.resolve();
 
@@ -86,7 +92,7 @@ function persistChange(id: string, item: InstalledWebApp | null): Promise<void> 
 }
 
 function launchArgs(id: string): string[] {
-  return [...(app.isPackaged ? [] : [app.getAppPath()]), `--web-app=${appKey(id)}`];
+  return [...(app.isPackaged ? [] : [app.getAppPath()]), ...(hasProfileStorage() ? [`--mira-profile=${profileId()}`] : []), `--web-app=${appKey(id)}`];
 }
 
 function shortcutPath(item: WebApp & { launcherName?: string }, legacy = false): string {
@@ -321,14 +327,10 @@ export async function setupWebApps(options: {
     try {
       const launcherName = await chooseLauncherName(item);
       const updated = { ...item, launcherName };
-      if (
-        launcherName !== item.launcherName ||
-        !(await ownsShortcut(shortcutPath(updated), updated))
-      ) {
-        if (process.platform === 'darwin') await saveIcon(updated).catch(() => undefined);
-        await createShortcut(updated);
-        await persistChange(item.id, updated);
-      }
+      if (process.platform === 'darwin') await saveIcon(updated).catch(() => undefined);
+      // Refresh arguments and icon paths after migration, on every platform.
+      await createShortcut(updated);
+      if (launcherName !== item.launcherName) await persistChange(item.id, updated);
       const legacy = shortcutPath(item, true);
       if (legacy !== shortcutPath(updated)) await removeOwnedShortcut(legacy, item);
     } catch (error) {
@@ -582,6 +584,7 @@ export async function setupWebApps(options: {
       show: false,
       webPreferences: {
         preload: path.join(directory, 'preload.js'),
+        ...(hasProfileStorage() ? { additionalArguments: [`--mira-profile-id=${profileId()}`] } : {}),
         webviewTag: true,
         contextIsolation: true,
         nodeIntegration: false,

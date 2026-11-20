@@ -46,6 +46,7 @@ import { fileURLToPath, pathToFileURL } from 'url';
 import { setupFileEditors } from './fileEditors.ts';
 import { setupBackgroundImages } from './backgroundImages.ts';
 import { setupGitRepositories } from './gitRepositories.ts';
+import { configureProfiles, setupProfiles } from './profiles.ts';
 
 // Isolate development before sessions or the single-instance lock use these paths.
 const isDevelopment = !app.isPackaged;
@@ -55,6 +56,11 @@ if (isDevelopment) {
   app.setPath('userData', developmentDataPath);
   app.setPath('sessionData', developmentDataPath);
 }
+
+const profileContext = configureProfiles(
+  isDevelopment && process.env.MIRA_TEST_USER_DATA_DIR ? process.env.MIRA_TEST_USER_DATA_DIR : app.getPath('userData'),
+);
+let profileHandlers: ReturnType<typeof setupProfiles> | undefined;
 
 // Private partitions never use Chromium's persistent session storage.
 const privatePartitionsByWindow = new Map<number, string>();
@@ -291,6 +297,7 @@ const sessionStore = new SessionStore(getSessionFilePath, normalizePersistedSess
 let sessionPersistTimer: NodeJS.Timeout | null = null;
 const pendingClosedWindowCleanupTimers = new Map<number, NodeJS.Timeout>();
 const onboardingWindowIds = new Set<number>();
+const profilePickerWindowIds = new Set<number>();
 let isQuitting = false;
 let adBlockEnabled = true;
 let youtubeAdBetaEnabled = false;
@@ -5636,13 +5643,13 @@ function setupApplicationMenu() {
 }
 
 function getFirstBrowserWindow(): BrowserWindow | null {
-  return BrowserWindow.getAllWindows().find((win) => !win.isDestroyed() && !onboardingWindowIds.has(win.id) && !privatePartitionsByWindow.has(win.id) && !isWebAppWindow(win.id))
+  return BrowserWindow.getAllWindows().find((win) => !win.isDestroyed() && !onboardingWindowIds.has(win.id) && !profilePickerWindowIds.has(win.id) && !privatePartitionsByWindow.has(win.id) && !isWebAppWindow(win.id))
     ?? null;
 }
 
-function loadRendererShell(win: BrowserWindow, options?: { onboarding?: boolean; webApp?: boolean }): void {
+function loadRendererShell(win: BrowserWindow, options?: { onboarding?: boolean; webApp?: boolean; profilePicker?: boolean }): void {
   const onboarding = options?.onboarding === true;
-  const query: Record<string, string> | undefined = onboarding ? { onboarding: '1' } : options?.webApp ? { webApp: '1' } : undefined;
+  const query: Record<string, string> | undefined = onboarding ? { onboarding: '1' } : options?.webApp ? { webApp: '1' } : options?.profilePicker ? { profilePicker: '1' } : undefined;
   if (!app.isPackaged) {
     const search = query ? `?${new URLSearchParams(query)}` : '';
     win.loadURL(`http://localhost:5173${search}`);
@@ -5683,6 +5690,7 @@ function createOnboardingWindow(): BrowserWindow {
     show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
+      additionalArguments: [`--mira-profile-id=${profileContext.id}`],
       webviewTag: true,
       contextIsolation: true,
       nodeIntegration: false,
@@ -5703,6 +5711,24 @@ function createOnboardingWindow(): BrowserWindow {
     onboardingWindowIds.delete(win.id);
   });
 
+  return win;
+}
+
+function createProfilePickerWindow(): BrowserWindow {
+  const win = new BrowserWindow({
+    width: 760, height: 540, minWidth: 640, minHeight: 440,
+    autoHideMenuBar: true, frame: false, backgroundColor: '#12161d', show: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      additionalArguments: [`--mira-profile-id=${profileContext.id}`],
+      contextIsolation: true, nodeIntegration: false, sandbox: true,
+    },
+  });
+  profilePickerWindowIds.add(win.id);
+  win.once('closed', () => profilePickerWindowIds.delete(win.id));
+  win.once('ready-to-show', () => { if (!win.isDestroyed()) win.show(); });
+  win.setMenuBarVisibility(false);
+  loadRendererShell(win, { profilePicker: true });
   return win;
 }
 
@@ -5766,7 +5792,7 @@ function createWindow(
     webPreferences: {
       // devTools: false,
       preload: path.join(__dirname, 'preload.js'),
-      additionalArguments: privatePartition ? [`--mira-private-partition=${privatePartition}`] : [],
+      additionalArguments: [`--mira-profile-id=${profileContext.id}`, ...(privatePartition ? [`--mira-private-partition=${privatePartition}`] : [])],
       webviewTag: true,
       contextIsolation: true,
       nodeIntegration: false,
@@ -6198,12 +6224,14 @@ const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) {
   app.quit();
 } else {
+  profileContext.store.markRunning(profileContext.id);
   const launchUrlFromArgs = extractIncomingBrowserUrlFromArgv(process.argv);
   if (launchUrlFromArgs) {
     enqueueIncomingBrowserUrl(launchUrlFromArgs);
   }
 
   app.on('second-instance', (_event, commandLine) => {
+    if (profileHandlers?.consumeRemovalCommand(commandLine)) return;
     if (commandLine.some(value => value.startsWith('--web-app='))) {
       queueWebAppLaunch(commandLine);
       return;
@@ -6295,7 +6323,7 @@ app.whenReady().then(async () => {
   setupPerformanceHandlers();
   setupSessionHandlers();
   setupOpenTabHandlers({
-    scope: win => isWebAppWindow(win.id) || onboardingWindowIds.has(win.id) ? null
+    scope: win => isWebAppWindow(win.id) || onboardingWindowIds.has(win.id) || profilePickerWindowIds.has(win.id) ? null
       : privatePartitionsByWindow.get(win.id) ?? 'regular',
     ready: win => !win.webContents.isLoadingMainFrame() &&
       !windowSuspensionById.get(win.id)?.isUnloaded && !windowSuspensionById.get(win.id)?.isRestoring,
@@ -6304,6 +6332,7 @@ app.whenReady().then(async () => {
     const remainingWindows = BrowserWindow.getAllWindows().filter((candidate) => !candidate.isDestroyed() && candidate.id !== win.id);
     if ((!isMacOS || quitOnLastWindowClose) && remainingWindows.length === 0) await runCloseAutoUpdate();
   });
+  profileHandlers = setupProfiles(profileContext, () => { createWindow(); }, isPrivateContents);
   setupDeviceConnections(getHostWindowForContents);
   setupPageZoom(getHostWindowForContents, (host) => activeWebContentsByWindow.get(host.id));
   setupSitePermissionHandlers();
@@ -6341,11 +6370,15 @@ app.whenReady().then(async () => {
     // The app window is the requested startup surface.
   } else if (process.argv.includes('--new-private-window')) {
     createWindow(undefined, undefined, undefined, { private: true });
+  } else if (!profileContext.explicit && !process.argv.includes('--new-window')
+    && !incomingBrowserUrlQueue.length && profileContext.store.shouldShowPicker()) {
+    createProfilePickerWindow();
   } else if (shouldShowOnboarding()) {
     createOnboardingWindow();
   } else {
     createWindow();
   }
+  profileHandlers.consumeRemovalCommand(process.argv);
 });
 
 app.on('activate', () => {
@@ -6372,6 +6405,7 @@ app.on('window-all-closed', () => {
 let quitConfirmed = false;
 let checkingQuit = false;
 app.on('before-quit', (event) => {
+  if (!hasSingleInstanceLock) return;
   const windows = BrowserWindow.getAllWindows().filter((win) => !win.isDestroyed());
   if (!quitConfirmed && windows.length) {
     event.preventDefault();
@@ -6380,7 +6414,11 @@ app.on('before-quit', (event) => {
     void (async () => {
       try {
         for (const win of windows) {
-          if (!win.isDestroyed() && !await confirmWindowClose(win, false)) return;
+          if (!win.isDestroyed() && !await confirmWindowClose(win, false)) {
+            const removalToken = profileContext.store.get(profileContext.id).removalToken;
+            if (removalToken) profileContext.store.cancelRemoval(profileContext.id, removalToken);
+            return;
+          }
         }
         await runCloseAutoUpdate();
         for (const win of windows) {

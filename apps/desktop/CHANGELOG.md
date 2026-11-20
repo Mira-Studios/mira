@@ -7,6 +7,7 @@
 - File editing
 - New Tab background
 - Git sidebar
+- Profiles
 
 ### Improved
 

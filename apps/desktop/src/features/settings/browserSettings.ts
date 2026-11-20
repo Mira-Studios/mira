@@ -99,6 +99,7 @@ export type BrowserSettings = {
   showPerfOverlay: boolean;
   dev: boolean;
   showBookmarkButton: boolean;
+  showProfileMenu: boolean;
   showBookmarksBar: boolean;
   cookiesEnabled: boolean;
 };
@@ -144,6 +145,7 @@ export const DEFAULT_BROWSER_SETTINGS: BrowserSettings = {
   showPerfOverlay: false,
   dev: true,
   showBookmarkButton: true,
+  showProfileMenu: false,
   showBookmarksBar: false,
   cookiesEnabled: true,
 };
@@ -536,6 +538,7 @@ export function normalizeBrowserSettings(value: unknown): BrowserSettings {
     ),
     showPerfOverlay: normalizeShowPerfOverlay(candidate.showPerfOverlay),
     showBookmarkButton: normalizeShowBookmarkButton(candidate.showBookmarkButton),
+    showProfileMenu: candidate.showProfileMenu === true,
     showBookmarksBar: normalizeShowBookmarksBar(candidate.showBookmarksBar),
     cookiesEnabled: normalizeCookiesEnabled(candidate.cookiesEnabled),
     historyRetentionDays: normalizeHistoryRetentionDays(candidate.historyRetentionDays),

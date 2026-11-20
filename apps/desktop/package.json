@@ -25,6 +25,8 @@
     "test:git": "node --test tests/localGit.test.ts",
     "test:git-ui": "electron tests/gitRepositories.electron.ts",
     "test:background-images": "electron electron/backgroundImages.smoke.ts",
+    "test:profiles": "node --test tests/profileStore.test.ts",
+    "test:profiles-ui": "node tests/profiles.integration.ts",
     "preview": "vite preview",
     "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json,css,md}\""
   },

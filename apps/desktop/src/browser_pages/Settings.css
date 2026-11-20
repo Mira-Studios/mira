@@ -38,6 +38,18 @@
   .newtab-background-sliders { width: 100%; }
 }
 /* One squircle surface per settings group, with flat rows inside. */
+.settings-redesign .settings-profile-identity, .settings-redesign .settings-profile-actions { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.settings-redesign .settings-profile-identity .settings-setting-label { overflow-wrap: anywhere; }
+.settings-redesign .settings-profile-actions { flex-wrap: wrap; justify-content: flex-end; }
+.settings-redesign .settings-profile-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.settings-redesign .settings-profile-avatar, .settings-redesign .settings-profile-avatar-slot { width: 32px; height: 32px; flex-shrink: 0; }
+.settings-redesign .settings-profile-avatar-slot { display: flex; align-items: center; justify-content: center; }
+.settings-redesign .settings-profile-identity > svg { width: 14px; height: 14px; flex-shrink: 0; }
+.settings-redesign .settings-profiles-heading { display: flex; flex-direction: row; align-items: center; justify-content: space-between; }
+.settings-redesign .settings-profiles-heading .settings-card-title { margin: 0; }
+.settings-redesign .settings-profile-actions .theme-btn, .settings-redesign .settings-profile-icon-button { border: 0; background: transparent; }
+.settings-redesign .settings-profile-icon-button { width: 32px; height: 32px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+.settings-redesign .settings-profile-sync-heading { margin-top: 26px; }
 .settings-page.settings-redesign {
   position: relative;
   max-width: 1120px;

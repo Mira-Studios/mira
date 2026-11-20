@@ -9,6 +9,8 @@ import FindBar from './components/FindBar';
 import TopBar from './components/TopBar';
 import RestoreTabsPrompt from './components/RestoreTabsPrompt';
 import SiteInteractionPrompts from './components/SiteInteractionPrompts';
+import ProfileEditor from './components/ProfileEditor';
+import ProfilePicker from './browser_pages/ProfilePicker';
 import UpdatePrompt, { type UpdateCheckPayload } from './components/UpdatePrompt';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import DownloadProvider from './features/downloads/DownloadProvider';
@@ -499,6 +501,7 @@ function Browser() {
 
       <RestoreTabsPrompt />
       <SiteInteractionPrompts />
+      <ProfileEditor />
       <UpdatePrompt
         open={!!pendingUpdate && !restorePromptOpen}
         update={pendingUpdate}
@@ -514,6 +517,7 @@ function Browser() {
 }
 
 export default function App() {
+  if (new URLSearchParams(window.location.search).get('profilePicker') === '1') return <><ProfilePicker /><ProfileEditor /><SiteInteractionPrompts /></>;
   if (new URLSearchParams(window.location.search).get('webApp') === '1') return <WebAppWindow />;
   const isOnboardingWindow = new URLSearchParams(window.location.search).get('onboarding') === '1';
   if (isOnboardingWindow) {

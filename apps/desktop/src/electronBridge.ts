@@ -9,6 +9,7 @@ interface ElectronBridge {
   platform: string;
   isPrivate?: boolean;
   privatePartition?: string;
+  profileId?: string;
   isMacOS: boolean;
   appVersion?: string | null;
   getAppVersion?: () => Promise<string>;

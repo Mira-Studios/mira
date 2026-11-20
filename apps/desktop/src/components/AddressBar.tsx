@@ -1,4 +1,5 @@
 import ContextMenu from './ContextMenu';
+import ProfileMenu from './ProfileMenu';
 import { usePromptPresence } from '../hooks/usePromptPresence';
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -263,6 +264,9 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
   const closeReloadMenu = useCallback(() => setReloadMenuAnchor(null), []);
   useEffect(() => { setReloadMenuAnchor(null); }, [activeId]);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [profilesOpen, setProfilesOpen] = useState(false);
+  const closeProfiles = useCallback(() => setProfilesOpen(false), []);
+  const [showProfileMenu, setShowProfileMenu] = useState(() => getBrowserSettings().showProfileMenu);
   const [menuClosing, setMenuClosing] = useState(false);
   const [siteSettingsOpen, setSiteSettingsOpen] = useState(false);
   const [siteSettingsClosing, setSiteSettingsClosing] = useState(false);
@@ -302,6 +306,7 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
   }, [menuOpen, animationsEnabled, clearMenuCloseTimer]);
 
   const openMenu = useCallback(() => {
+    setProfilesOpen(false);
     clearMenuCloseTimer();
     setMenuClosing(false);
     setMenuOpen(true);
@@ -330,6 +335,7 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
   }, [siteSettingsOpen, animationsEnabled, clearSiteSettingsCloseTimer]);
 
   const closeMenusForDeviceChooser = useCallback(() => {
+    setProfilesOpen(false);
     closeMenu();
     closeSiteSettings();
   }, [closeMenu, closeSiteSettings]);
@@ -504,6 +510,7 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
     const syncSettings = () => {
       setAnimationsEnabled(getBrowserSettings().animationsEnabled);
       setShowBookmarkButton(getBrowserSettings().showBookmarkButton);
+      setShowProfileMenu(getBrowserSettings().showProfileMenu);
     };
     syncSettings();
     window.addEventListener(BROWSER_SETTINGS_CHANGED_EVENT, syncSettings);
@@ -705,6 +712,7 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
 
   const menuVisible = menuOpen || menuClosing;
   const toggleSiteSettingsPanel = (e?: React.MouseEvent) => {
+    setProfilesOpen(false);
     e?.stopPropagation();
     if (siteSettingsOpen) {
       closeSiteSettings();
@@ -1071,6 +1079,8 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
 
       <DownloadButton />
 
+      {!electron?.isPrivate && showProfileMenu && <ProfileMenu open={profilesOpen} showButton animationsEnabled={animationsEnabled}
+        onClose={closeProfiles} onOpen={() => { closeMenu(); closeSiteSettings(); setProfilesOpen(true); }} />}
       <div ref={menuRef} style={{ position: 'relative' }}>
         <button
           onClick={() => {
@@ -1138,6 +1148,11 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
               );
             })}
             <hr className="address-menu-divider" />
+            {!electron?.isPrivate && !showProfileMenu && <>
+              <ProfileMenu open showButton={false} embedded animationsEnabled={animationsEnabled}
+                onClose={closeMenu} onOpen={openMenu} />
+              <hr className="address-menu-divider" />
+            </>}
             {menuActions.slice(6).map((action) => {
               const Icon = action.icon;
               return (
