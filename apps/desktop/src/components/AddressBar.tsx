@@ -42,6 +42,8 @@ import { getAddressSuggestions, type AddressSuggestion } from '../features/histo
 import type { OpenTab } from '../../electron/openTabs';
 import { isEditorUrl, saveEditor } from '../features/editor/editorLifecycle';
 import FileTypeIcon from '../features/tabs/FileTypeIcon';
+import GitButton from '../features/git/GitButton';
+import { useGitRepository } from '../features/git/GitProvider';
 
 const MENU_ANIMATION_MS = 150;
 
@@ -335,6 +337,10 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
   const activeTab = tabs.find((t) => t.id === activeId);
   const activeUrl = activeTab?.url;
   const isEditor = isEditorUrl(activeUrl ?? '');
+  const { repository: gitRepository } = useGitRepository();
+  const showGitButton = !!electron && !!gitRepository;
+  const addressActionCount = Number(showBookmarkButton) + Number(isEditor) + Number(showGitButton);
+  const addressActionsPadding = addressActionCount ? `${10 + addressActionCount * 30}px` : '14px';
   const editorPath = useMemo(() => {
     if (!isEditor || !activeUrl) return '';
     try {
@@ -893,7 +899,7 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
             padding: '6px 14px',
             minHeight: 'var(--layoutNavButtonHeight, 30px)',
             fontSize: 16,
-            paddingRight: isEditor && showBookmarkButton ? '70px' : showBookmarkButton || isEditor ? '40px' : '14px',
+            paddingRight: addressActionsPadding,
             color: isEditor && !addressFocused ? 'transparent' : undefined,
           }}
         />
@@ -902,7 +908,7 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
           aria-label="Show file path"
           title={editorPath}
           onClick={() => { addressInputRef.current?.focus(); addressInputRef.current?.select(); }}
-          style={{ position: 'absolute', inset: showBookmarkButton ? '0 70px 0 0' : '0 40px 0 0', zIndex: 2, display: 'flex', alignItems: 'center', gap: 9, padding: '0 14px', minWidth: 0, background: 'transparent', border: 0, color: 'var(--inputText, var(--text1))', cursor: 'text', font: 'inherit', fontSize: 16, textAlign: 'left' }}
+          style={{ position: 'absolute', inset: `0 ${addressActionsPadding} 0 0`, zIndex: 2, display: 'flex', alignItems: 'center', gap: 9, padding: '0 14px', minWidth: 0, background: 'transparent', border: 0, color: 'var(--inputText, var(--text1))', cursor: 'text', font: 'inherit', fontSize: 16, textAlign: 'left' }}
         ><FileTypeIcon url={activeUrl!} size={17} /><span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{editorPath.split(/[\\/]/).pop()}</span></button>}
         <div ref={addressShellRef} className="address-field-shell">
         {displayedSuggestions && (
@@ -944,8 +950,9 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
         {isEditor && <button type="button" aria-label="Save file" title={`Save (${electron?.isMacOS ? '⌘' : 'Ctrl'}+S)`} className="theme-btn theme-btn-nav" disabled={!activeTab?.editorDirty || savingFile}
           onMouseDown={event => event.preventDefault()}
           onClick={async () => { setSavingFile(true); try { await saveEditor(activeId); } finally { setSavingFile(false); } }}
-          style={{ position: 'absolute', right: showBookmarkButton ? 36 : 6, top: '50%', transform: 'translateY(-50%)', zIndex: 2, width: 24, height: 24, padding: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', border: 'none', borderRadius: 4 }}
+          style={{ position: 'absolute', right: 6 + Number(showBookmarkButton) * 30 + Number(showGitButton) * 30, top: '50%', transform: 'translateY(-50%)', zIndex: 2, width: 24, height: 24, padding: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', border: 'none', borderRadius: 4 }}
         >{savingFile ? <LoaderCircle size={16} aria-hidden="true" /> : <Save size={16} aria-hidden="true" />}</button>}
+        {showGitButton && <GitButton right={6 + Number(showBookmarkButton) * 30} onOpen={closeMenusForDeviceChooser} />}
         {showBookmarkButton && (
           <button
             onClick={handleBookmarkCurrentPage}

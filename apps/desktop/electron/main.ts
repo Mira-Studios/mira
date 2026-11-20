@@ -45,6 +45,7 @@ import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { setupFileEditors } from './fileEditors.ts';
 import { setupBackgroundImages } from './backgroundImages.ts';
+import { setupGitRepositories } from './gitRepositories.ts';
 
 // Isolate development before sessions or the single-instance lock use these paths.
 const isDevelopment = !app.isPackaged;
@@ -5247,6 +5248,7 @@ function setupWindowControlsHandlers() {
 
   setupFileEditors();
   setupBackgroundImages();
+  setupGitRepositories(win => privatePartitionsByWindow.has(win.id));
   ipcMain.handle('dialog-open-file-url', async (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     const result = await dialog.showOpenDialog(win && !win.isDestroyed() ? win : undefined, {

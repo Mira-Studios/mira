@@ -30,6 +30,8 @@ import { useBackgroundImageWarmup } from './features/themes/useNewTabAppearance'
 import { getThemeById } from './features/themes/themeLoader';
 import { applyLayout } from './features/layouts/applyLayout';
 import { getLayoutById } from './features/layouts/layoutLoader';
+import GitProvider from './features/git/GitProvider';
+import GitRepositoryDock from './features/git/GitRepositoryDock';
 
 type PerformanceMemoryInfo = {
   usedJSHeapSize?: number;
@@ -489,6 +491,7 @@ function Browser() {
           <FindBar open={findBarOpen} focusToken={findBarFocusToken} onClose={closeFindBar} />
           <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
             <TabView />
+            <GitRepositoryDock />
             <DevToolsDock />
           </div>
         </div>
@@ -521,7 +524,9 @@ export default function App() {
     <BookmarksProvider>
       <TabsProvider>
         <DownloadProvider>
-          <Browser />
+          <GitProvider>
+            <Browser />
+          </GitProvider>
         </DownloadProvider>
       </TabsProvider>
     </BookmarksProvider>
