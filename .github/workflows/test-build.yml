@@ -108,6 +108,9 @@ jobs:
 
       - name: Build app (no publish)
         run: npm run build --workspace apps/desktop -- --mac --x64 --arm64 --publish never
+        env:
+          # Monaco's editor and language workers exceed the macOS runner's default heap.
+          NODE_OPTIONS: "--max-old-space-size=4096"
 
       - name: Rename macOS artifacts
         shell: bash
