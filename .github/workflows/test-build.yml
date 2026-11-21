@@ -8,7 +8,14 @@ on:
     paths:
       - "apps/desktop/**"
       - "package-lock.json"
+      - ".github/workflows/build.yml"
+      - ".github/workflows/manual-build.yml"
+      - ".github/workflows/test-build.yml"
   workflow_dispatch:
+
+env:
+  # Monaco and its language workers can exceed the runner's default Node heap.
+  NODE_OPTIONS: "--max-old-space-size=4096"
 
 permissions:
   contents: read
@@ -23,7 +30,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Install dependencies
         run: npm ci
@@ -101,16 +108,13 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Install dependencies
         run: npm ci
 
       - name: Build app (no publish)
         run: npm run build --workspace apps/desktop -- --mac --x64 --arm64 --publish never
-        env:
-          # Monaco's editor and language workers exceed the macOS runner's default heap.
-          NODE_OPTIONS: "--max-old-space-size=4096"
 
       - name: Rename macOS artifacts
         shell: bash

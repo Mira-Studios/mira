@@ -11,6 +11,10 @@ on:
         required: true
         type: string
 
+env:
+  # Monaco and its language workers can exceed the runner's default Node heap.
+  NODE_OPTIONS: "--max-old-space-size=4096"
+
 permissions:
   contents: write
 
@@ -30,7 +34,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Resolve version from tag
         id: tag_version
@@ -175,7 +179,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Download versioned package metadata
         uses: actions/download-artifact@v4
@@ -214,7 +218,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Download versioned package metadata
         uses: actions/download-artifact@v4
@@ -228,8 +232,6 @@ jobs:
       - name: Build app
         run: npm run build --workspace apps/desktop -- --mac --x64 --arm64 --publish never
         env:
-          # Monaco's editor and language workers exceed the macOS runner's default heap.
-          NODE_OPTIONS: "--max-old-space-size=4096"
           VITE_DEV: "false"
 
       - name: Upload macOS Assets to Existing Release
@@ -257,7 +259,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Download versioned package metadata
         uses: actions/download-artifact@v4
