@@ -60,6 +60,7 @@ function ask(source: WebContents, kind: Kind, data: Record<string, unknown>, rep
     confirmLabel: data.app === true && typeof data.confirmLabel === 'string' ? data.confirmLabel.slice(0, 60) : undefined,
     cancelLabel: data.app === true && typeof data.cancelLabel === 'string' ? data.cancelLabel.slice(0, 60) : undefined,
     secondaryLabel: data.app === true && typeof data.secondaryLabel === 'string' ? data.secondaryLabel.slice(0, 60) : undefined,
+    tabId: data.app === true && typeof data.tabId === 'string' ? data.tabId : undefined,
   };
   pending.set(requestId, { source, hostId: host.id, kind, reply, clientId, payload });
   host.webContents.send('site-interaction-request', payload);
@@ -68,6 +69,7 @@ function ask(source: WebContents, kind: Kind, data: Record<string, unknown>, rep
 export function requestAppDialog(win: BrowserWindow, options: {
   kind?: 'alert' | 'confirm' | 'prompt'; title: string; message?: string;
   confirmLabel?: string; cancelLabel?: string; secondaryLabel?: string; defaultValue?: string;
+  tabId?: string;
 }): Promise<Answer> {
   if (win.isDestroyed() || win.webContents.isDestroyed()) return Promise.resolve({ accepted: false });
   return new Promise((resolve) => ask(win.webContents, options.kind ?? 'confirm', { ...options, app: true }, resolve));

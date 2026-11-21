@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { electron } from '../electronBridge';
 import { X } from 'lucide-react';
 import './SiteInteractionPrompts.css';
 import { usePromptPresence } from '../hooks/usePromptPresence';
+import { promptMatchesTab, type TabPromptScope } from '../features/tabs/tabPromptScope';
 
 type Request = {
   requestId: string;
@@ -16,18 +17,25 @@ type Request = {
   confirmLabel?: string;
   cancelLabel?: string;
   secondaryLabel?: string;
+  tabId?: string;
+  webContentsId?: number;
 };
 
 function Interaction({
   request,
   closing,
   animated,
+  value,
+  onValueChange,
+  canRestoreFocus,
 }: {
   request: Request;
   closing: boolean;
   animated: boolean;
+  value: string;
+  onValueChange: (value: string) => void;
+  canRestoreFocus: (request: Request) => boolean;
 }) {
-  const [value, setValue] = useState(request.defaultValue);
   const cancelButton = useRef<HTMLButtonElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const panel = useRef<HTMLElement>(null);
@@ -48,10 +56,14 @@ function Interaction({
     const element = panel.current;
     if (!passkey) (input.current ?? cancelButton.current)?.focus();
     return () => {
-      if (previous?.isConnected && (!passkey || element?.contains(document.activeElement)))
+      if (
+        canRestoreFocus(request) &&
+        previous?.isConnected &&
+        element?.contains(document.activeElement)
+      )
         previous.focus();
     };
-  }, [passkey]);
+  }, [passkey, request, canRestoreFocus]);
   const respond = (accepted: boolean, choice = value) => {
     if (closing) return;
     void electron?.ipcRenderer
@@ -120,14 +132,18 @@ function Interaction({
             className="theme-input"
             aria-label="Response"
             value={value}
-            onChange={(event) => setValue(event.target.value)}
+            onChange={(event) => onValueChange(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === 'Enter') respond(true);
             }}
           />
         )}
         <div className="site-interaction-actions">
-          {request.secondaryLabel && <button className="theme-btn theme-btn-nav" onClick={() => respond(false, 'secondary')}>{request.secondaryLabel}</button>}
+          {request.secondaryLabel && (
+            <button className="theme-btn theme-btn-nav" onClick={() => respond(false, 'secondary')}>
+              {request.secondaryLabel}
+            </button>
+          )}
           {!alert && (
             <button
               ref={cancelButton}
@@ -157,8 +173,15 @@ function Interaction({
   );
 }
 
-export default function SiteInteractionPrompts() {
+export default function SiteInteractionPrompts({ scope }: { scope?: TabPromptScope } = {}) {
   const [requests, setRequests] = useState<Request[]>([]);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const scopeRef = useRef(scope);
+  scopeRef.current = scope;
+  const canRestoreFocus = useCallback(
+    (request: Request) => promptMatchesTab(request, scopeRef.current),
+    [],
+  );
   useEffect(() => {
     const ipc = electron?.ipcRenderer;
     if (!ipc) return;
@@ -181,14 +204,34 @@ export default function SiteInteractionPrompts() {
       ipc.off('site-interaction-cancel', cancel);
     };
   }, []);
-  const request = requests.find((item) => item.kind !== 'passkey') ?? requests[0];
-  const { displayed, closing, animated } = usePromptPresence(request ?? null);
+  const visibleRequests = requests.filter((request) => promptMatchesTab(request, scope));
+  const request = visibleRequests.find((item) => item.kind !== 'passkey') ?? visibleRequests[0];
+  const { displayed, closing, animated } = usePromptPresence(request ?? null, scope?.tabId);
+  useEffect(() => {
+    setDrafts((current) => {
+      const stale = Object.keys(current).filter(
+        (id) =>
+          id !== displayed?.requestId && !requests.some((request) => request.requestId === id),
+      );
+      if (!stale.length) return current;
+      const next = { ...current };
+      for (const id of stale) delete next[id];
+      return next;
+    });
+  }, [requests, displayed]);
   return displayed ? (
-    <Interaction
-      key={displayed.requestId}
-      request={displayed}
-      closing={closing}
-      animated={animated}
-    />
+    <div className={scope ? 'tab-interaction-layer' : undefined}>
+      <Interaction
+        key={displayed.requestId}
+        request={displayed}
+        closing={closing}
+        animated={animated}
+        value={drafts[displayed.requestId] ?? displayed.defaultValue}
+        onValueChange={(value) =>
+          setDrafts((current) => ({ ...current, [displayed.requestId]: value }))
+        }
+        canRestoreFocus={canRestoreFocus}
+      />
+    </div>
   ) : null;
 }

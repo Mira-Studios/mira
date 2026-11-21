@@ -37,6 +37,8 @@
     "test:find-ui": "node tests/findInPage.integration.ts",
     "test:site-permissions": "node --test tests/sitePermissionPolicy.test.ts",
     "test:site-permissions-ui": "node tests/sitePermissions.integration.ts",
+    "test:tab-prompts": "node --test tests/tabPromptScope.test.ts",
+    "test:tab-prompts-ui": "node tests/tabPrompts.integration.ts",
     "preview": "vite preview",
     "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json,css,md}\""
   },

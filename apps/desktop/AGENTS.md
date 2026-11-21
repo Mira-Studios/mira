@@ -52,6 +52,12 @@ When adding or changing any feature (including New Tab cards):
   keep distinct IDs for permission types Electron adds; never share new grants
   through the legacy `unknown` permission. Routine copy and first-party persistent
   storage requests resolve silently unless explicitly blocked for the site.
+- Site permissions, passkeys, page dialogs, and editor save prompts belong to
+  their source tab. Route site requests by guest WebContents ID and editor
+  requests by tab ID. Hide them immediately on tab switches without answering
+  them; keep drafts and pending source tabs awake until resolution. Only
+  genuinely window-wide app dialogs may omit a tab identity. Pending prompts
+  are runtime state and must not enter saved sessions.
 - Picture-in-picture windows are auxiliary players, never browser windows or
   session-restore targets. Route video/controls only between the owning guest
   frame and its player. Keep source tabs/windows awake while a player is active.

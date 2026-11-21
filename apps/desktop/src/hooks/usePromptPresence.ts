@@ -7,8 +7,10 @@ import './promptMotion.css';
 
 const EXIT_DURATION_MS = 160;
 
-export function usePromptPresence<T extends { requestId: string }>(request: T | null) {
-  const [displayed, setDisplayed] = useState(request);
+export function usePromptPresence<T extends { requestId: string }>(request: T | null, scope?: string) {
+  const [state, setState] = useState({ request, scope });
+  const sameScope = state.scope === scope;
+  const displayed = sameScope ? state.request : request;
   const [animationsEnabled, setAnimationsEnabled] = useState(
     () => getBrowserSettings().animationsEnabled,
   );
@@ -16,7 +18,7 @@ export function usePromptPresence<T extends { requestId: string }>(request: T | 
     () => window.matchMedia('(prefers-reduced-motion: reduce)').matches,
   );
   const animated = animationsEnabled && !reducedMotion;
-  const closing = animated && !!displayed && displayed.requestId !== request?.requestId;
+  const closing = animated && sameScope && !!displayed && displayed.requestId !== request?.requestId;
 
   useEffect(() => {
     const syncSettings = () => setAnimationsEnabled(getBrowserSettings().animationsEnabled);
@@ -32,13 +34,13 @@ export function usePromptPresence<T extends { requestId: string }>(request: T | 
 
   useEffect(() => {
     if (!closing) {
-      setDisplayed(request);
+      setState({ request, scope });
       return;
     }
     // Keep the old content through the exit, including when the next request is queued.
-    const timer = window.setTimeout(() => setDisplayed(request), EXIT_DURATION_MS);
+    const timer = window.setTimeout(() => setState({ request, scope }), EXIT_DURATION_MS);
     return () => window.clearTimeout(timer);
-  }, [request, closing]);
+  }, [request, closing, scope]);
 
   return { displayed: animated ? displayed : request, closing, animated };
 }

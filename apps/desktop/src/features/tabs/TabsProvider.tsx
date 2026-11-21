@@ -1,5 +1,7 @@
 import { normalizeTabGroup, orderGroupedTabs, moveTabGroup as moveGroupTabs, removeTabFromGroup, TAB_GROUP_COLORS, type TabGroup } from '../../../electron/tabGroups';
 import { promptDialog } from '../../components/appDialogs';
+import { usePendingTabPrompts } from './usePendingTabPrompts';
+import { promptMatchesTab } from './tabPromptScope';
 import { createContext, useContext, useState, useReducer, useCallback, useEffect, useRef } from 'react';
 import { electron } from '../../electronBridge';
 import type { DevToolsDockState } from '../../../electron/devTools';
@@ -498,6 +500,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
   }, []);
   const [tabAudioState, setTabAudioState] = useState<Record<string, { audible: boolean; muted: boolean }>>({});
   const [pipSourceTabId, setPipSourceTabId] = useState<string | null>(null);
+  const pendingTabPrompts = usePendingTabPrompts();
   const [loadingTabIds, setLoadingTabIds] = useState<Set<string>>(() => new Set());
   const setTabLoading = useCallback((id: string, loading: boolean) => {
     setLoadingTabIds((current) => {
@@ -2421,7 +2424,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
             return tab;
           }
 
-          if (tab.id === pipSourceTabId || tab.restoreDeferred || tab.editorDirty || hasDevTools(tab.id)) return tab;
+          if (tab.id === pipSourceTabId || tab.restoreDeferred || tab.editorDirty || hasDevTools(tab.id) || Object.values(pendingTabPrompts).some(request => (request.tabId || !request.app) && promptMatchesTab(request, { tabId: tab.id, webContentsId: getWebContentsIdForTab(tab.id) }))) return tab;
           const shouldSleep = now - tab.lastActiveAt >= tabSleepAfterMs;
           if (shouldSleep && !tab.isSleeping) {
             changed = true;
@@ -2465,7 +2468,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
       let nextCheckInMs: number | null = null;
 
       for (const tab of tabs) {
-        if (tab.id === activeId || tab.id === pipSourceTabId || tab.isSleeping || tab.editorDirty || tab.restoreDeferred || hasDevTools(tab.id)) continue;
+        if (tab.id === activeId || tab.id === pipSourceTabId || tab.isSleeping || tab.editorDirty || tab.restoreDeferred || hasDevTools(tab.id) || Object.values(pendingTabPrompts).some(request => (request.tabId || !request.app) && promptMatchesTab(request, { tabId: tab.id, webContentsId: getWebContentsIdForTab(tab.id) }))) continue;
         const remainingMs = Math.max(tab.lastActiveAt + tabSleepAfterMs - now, 0);
         if (nextCheckInMs === null || remainingMs < nextCheckInMs) {
           nextCheckInMs = remainingMs;
@@ -2488,7 +2491,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
         tabSleepTimerRef.current = null;
       }
     };
-  }, [tabs, activeId, tabSleepAfterMs, dockedDevToolsIds, pipSourceTabId]);
+  }, [tabs, activeId, tabSleepAfterMs, dockedDevToolsIds, pipSourceTabId, pendingTabPrompts, getWebContentsIdForTab]);
 
   // Cleanup effect for component unmount
   useEffect(() => {

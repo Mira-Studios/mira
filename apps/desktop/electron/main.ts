@@ -3277,6 +3277,22 @@ function setupSessionPermissions(ses: Electron.Session) {
 
 function setupSitePermissionHandlers() {
   setupSessionPermissions(session.defaultSession);
+  const cancelFor = (contents: WebContents) => {
+    for (const [requestId, request] of pendingSitePermissionRequests) {
+      if (request.webContentsId !== contents.id) continue;
+      pendingSitePermissionRequests.delete(requestId);
+      try { request.callback(false); } catch { /* The page may already be gone. */ }
+      const host = request.hostWindowId === null ? null : BrowserWindow.fromId(request.hostWindowId);
+      if (host && !host.isDestroyed() && !host.webContents.isDestroyed()) host.webContents.send('site-permission-cancel', requestId);
+    }
+  };
+  app.on('web-contents-created', (_event, contents) => {
+    contents.on('did-start-navigation', (_event, _url, inPlace, mainFrame) => {
+      if (mainFrame && !inPlace) cancelFor(contents);
+    });
+    contents.once('destroyed', () => cancelFor(contents));
+    contents.on('render-process-gone', () => cancelFor(contents));
+  });
   ipcMain.handle('site-permissions-get', (_event, rawValue: unknown) => {
     const target = typeof rawValue === 'string' ? rawValue.trim() : '';
     const origin = normalizeSitePermissionOrigin(target);
@@ -3339,6 +3355,7 @@ function setupSitePermissionHandlers() {
     if (!sourceWindow || sourceWindow.id !== pendingRequest.hostWindowId) return { ok: false };
 
     pendingSitePermissionRequests.delete(requestId);
+    event.sender.send('site-permission-cancel', requestId);
     if (decision === 'dismiss') {
       pendingRequest.callback(false);
       return { ok: true, snapshot: buildSitePermissionsSnapshot(pendingRequest.origin) };

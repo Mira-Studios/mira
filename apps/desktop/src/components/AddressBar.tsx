@@ -172,6 +172,7 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
     setActive,
     closeTab,
     printPage,
+    getWebContentsIdForTab,
   } = useTabs();
   const { addBookmark, bookmarks, deleteBookmark } = useBookmarks();
   const [input, setInput] = useState('');
@@ -381,8 +382,8 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
   }, [activeUrl, activeId, editorPath]);
 
   const activePageInfo = readSiteSettingsPageInfo(activeTab?.url);
-  const activePermissionRequest = permissionRequests[0] ?? null;
-  const { displayed: displayedPermissionRequest, closing: permissionClosing, animated: permissionAnimated } = usePromptPresence(activePermissionRequest);
+  const activePermissionRequest = permissionRequests.find(request => request.webContentsId === getWebContentsIdForTab(activeId)) ?? null;
+  const { displayed: displayedPermissionRequest, closing: permissionClosing, animated: permissionAnimated } = usePromptPresence(activePermissionRequest, activeId);
 
   const go = (value = input) => {
     const raw = value.trim();
@@ -608,7 +609,12 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
     };
 
     ipc.on('site-permission-request', onSitePermissionRequest);
-    return () => ipc.off('site-permission-request', onSitePermissionRequest);
+    const cancel = (_event: unknown, requestId: unknown) => setPermissionRequests(current => current.filter(request => request.requestId !== requestId));
+    ipc.on('site-permission-cancel', cancel);
+    return () => {
+      ipc.off('site-permission-request', onSitePermissionRequest);
+      ipc.off('site-permission-cancel', cancel);
+    };
   }, []);
 
   const openBrowserSettingsPage = () => {

@@ -260,6 +260,7 @@ function Browser() {
     restorePromptOpen,
     restoreRevision,
     isFullscreen,
+    getWebContentsIdForTab,
   } = useTabs();
   useBackgroundImageWarmup(/^mira:\/\/newtab(?:[?#/]|$)/i.test(tabs.find((tab) => tab.id === activeId)?.url ?? ''));
   const [settledRestoreRevision, setSettledRestoreRevision] = useState(-1);
@@ -498,17 +499,17 @@ function Browser() {
           {!hideBars && !addressBarInTopBar && <AddressBar inputRef={addressInputRef} />}
           {!hideBars && showBookmarksBar && !(sidebarSettings.sidebarEnabled && sidebarSettings.sidebarSections.includes('bookmarks')) && <BookmarksBar />}
           <FindBar open={findBarOpen} focusToken={findBarFocusToken} onClose={closeFindBar} />
-          <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
+          <div style={{ flex: 1, minHeight: 0, display: 'flex', position: 'relative' }}>
             <BrowserSidebar hidden={hideBars} />
             <TabView />
             <GitRepositoryDock />
             <DevToolsDock />
+            <SiteInteractionPrompts scope={{ tabId: activeId, webContentsId: getWebContentsIdForTab(activeId) }} />
           </div>
         </div>
       </div>
 
       <RestoreTabsPrompt />
-      <SiteInteractionPrompts />
       <ProfileEditor />
       <WorkspaceEditor />
       <QuickNavigateEditor />

@@ -8,6 +8,10 @@
   padding: clamp(56px, 12vh, 100px) 16px 16px;
   z-index: 4000;
 }
+.tab-interaction-layer { position: absolute; inset: 0; z-index: 4000; pointer-events: none; }
+.tab-interaction-layer .site-interaction-backdrop,
+.tab-interaction-layer .site-interaction-anchor { position: absolute; padding-top: 16px; }
+.tab-interaction-layer .site-interaction-backdrop { pointer-events: auto; }
 .site-interaction-backdrop {
   background: color-mix(in srgb, var(--bg) 40%, transparent);
 }

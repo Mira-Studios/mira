@@ -25,7 +25,7 @@ async function writeDocument(win: BrowserWindow, id: string, doc: Document): Pro
     const disk = await fs.readFile(path, 'utf8');
     const original = (doc.bom ? '\uFEFF' : '') + doc.saved;
     if (disk !== original) {
-      const answer = await requestAppDialog(win, { title: 'This file changed on disk', message: 'Overwrite it with your changes?', confirmLabel: 'Overwrite' });
+      const answer = await requestAppDialog(win, { tabId: id, title: 'This file changed on disk', message: 'Overwrite it with your changes?', confirmLabel: 'Overwrite' });
       if (!answer.accepted) return false;
     }
     const text = doc.text;
@@ -34,7 +34,7 @@ async function writeDocument(win: BrowserWindow, id: string, doc: Document): Pro
     notify(win, id, doc);
     return doc.text === doc.saved;
   } catch (error) {
-    await requestAppDialog(win, { kind: 'alert', title: 'Could not save file', message: String(error) });
+    await requestAppDialog(win, { tabId: id, kind: 'alert', title: 'Could not save file', message: String(error) });
     return false;
   }
 }
@@ -52,7 +52,7 @@ async function check(win: BrowserWindow, id: string, action: string): Promise<bo
   const key = `${win.id}:${id}`;
   if (operations.has(key)) return operations.get(key)!;
   const operation = (async () => {
-    const result = await requestAppDialog(win, { title: 'Save changes before you ' + action + '?', message: decodeURIComponent(new URL(doc.url).pathname), confirmLabel: 'Save', secondaryLabel: 'Don’t Save' });
+    const result = await requestAppDialog(win, { tabId: id, title: 'Save changes before you ' + action + '?', message: decodeURIComponent(new URL(doc.url).pathname), confirmLabel: 'Save', secondaryLabel: 'Don’t Save' });
     if (result.accepted) return save(win, id, doc);
     if (result.value !== 'secondary') return false;
     doc.text = doc.saved;
