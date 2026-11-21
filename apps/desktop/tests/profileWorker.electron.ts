@@ -1,5 +1,5 @@
 // Only loaded by profiles.integration.ts from an isolated temporary app.
-import { app, BrowserWindow, dialog, session, Menu } from 'electron';
+import { app, BrowserWindow, dialog, session, Menu, webContents } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,6 +10,16 @@ const id =
   process.argv.find((arg) => arg.startsWith('--mira-profile='))?.slice('--mira-profile='.length) ??
   'default';
 const renderer = fileURLToPath(new URL('../dist/index.html', import.meta.url));
+type PermissionHandler = NonNullable<Parameters<Electron.Session['setPermissionRequestHandler']>[0]>;
+const permissionHandlers = new WeakMap<Electron.Session, PermissionHandler>();
+let permissionAnswer: boolean | null = null;
+if (process.env.MIRA_PERMISSION_TEST === '1') app.on('session-created', target => {
+  const setHandler = target.setPermissionRequestHandler.bind(target);
+  target.setPermissionRequestHandler = handler => {
+    if (handler) permissionHandlers.set(target, handler);
+    return setHandler(handler);
+  };
+});
 let nativeMenu: Menu | null = null;
 if (process.env.MIRA_NATIVE_MENU_TEST === '1') {
   const popup = Menu.prototype.popup;
@@ -76,6 +86,7 @@ async function run() {
       value?: string;
       file?: string;
       bounds?: { x: number; y: number; width: number; height: number };
+      webContentsId?: number;
     };
     try {
       command = JSON.parse(fs.readFileSync(path.join(directory, `${id}-command.json`), 'utf8'));
@@ -91,6 +102,15 @@ async function run() {
         .sort((a, b) => a.id - b.id);
       const win = windows[command.index ?? 0];
       let result: unknown;
+      if (command.action === 'permission-request') {
+        const guest = webContents.fromId(command.webContentsId!);
+        const handler = guest && permissionHandlers.get(guest.session);
+        if (!guest || !handler) throw new Error('Permission handler unavailable');
+        permissionAnswer = null;
+        handler(guest, command.value as Parameters<PermissionHandler>[1], answer => { permissionAnswer = answer; }, { requestingUrl: guest.getURL(), isMainFrame: true });
+        result = true;
+      }
+      if (command.action === 'permission-answer') result = permissionAnswer;
       if (command.action === 'shortcut') {
         win.webContents.send('app-shortcut', command.value);
         result = true;

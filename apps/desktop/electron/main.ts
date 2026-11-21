@@ -1,3 +1,4 @@
+import { SITE_SETTINGS_PERMISSION_ORDER, sitePermissionLabel, mapPermissionIdsFromDetails, describeSitePermissionRequest, automaticSitePermissionDecision, isSitePermissionId as validSitePermissionId, type SitePermissionId } from './sitePermissionPolicy.ts';
 import { detachedTabBounds, tabDropIndex, type TabDropLayout } from './tabDrag.ts';
 import { HistoryStore } from './historyStore.ts';
 import { setupOpenTabHandlers } from './openTabHandlers.ts';
@@ -238,25 +239,7 @@ interface PersistedAppState {
 
 type SitePermissionSetting = 'allow' | 'ask' | 'block';
 
-type SitePermissionId =
-  | 'camera'
-  | 'microphone'
-  | 'location'
-  | 'notifications'
-  | 'fullscreen'
-  | 'clipboard'
-  | 'pointer-lock'
-  | 'screen-capture'
-  | 'midi'
-  | 'sensors'
-  | 'storage-access'
-  | 'window-management'
-  | 'idle-detection'
-  | 'speaker-selection'
-  | 'keyboard-lock'
-  | 'external-apps'
-  | 'file-system'
-  | 'unknown';
+
 
 interface PersistedSitePermissions {
   origins?: Record<string, Partial<Record<SitePermissionId, SitePermissionSetting>>>;
@@ -394,46 +377,7 @@ let hasAttemptedLaunchAutoUpdate = false;
 let hasAttemptedCloseAutoUpdate = false;
 let persistedSitePermissions: Record<string, Partial<Record<SitePermissionId, SitePermissionSetting>>> = {};
 
-const SITE_SETTINGS_PERMISSION_ORDER: SitePermissionId[] = [
-  'camera',
-  'microphone',
-  'location',
-  'notifications',
-  'clipboard',
-  'pointer-lock',
-  'screen-capture',
-  'midi',
-  'sensors',
-  'storage-access',
-  'window-management',
-  'idle-detection',
-  'speaker-selection',
-  'keyboard-lock',
-  'external-apps',
-  'file-system',
-  'unknown',
-];
 
-const SITE_PERMISSION_LABELS: Record<SitePermissionId, string> = {
-  camera: 'Camera',
-  microphone: 'Microphone',
-  location: 'Location',
-  notifications: 'Notifications',
-  fullscreen: 'Fullscreen',
-  clipboard: 'Clipboard',
-  'pointer-lock': 'Pointer lock',
-  'screen-capture': 'Screen capture',
-  midi: 'MIDI devices',
-  sensors: 'Motion and orientation',
-  'storage-access': 'Cross-site cookies and site data',
-  'window-management': 'Window management',
-  'idle-detection': 'Idle detection',
-  'speaker-selection': 'Speaker selection',
-  'keyboard-lock': 'Keyboard lock',
-  'external-apps': 'External apps',
-  'file-system': 'File system',
-  unknown: 'Other permission',
-};
 
 type AutoUpdateMode =
   | 'off'
@@ -1504,7 +1448,7 @@ function isObjectRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isSitePermissionId(value: unknown): value is SitePermissionId {
-  return typeof value === 'string' && SITE_SETTINGS_PERMISSION_ORDER.includes(value as SitePermissionId);
+  return validSitePermissionId(value);
 }
 
 function normalizeSitePermissionSetting(value: unknown): SitePermissionSetting {
@@ -1653,9 +1597,9 @@ function buildSitePermissionsSnapshot(origin: string) {
     canManage: true,
     origin: normalizedOrigin,
     siteLabel: getSiteDisplayLabel(normalizedOrigin),
-    permissions: SITE_SETTINGS_PERMISSION_ORDER.map((permissionId) => ({
+    permissions: [...SITE_SETTINGS_PERMISSION_ORDER, ...Object.keys(persistedSitePermissions[normalizedOrigin] ?? {}).filter(id => id.startsWith('other:')) as SitePermissionId[]].map((permissionId) => ({
       id: permissionId,
-      label: SITE_PERMISSION_LABELS[permissionId],
+      label: sitePermissionLabel(permissionId),
       decision: readSitePermissionSetting(normalizedOrigin, permissionId),
     })),
   };
@@ -1685,122 +1629,6 @@ function extractPermissionOrigin(
   return null;
 }
 
-function mapPermissionIdsFromDetails(
-  permission: string,
-  details: {
-    mediaType?: 'video' | 'audio' | 'unknown';
-    mediaTypes?: Array<'video' | 'audio'>;
-  },
-): SitePermissionId[] {
-  if (permission === 'media') {
-    const requestedMediaTypes = Array.isArray(details.mediaTypes) && details.mediaTypes.length > 0
-      ? details.mediaTypes
-      : details.mediaType && details.mediaType !== 'unknown'
-        ? [details.mediaType]
-        : [];
-
-    const permissionIds = new Set<SitePermissionId>();
-    for (const mediaType of requestedMediaTypes) {
-      if (mediaType === 'video') permissionIds.add('camera');
-      if (mediaType === 'audio') permissionIds.add('microphone');
-    }
-    if (permissionIds.size === 0) {
-      permissionIds.add('camera');
-      permissionIds.add('microphone');
-    }
-    return Array.from(permissionIds);
-  }
-
-  switch (permission) {
-    case 'geolocation':
-      return ['location'];
-    case 'notifications':
-      return ['notifications'];
-    case 'fullscreen':
-      return ['fullscreen'];
-    case 'clipboard-read':
-    case 'clipboard-sanitized-write':
-      return ['clipboard'];
-    case 'pointerLock':
-      return ['pointer-lock'];
-    case 'display-capture':
-      return ['screen-capture'];
-    case 'midi':
-    case 'midiSysex':
-    case 'mediaKeySystem':
-      return ['midi'];
-    case 'sensors':
-    case 'accelerometer':
-    case 'gyroscope':
-    case 'magnetometer':
-      return ['sensors'];
-    case 'storage-access':
-    case 'top-level-storage-access':
-      return ['storage-access'];
-    case 'window-management':
-      return ['window-management'];
-    case 'idle-detection':
-      return ['idle-detection'];
-    case 'speaker-selection':
-      return ['speaker-selection'];
-    case 'keyboardLock':
-      return ['keyboard-lock'];
-    case 'openExternal':
-      return ['external-apps'];
-    case 'fileSystem':
-      return ['file-system'];
-    default:
-      return ['unknown'];
-  }
-}
-
-function describeSitePermissionRequest(permissionIds: SitePermissionId[]): string {
-  const filtered = permissionIds.filter((permissionId) => permissionId !== 'unknown');
-  if (filtered.length === 2 && filtered.includes('camera') && filtered.includes('microphone')) {
-    return 'Use your camera and microphone';
-  }
-
-  const firstPermissionId = filtered[0] ?? permissionIds[0] ?? 'unknown';
-  switch (firstPermissionId) {
-    case 'camera':
-      return 'Use your camera';
-    case 'microphone':
-      return 'Use your microphone';
-    case 'location':
-      return 'Know your location';
-    case 'notifications':
-      return 'Show notifications';
-    case 'fullscreen':
-      return 'Enter fullscreen';
-    case 'clipboard':
-      return 'Access your clipboard';
-    case 'pointer-lock':
-      return 'Lock your pointer';
-    case 'screen-capture':
-      return 'Capture your screen';
-    case 'midi':
-      return 'Use MIDI devices';
-    case 'sensors':
-      return 'Use motion and orientation sensors';
-    case 'storage-access':
-      return 'Use cross-site cookies and site data';
-    case 'window-management':
-      return 'Manage your windows';
-    case 'idle-detection':
-      return 'Detect when you are idle';
-    case 'speaker-selection':
-      return 'Choose your speaker';
-    case 'keyboard-lock':
-      return 'Capture keyboard shortcuts';
-    case 'external-apps':
-      return 'Open external apps';
-    case 'file-system':
-      return 'Access files on this device';
-    case 'unknown':
-    default:
-      return 'Use a restricted browser permission';
-  }
-}
 
 async function loadPersistedSitePermissions(): Promise<void> {
   try {
@@ -3354,6 +3182,8 @@ function setupSessionPermissions(ses: Electron.Session) {
     });
     const decision = summarizeSitePermissionDecision(origin, permissionIds);
     if (decision !== 'ask') return decision === 'allow';
+    const automatic = automaticSitePermissionDecision(permission, details.requestingUrl || requestingOrigin || webContents?.getURL() || '', webContents?.getURL() || '', !!webContents && isPrivateContents(webContents));
+    if (automatic !== undefined) return automatic;
     return isFirstPartyStorageAccess(
       permission,
       details.requestingUrl || requestingOrigin,
@@ -3375,7 +3205,7 @@ function setupSessionPermissions(ses: Electron.Session) {
     }
 
     const permissionIds = mapPermissionIdsFromDetails(permission, {
-      mediaType: 'mediaType' in details ? details.mediaType : undefined,
+      mediaType: 'mediaType' in details && (details.mediaType === 'audio' || details.mediaType === 'video' || details.mediaType === 'unknown') ? details.mediaType : undefined,
       mediaTypes: 'mediaTypes' in details ? details.mediaTypes : undefined,
     });
     if (!permissionIds.length) {
@@ -3394,6 +3224,8 @@ function setupSessionPermissions(ses: Electron.Session) {
     }
 
     const topLevelUrl = webContents.getURL();
+    const automatic = automaticSitePermissionDecision(permission, details.requestingUrl || topLevelUrl, topLevelUrl, isPrivateContents(webContents));
+    if (automatic !== undefined) { callback(automatic); return; }
     const topLevelOrigin = normalizeSitePermissionOrigin(topLevelUrl);
     if (permissionIds.includes('storage-access')) {
       // Resolve cookie access silently without changing an unset permission.
@@ -3533,9 +3365,9 @@ function setupSitePermissionHandlers() {
       origins: origins.map((origin) => ({
         origin,
         siteLabel: getSiteDisplayLabel(origin),
-        permissions: SITE_SETTINGS_PERMISSION_ORDER.map((permissionId) => ({
+        permissions: [...SITE_SETTINGS_PERMISSION_ORDER, ...Object.keys(persistedSitePermissions[origin] ?? {}).filter(id => id.startsWith('other:')) as SitePermissionId[]].map((permissionId) => ({
           id: permissionId,
-          label: SITE_PERMISSION_LABELS[permissionId],
+          label: sitePermissionLabel(permissionId),
           decision: readSitePermissionSetting(origin, permissionId),
         })).filter((p) => p.decision !== 'ask'),
       })).filter((site) => site.permissions.length > 0),

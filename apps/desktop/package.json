@@ -35,6 +35,8 @@
     "test:pip-ui": "node tests/pictureInPicture.integration.ts",
     "test:quick-navigate-ui": "node tests/quickNavigate.integration.ts",
     "test:find-ui": "node tests/findInPage.integration.ts",
+    "test:site-permissions": "node --test tests/sitePermissionPolicy.test.ts",
+    "test:site-permissions-ui": "node tests/sitePermissions.integration.ts",
     "preview": "vite preview",
     "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json,css,md}\""
   },

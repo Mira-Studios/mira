@@ -1,3 +1,4 @@
+import { SITE_SETTINGS_PERMISSION_ORDER, sitePermissionLabel } from '../../electron/sitePermissionPolicy';
 import { confirmDialog } from '../components/appDialogs';
 import { Children, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import { AppWindow, Check, ChevronLeft, Cookie, Globe, RefreshCw, Trash2, ChevronDown, ChevronRight, ChevronUp, Code2, Palette, PanelsTopLeft, Search, Settings2, Shield, UserRound } from 'lucide-react';
@@ -172,25 +173,6 @@ const APP_DATA_STORAGE_KEYS = [
   'mira.session.tabs.v1',
 ];
 
-// All site permission IDs and labels for detail view
-const ALL_SITE_PERMISSIONS: Array<{ id: string; label: string }> = [
-  { id: 'camera', label: 'Camera' },
-  { id: 'microphone', label: 'Microphone' },
-  { id: 'location', label: 'Location' },
-  { id: 'notifications', label: 'Notifications' },
-  { id: 'clipboard', label: 'Clipboard' },
-  { id: 'pointer-lock', label: 'Pointer Lock' },
-  { id: 'screen-capture', label: 'Screen Capture' },
-  { id: 'midi', label: 'MIDI' },
-  { id: 'sensors', label: 'Motion and orientation' },
-  { id: 'storage-access', label: 'Cross-site cookies and site data' },
-  { id: 'window-management', label: 'Window Management' },
-  { id: 'idle-detection', label: 'Idle Detection' },
-  { id: 'speaker-selection', label: 'Speaker Selection' },
-  { id: 'keyboard-lock', label: 'Keyboard Lock' },
-  { id: 'external-apps', label: 'External Apps' },
-  { id: 'file-system', label: 'File System' },
-];
 
 const parseHashParams = (hash: string) => {
   const params: Record<string, string> = {};
@@ -2148,12 +2130,12 @@ function SettingsContent({ workspaceMode }: { workspaceMode: boolean }) {
                       </div>
                       {isLoadingSitePermissions ? <p className="privacy-empty" role="status">Loading permissions…</p> : !selectedPermissionSite ? <p className="privacy-empty">No saved permissions for this site.</p> : (
                         <div className="privacy-permission-list">
-                          {ALL_SITE_PERMISSIONS.map((permission) => {
+                          {[...SITE_SETTINGS_PERMISSION_ORDER.map(id => ({id, label: sitePermissionLabel(id)})), ...selectedPermissionSite.permissions.filter(permission => permission.id.startsWith('other:'))].map((permission) => {
                             const value = selectedPermissionSite.permissions.find((item) => item.id === permission.id)?.decision ?? 'ask';
                             return <div className="privacy-permission-row" key={permission.id}>
                               <span className="settings-setting-label">{permission.label}</span>
                               <div className="privacy-decision-group" role="group" aria-label={`${permission.label} permission`}>
-                                {(['allow', 'ask', 'block'] as const).map((decision) => <button key={decision} type="button" className="privacy-decision" aria-pressed={value === decision} onClick={() => { void updateSitePermission(selectedPermissionSite.origin, permission.id, decision); }}>{decision === 'allow' ? 'Allow' : decision === 'block' ? 'Block' : 'Ask'}</button>)}
+                                {(['allow', 'ask', 'block'] as const).map((decision) => <button key={decision} type="button" className="privacy-decision" aria-pressed={value === decision} onClick={() => { void updateSitePermission(selectedPermissionSite.origin, permission.id, decision); }}>{decision === 'allow' ? 'Allow' : decision === 'block' ? 'Block' : ['persistent-storage', 'clipboard-write'].includes(permission.id) ? 'Default' : 'Ask'}</button>)}
                               </div>
                             </div>;
                           })}

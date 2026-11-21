@@ -47,6 +47,11 @@ When adding or changing any feature (including New Tab cards):
   `src/features/storage/collectionStorage.ts` for their versioned storage keys.
   Missing workspace collections start empty; never seed them from profile data.
   Keep cached Quick Navigate icons with the collection, including private storage.
+- Permission IDs, names, and defaults belong in `electron/sitePermissionPolicy.ts`.
+  Settings use the same catalog. Keep clipboard reads separate from writes, and
+  keep distinct IDs for permission types Electron adds; never share new grants
+  through the legacy `unknown` permission. Routine copy and first-party persistent
+  storage requests resolve silently unless explicitly blocked for the site.
 - Picture-in-picture windows are auxiliary players, never browser windows or
   session-restore targets. Route video/controls only between the owning guest
   frame and its player. Keep source tabs/windows awake while a player is active.
