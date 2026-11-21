@@ -50,6 +50,7 @@ import { configureProfiles, setupProfiles } from './profiles.ts';
 import { WorkspaceStore } from './workspaceStore.ts';
 import { workspaceSettings } from './workspacePolicy.ts';
 import { setupPictureInPicture } from './pictureInPicture.ts';
+import { setupQuickNavigate } from './quickNavigate.ts';
 let pictureInPicture: ReturnType<typeof setupPictureInPicture> | undefined;
 
 // Isolate development before sessions or the single-instance lock use these paths.
@@ -4722,6 +4723,7 @@ function setupWindowControlsHandlers() {
         label: isPinned ? 'Unpin Tab' : 'Pin Tab',
         click: () => sendCommand('toggle-pin'),
       },
+      { label: 'Add to Quick Navigate', click: () => sendCommand('quick-navigate') },
       {
         label: 'Add Tab to Group',
         submenu: [
@@ -6451,6 +6453,7 @@ app.whenReady().then(async () => {
   setupVersionHandlers();
   setupPerformanceHandlers();
   setupSessionHandlers();
+  setupQuickNavigate();
   pictureInPicture = setupPictureInPicture({
     preload: path.join(__dirname, 'preload.js'), load: win => loadRendererShell(win, { pip: true }),
     hostFor: getHostWindowForContents, privateHost: host => privatePartitionsByWindow.has(host.id),

@@ -24,15 +24,6 @@ app's Windows taskbar tasks.
 
 ## Building
 
-Picture in picture opens automatically when switching away from a playing video
-or hiding/minimizing its window. Both options are enabled by default and can be
-changed independently in Settings → General → Picture in picture, including
-workspace overrides. The floating player can be moved and resized; it remembers
-separate in-window/desktop positions and keeps its current size between modes.
-Hover for playback, seek, volume, return-to-tab, and close controls. Private player
-positions stay in memory. Run `npm run test:pip --workspace apps/desktop` for policy
-tests and, after building the renderer, `npm run test:pip-ui --workspace apps/desktop`
-for real-video Electron coverage.
 
 Workspaces live inside their owning profile's AppData folder in
 `workspaces.v1.json`. Open or create them from the main menu, or enable the

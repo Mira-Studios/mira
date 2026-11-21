@@ -8,6 +8,7 @@ import BookmarksBar from './components/BookmarksBar';
 import BrowserSidebar from './components/BrowserSidebar';
 import { useSidebarSettings } from './features/sidebar/useSidebarSettings';
 import WorkspaceEditor from './components/WorkspaceEditor';
+import QuickNavigateEditor from './components/QuickNavigateEditor';
 import PictureInPicture from './components/PictureInPicture';
 import FindBar from './components/FindBar';
 import TopBar from './components/TopBar';
@@ -510,6 +511,7 @@ function Browser() {
       <SiteInteractionPrompts />
       <ProfileEditor />
       <WorkspaceEditor />
+      <QuickNavigateEditor />
       <UpdatePrompt
         open={!!pendingUpdate && !restorePromptOpen}
         update={pendingUpdate}

@@ -68,6 +68,7 @@ export type BrowserSettings = {
   backgroundImage: string;
   useThemeBackgroundImage: boolean;
   showNewTabSearch: boolean;
+  showQuickNavigate: boolean;
   backgroundImageFit: 'cover' | 'contain' | 'stretch' | 'original' | 'tile';
   backgroundImagePositionX: number;
   backgroundImagePositionY: number;
@@ -123,6 +124,7 @@ export const DEFAULT_BROWSER_SETTINGS: BrowserSettings = {
   backgroundImage: '',
   useThemeBackgroundImage: false,
   showNewTabSearch: true,
+  showQuickNavigate: true,
   backgroundImageFit: 'cover',
   backgroundImagePositionX: 50,
   backgroundImagePositionY: 50,
@@ -504,6 +506,7 @@ export function normalizeBrowserSettings(value: unknown): BrowserSettings {
     backgroundImage: normalizeBackgroundImageSource(candidate.backgroundImage),
     useThemeBackgroundImage: candidate.useThemeBackgroundImage === true,
     showNewTabSearch: candidate.showNewTabSearch !== false,
+    showQuickNavigate: candidate.showQuickNavigate !== false,
     backgroundImageFit: ['cover', 'contain', 'stretch', 'original', 'tile'].includes(candidate.backgroundImageFit ?? '')
       ? candidate.backgroundImageFit! : 'cover',
     backgroundImagePositionX: typeof candidate.backgroundImagePositionX === 'number' && Number.isFinite(candidate.backgroundImagePositionX)

@@ -1,5 +1,6 @@
-import { createContext, useContext, useState, useCallback, useRef, type ReactNode } from 'react';
+import { createContext, useContext, useState, useCallback, useRef, useEffect, type ReactNode } from 'react';
 import { confirmDialog } from '../../components/appDialogs';
+import { scopedCollectionKey } from '../storage/collectionStorage';
 
 export type Bookmark = {
   id: string;
@@ -25,7 +26,7 @@ type BookmarksContextType = {
 
 const BookmarksContext = createContext<BookmarksContextType | undefined>(undefined);
 
-const STORAGE_KEY = 'mira.bookmarks.v1';
+const STORAGE_KEY = scopedCollectionKey('mira.bookmarks.v1');
 
 function generateId(): string {
   return `bookmark_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -248,6 +249,13 @@ function addBookmarkToTree(
 export function BookmarksProvider({ children }: { children: ReactNode }) {
   const [bookmarks, setBookmarks] = useState<Bookmark[]>(() => loadBookmarksFromStorage());
   const pendingDeletions = useRef(new Set<string>());
+  useEffect(() => {
+    const refresh = (event: StorageEvent) => {
+      if (event.key === null || event.key === STORAGE_KEY) setBookmarks(loadBookmarksFromStorage());
+    };
+    window.addEventListener('storage', refresh);
+    return () => window.removeEventListener('storage', refresh);
+  }, []);
 
   const addBookmark = useCallback((bookmark: Omit<Bookmark, 'id' | 'createdAt' | 'updatedAt'>) => {
     setBookmarks(prev => {

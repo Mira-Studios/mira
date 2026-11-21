@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import QuickNavigate from '../components/QuickNavigate';
+import { showQuickNavigateMenu } from '../features/quickNavigate/quickNavigate';
 import miraLogo from '../assets/mira_logo.png';
 import { getBackgroundStyle, getNewTabBackgroundSource, useBackgroundImage, useNewTabAppearance } from '../features/themes/useNewTabAppearance';
 import { useTabs } from '../features/tabs/TabsProvider';
@@ -142,10 +144,16 @@ export default function NewTab() {
 
   return (
     <div
+      onContextMenu={event => {
+        if ((event.target as HTMLElement).closest('input, button, a, [role="menu"], [role="dialog"]')) return;
+        event.preventDefault();
+        void showQuickNavigateMenu(event.clientX, event.clientY, undefined, appearance.showQuickNavigate);
+      }}
       style={{
         display: 'flex',
         flexDirection: 'column',
         height: '100%',
+        overflowY: 'auto',
         alignItems: 'center',
         justifyContent: 'flex-start',
         paddingTop: '12vh',
@@ -248,6 +256,8 @@ export default function NewTab() {
           className="theme-input"
         />
       </form>}
+      {appearance.showQuickNavigate && <QuickNavigate />}
+
     </div>
   );
 }

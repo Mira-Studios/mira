@@ -43,6 +43,10 @@ When adding or changing any feature (including New Tab cards):
   window-local preferences to `electron/workspacePolicy.ts` deliberately; never
   include cookies, history, profile sync, OS integration, or other profile data.
   Workspace creation only collects identity; editing belongs on its settings page.
+- Bookmarks and Quick Navigate are workspace collections. Use
+  `src/features/storage/collectionStorage.ts` for their versioned storage keys.
+  Missing workspace collections start empty; never seed them from profile data.
+  Keep cached Quick Navigate icons with the collection, including private storage.
 - Picture-in-picture windows are auxiliary players, never browser windows or
   session-restore targets. Route video/controls only between the owning guest
   frame and its player. Keep source tabs/windows awake while a player is active.

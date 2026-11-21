@@ -17,6 +17,7 @@ export const WORKSPACE_SETTING_KEYS = [
   'backgroundImagePositionX',
   'backgroundImagePositionY',
   'showNewTabSearch',
+  'showQuickNavigate',
   'showNewTabBranding',
   'disableNewTabIntro',
   'tabStripPosition',

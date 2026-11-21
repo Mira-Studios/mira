@@ -33,6 +33,7 @@
     "test:window-restore": "node tests/windowRestore.integration.ts",
     "test:pip": "node --test tests/pictureInPicturePolicy.test.ts",
     "test:pip-ui": "node tests/pictureInPicture.integration.ts",
+    "test:quick-navigate-ui": "node tests/quickNavigate.integration.ts",
     "preview": "vite preview",
     "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json,css,md}\""
   },

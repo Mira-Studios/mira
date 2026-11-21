@@ -46,6 +46,10 @@ export default function NewTabAppearanceSettings() {
   return (
     <>
       <label className="settings-setting-row">
+        <span className="settings-setting-label">Show Quick Navigate</span>
+        <input type="checkbox" className="settings-toggle settings-setting-control" checked={settings.showQuickNavigate} onChange={event => update({ showQuickNavigate: event.currentTarget.checked })} />
+      </label>
+      <label className="settings-setting-row">
         <span className="settings-setting-label">Show center search bar</span>
         <input
           type="checkbox"

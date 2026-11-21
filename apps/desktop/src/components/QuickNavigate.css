@@ -1,0 +1,114 @@
+.quick-navigate {
+  width: min(600px, calc(100% - 40px));
+  margin-top: 16px;
+  padding: 0 8px 28px;
+  box-sizing: border-box;
+}
+.quick-navigate-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--text2);
+  font-size: 13px;
+  margin-bottom: 10px;
+}
+.quick-navigate-heading button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+}
+.quick-navigate-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: 10px;
+}
+.quick-navigate-card {
+  position: relative;
+  min-width: 0;
+  border-radius: var(--panelRadius, 8px);
+  background: var(--surfaceBg, var(--panelBg));
+}
+.quick-navigate-card:hover {
+  background: var(--surfaceBgHover, var(--panelBgHover));
+}
+.quick-navigate-link {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  padding: 22px 12px 14px;
+  border: 0;
+  background: transparent;
+  color: var(--text1);
+  border-radius: inherit;
+  cursor: pointer;
+}
+.quick-navigate-icon {
+  display: flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  color: var(--text2);
+}
+.quick-navigate-icon img {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+}
+.quick-navigate-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.quick-navigate .quick-navigate-more {
+  position: absolute;
+  right: 3px;
+  top: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+}
+.quick-navigate-card:hover .quick-navigate-more,
+.quick-navigate-card:focus-within .quick-navigate-more {
+  opacity: 1;
+}
+.quick-navigate-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(400px, calc(100vw - 40px));
+}
+.quick-navigate-editor > strong {
+  margin-bottom: 10px;
+}
+.quick-navigate-editor > label {
+  font-size: 13px;
+  color: var(--text2);
+}
+.quick-navigate-editor > input {
+  width: 100%;
+  padding: 9px 10px;
+}
+.quick-navigate-editor .site-interaction-actions {
+  margin-top: 12px;
+}
+.quick-navigate-editor .site-interaction-actions button {
+  border: 0;
+}
+.quick-navigate-error {
+  color: var(--accentDanger, #ef4444);
+  font-size: 13px;
+}

@@ -3,6 +3,7 @@ import TabConnection from './TabConnection';
 import { TAB_GROUP_COLORS, type TabGroup } from '../../../electron/tabGroups';
 import { promptDialog } from '../../components/appDialogs';
 import TabFavicon from './TabFavicon';
+import { openQuickNavigateEditor } from '../quickNavigate/quickNavigate';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { ChevronDown, Pin, Plus, Volume2, VolumeX, X } from 'lucide-react';
 import { useTabs } from './TabsProvider';
@@ -572,6 +573,10 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
         label: tabs[tabIndex]?.isPinned ? 'Unpin Tab' : 'Pin Tab',
         onSelect: () => toggleTabPinned(tabMenuState.tabId),
       },
+      { type: 'item', label: 'Add to Quick Navigate', onSelect: () => {
+        const tab = tabs[tabIndex];
+        if (tab) openQuickNavigateEditor({ name: tab.title, url: tab.url, favicon: tab.favicon });
+      } },
       { type: 'separator' },
       { type: 'item', label: 'New Tab Group', onSelect: () => { void createTabGroup(tabMenuState.tabId); } },
       ...groups.filter(group => group.id !== tabs[tabIndex]?.group?.id).map(group => ({
@@ -649,6 +654,11 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
         toggleTabPinned(tabId);
         return;
       }
+      if (command === 'quick-navigate') {
+        const tab = tabs.find(item => item.id === tabId);
+        if (tab) openQuickNavigateEditor({ name: tab.title, url: tab.url, favicon: tab.favicon });
+        return;
+      }
       if (command === 'reload') {
         reloadTab(tabId);
         return;
@@ -673,7 +683,7 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
 
     ipc.on('tab-native-context-command', onNativeContextCommand);
     return () => ipc.off('tab-native-context-command', onNativeContextCommand);
-  }, [newTabToRight, reloadTab, unloadEditorTab, duplicateTab, toggleTabPinned, createTabGroup, moveTabToGroup, closeTab, closeOtherTabs, closeTabsToRight, orientation]);
+  }, [newTabToRight, reloadTab, unloadEditorTab, duplicateTab, toggleTabPinned, createTabGroup, moveTabToGroup, closeTab, closeOtherTabs, closeTabsToRight, orientation, tabs]);
 
   useEffect(() => {
     if (!draggingTabId) return;

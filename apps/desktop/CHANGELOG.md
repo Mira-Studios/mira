@@ -12,6 +12,7 @@
 - Workspaces
 - Restore tracks muted tabs
 - Picture in Picture
+- Quick navigate
 
 ### Improved
 
