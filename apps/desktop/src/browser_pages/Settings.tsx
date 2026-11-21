@@ -2,6 +2,8 @@ import { confirmDialog } from '../components/appDialogs';
 import { Children, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import { AppWindow, Check, ChevronLeft, Cookie, Globe, RefreshCw, Trash2, ChevronDown, ChevronRight, ChevronUp, Code2, Palette, PanelsTopLeft, Search, Settings2, Shield, UserRound } from 'lucide-react';
 import './Settings.css';
+import appIcon from '../assets/mira_icon.png';
+import appWordmark from '../assets/mira.png';
 import NewTabAppearanceSettings from './NewTabAppearanceSettings';
 import ProfileSettings from './ProfileSettings';
 import SidebarSettings from './SidebarSettings';
@@ -260,6 +262,14 @@ export default function Settings() {
 }
 
 function SettingsContent() {
+  const [appVersion, setAppVersion] = useState('');
+  useEffect(() => {
+    let active = true;
+    void electron?.ipcRenderer.invoke<string>('app-get-version').then((version) => {
+      if (active) setAppVersion(version);
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, []);
   const AUTO_SAVE_DELAY_MS = 300;
   const SAVED_BADGE_MS = 1600;
 
@@ -1110,7 +1120,6 @@ function SettingsContent() {
     () => tabs.find((tab) => tab.id === activeId)?.url ?? '',
     [tabs, activeId],
   );
-  const isSyncingFromUrlRef = useRef(false);
 
   const isSettingsTab = useMemo(() => {
     const trimmed = activeTabUrl.trim();
@@ -1125,11 +1134,7 @@ function SettingsContent() {
     const params = parseHashParams(hash);
     const nextSection = resolveSectionFromParams(params, settingsSectionIds);
     if (nextSection) {
-      setActiveSection((prev) => {
-        if (prev === nextSection) return prev;
-        isSyncingFromUrlRef.current = true;
-        return nextSection;
-      });
+      setActiveSection(nextSection);
       return;
     }
     setActiveSection((prev) => {
@@ -1183,31 +1188,6 @@ function SettingsContent() {
     }
   };
 
-  useEffect(() => {
-    if (!isSettingsTab) return;
-    if (isSyncingFromUrlRef.current) {
-      isSyncingFromUrlRef.current = false;
-      return;
-    }
-    
-    const hash = activeTabUrl.includes('#') ? activeTabUrl.slice(activeTabUrl.indexOf('#')) : '';
-    const params = parseHashParams(hash);
-    const currentSection = params.section ?? '';
-    
-    // Don't navigate if section already matches
-    if (currentSection === activeSection) return;
-    
-    const baseUrl = activeTabUrl ? activeTabUrl.split('#')[0] : 'mira://Settings';
-    
-    // Build URL - only sync section, don't add/remove site param
-    const nextUrl = `${baseUrl}#section=${activeSection}`;
-    
-    if (activeTabUrl && activeTabUrl !== nextUrl && !activeTabUrl.includes('site=')) {
-      isSyncingFromUrlRef.current = true;
-      navigate(nextUrl);
-    }
-  }, [activeSection, activeTabUrl, isSettingsTab, navigate]);
-
   const openPrivacySubsection = (subsection: PrivacySecuritySubsection | null) => {
     const baseUrl = activeTabUrl.split('#')[0] || 'mira://Settings';
     setPrivacySecuritySubsection(subsection);
@@ -1247,6 +1227,7 @@ function SettingsContent() {
                 aria-controls={`settings-panel-${section.id}`}
                 onClick={() => {
                   setActiveSection(section.id);
+                  navigate(`${activeTabUrl.split('#')[0] || 'mira://Settings'}#section=${section.id}`);
                   setThemeDropdownOpen(false);
                   setLayoutDropdownOpen(false);
                 }}
@@ -1271,6 +1252,13 @@ function SettingsContent() {
               <span className="settings-tab-label">Report Issue</span>
             </a>
           </div>
+          <footer className="settings-brand">
+            <div className="settings-brand-images">
+              <img className="settings-brand-icon" src={appIcon} alt="Mira" draggable={false} />
+              <img className="settings-brand-wordmark" src={appWordmark} alt="" aria-hidden="true" draggable={false} />
+            </div>
+            {appVersion && <span className="settings-brand-version">v{appVersion}</span>}
+          </footer>
         </div>
 
         <div

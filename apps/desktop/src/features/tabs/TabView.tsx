@@ -1756,7 +1756,7 @@ export default function TabView() {
             }}
           >
             {isEditorUrl(tab.url) ? <FileEditor key={`${tab.url}:${tab.reloadToken}`} tab={tab} active={isVisible} /> : isInternal(tab.url) ? (
-              <div style={{ flex: 1, overflow: 'auto' }}>
+              <div className="internal-page-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
                 {renderInternal(tab.url, tab.reloadToken)}
               </div>
             ) : (

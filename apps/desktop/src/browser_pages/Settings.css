@@ -53,6 +53,10 @@
 .settings-redesign .sidebar-sections-heading { margin-top: 26px; }
 .settings-redesign .sidebar-section-controls { display: flex; align-items: center; gap: 10px; }
 .settings-redesign .sidebar-settings-icon { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border: 0; background: transparent; }
+.internal-page-scroll:has(> .settings-redesign) {
+  scrollbar-gutter: stable;
+  container-type: size;
+}
 .settings-page.settings-redesign {
   position: relative;
   max-width: 1120px;
@@ -62,6 +66,9 @@
   gap: 32px;
 }
 .settings-redesign .settings-header {
+  position: sticky;
+  top: 36px;
+  z-index: 2;
   align-items: center;
   min-height: 40px;
 }
@@ -120,8 +127,26 @@
 }
 .settings-redesign .settings-sidebar {
   position: sticky;
-  top: 24px;
+  top: 108px;
+  max-height: calc(100cqh - 132px);
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  flex-shrink: 0;
   gap: 8px;
+}
+.settings-redesign .settings-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 20px 0 8px 14px;
+}
+.settings-brand-images { display: flex; align-items: center; gap: 4px; }
+.settings-brand-icon { width: 20px; height: 20px; object-fit: contain; }
+.settings-brand-wordmark { width: auto; height: 28px; object-fit: contain; }
+.settings-brand-version { color: var(--text2); font-size: 12px; white-space: nowrap; }
+.settings-redesign .settings-brand {
+  justify-content: center;
+  padding-left: 0;
 }
 .settings-redesign .settings-tabs,
 .settings-redesign .settings-actions {
@@ -406,6 +431,11 @@
   outline-offset: 2px;
 }
 @media (max-width: 820px) {
+  .settings-redesign .settings-header { top: 24px; }
+  .settings-redesign .settings-sidebar {
+    top: 88px;
+    max-height: calc(100cqh - 112px);
+  }
   .settings-page.settings-redesign {
     padding: 24px;
     gap: 24px;
@@ -437,6 +467,7 @@
   }
 }
 @media (max-width: 580px) {
+  .settings-redesign .settings-header { top: 20px; }
   .settings-page.settings-redesign {
     padding: 20px 16px 36px;
   }
@@ -447,6 +478,8 @@
   }
   .settings-redesign .settings-sidebar {
     position: static;
+    max-height: none;
+    overflow: visible;
     gap: 8px;
     padding-bottom: 16px;
     border-bottom: 1px solid var(--surfaceBorder, var(--tabBorder));

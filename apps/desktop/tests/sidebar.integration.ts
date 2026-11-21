@@ -466,6 +466,40 @@ try {
   );
   assert.equal(await expanded(), 'false');
   assert.equal(await evaluate(`document.querySelector('.browser-sidebar').dataset.side`), 'right');
+  await click('#settings-tab-general');
+  await delay(250);
+  const stickySettings = await evaluate<{
+    before: number;
+    after: number;
+    scroll: number;
+    gutter: string;
+    branded: boolean;
+  }>(`new Promise(resolve => {
+    const page = [...document.querySelectorAll('.settings-redesign')].find(page => page.getBoundingClientRect().width > 0 && getComputedStyle(page.closest('.internal-page-scroll').parentElement).visibility === 'visible');
+    const scroller = page.closest('.internal-page-scroll');
+    const sidebar = page.querySelector('.settings-sidebar');
+    scroller.scrollTop = 0;
+    requestAnimationFrame(() => {
+      const before = sidebar.getBoundingClientRect().top;
+      scroller.scrollTop = 320;
+      requestAnimationFrame(() => resolve({ before, after: sidebar.getBoundingClientRect().top, scroll: scroller.scrollTop, gutter: getComputedStyle(scroller).scrollbarGutter, branded: !!sidebar.querySelector('.settings-brand-icon') && !!sidebar.querySelector('.settings-brand-wordmark') && !!sidebar.querySelector('.settings-brand-version')?.textContent }));
+    });
+  })`);
+  assert.ok(stickySettings.scroll >= 320, 'Settings content scrolls');
+  assert.ok(
+    Math.abs(stickySettings.before - stickySettings.after) < 1,
+    'Settings sidebar stays sticky',
+  );
+  assert.equal(stickySettings.gutter, 'stable', 'Settings reserves scrollbar space');
+  assert.ok(stickySettings.branded, 'Settings sidebar includes Mira branding and version');
+  await click('#settings-tab-layout');
+  await click('[aria-label="Reload"]');
+  await delay(350);
+  assert.equal(
+    await evaluate(`document.querySelector('#settings-tab-layout').getAttribute('aria-selected')`),
+    'true',
+    'Reload preserves the Settings section parameter',
+  );
   await settings({ animationsEnabled: true });
   await assertOpeningAnimation(
     '.browser-sidebar [aria-label="Sidebar settings"]',

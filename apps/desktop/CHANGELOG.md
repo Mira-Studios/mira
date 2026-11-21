@@ -13,6 +13,7 @@
 ### Improved
 
 - Tab dragging in and out of windows
+- Settings
 
 ## v1.1.2 - 2026-11-12
 
