@@ -84,7 +84,7 @@
 }
 .page-zoom-control[data-animate='true'] .page-zoom-popover {
   animation: page-zoom-in 150ms ease-out;
-  transform-origin: top right;
+  transform-origin: var(--popup-origin, top right);
 }
 .page-zoom-popover-closing {
   opacity: 0;
@@ -96,7 +96,7 @@
 @keyframes page-zoom-in {
   from {
     opacity: 0;
-    transform: translateY(-4px) scale(0.98);
+    transform: translate(var(--popup-enter-x, 0px), var(--popup-enter-y, -4px)) scale(0.98);
   }
   to {
     opacity: 1;
@@ -110,7 +110,7 @@
   }
   to {
     opacity: 0;
-    transform: translateY(-4px) scale(0.98);
+    transform: translate(var(--popup-exit-x, 0px), var(--popup-exit-y, -4px)) scale(0.98);
   }
 }
 @media (prefers-reduced-motion: reduce) {

@@ -39,6 +39,8 @@
     "test:site-permissions-ui": "node tests/sitePermissions.integration.ts",
     "test:tab-prompts": "node --test tests/tabPromptScope.test.ts",
     "test:tab-prompts-ui": "node tests/tabPrompts.integration.ts",
+    "test:address-placement": "node --test tests/addressBarPlacement.test.ts",
+    "test:address-placement-ui": "node tests/addressBarPlacement.integration.ts",
     "preview": "vite preview",
     "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json,css,md}\""
   },

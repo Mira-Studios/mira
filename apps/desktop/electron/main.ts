@@ -251,6 +251,7 @@ interface PendingSitePermissionRequest {
   permissionIds: SitePermissionId[];
   hostWindowId: number | null;
   webContentsId: number;
+  payload: Record<string, unknown>;
 }
 
 interface PendingWebviewCloseRequest {
@@ -3253,15 +3254,7 @@ function setupSessionPermissions(ses: Electron.Session) {
     }
 
     const requestId = uuidv4();
-    pendingSitePermissionRequests.set(requestId, {
-      callback,
-      origin,
-      permissionIds,
-      hostWindowId: hostWindow.id,
-      webContentsId: webContents.id,
-    });
-
-    hostWindow.webContents.send('site-permission-request', {
+    const payload = {
       requestId,
       webContentsId: webContents.id,
       origin,
@@ -3270,13 +3263,24 @@ function setupSessionPermissions(ses: Electron.Session) {
       label: describeSitePermissionRequest(permissionIds),
       permissionIds,
       url: typeof details.requestingUrl === 'string' ? details.requestingUrl : webContents.getURL(),
+    };
+    pendingSitePermissionRequests.set(requestId, {
+      callback, origin, permissionIds, hostWindowId: hostWindow.id, webContentsId: webContents.id, payload,
     });
+    hostWindow.webContents.send('site-permission-request', payload);
   });
 
 }
 
 function setupSitePermissionHandlers() {
   setupSessionPermissions(session.defaultSession);
+  ipcMain.handle('site-permissions-ready', event => {
+    const host = BrowserWindow.fromWebContents(event.sender);
+    if (!host || host.webContents !== event.sender) return;
+    for (const request of pendingSitePermissionRequests.values()) {
+      if (request.hostWindowId === host.id) event.sender.send('site-permission-request', request.payload);
+    }
+  });
   const cancelFor = (contents: WebContents) => {
     for (const [requestId, request] of pendingSitePermissionRequests) {
       if (request.webContentsId !== contents.id) continue;

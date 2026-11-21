@@ -1,4 +1,5 @@
 import ContextMenu from './ContextMenu';
+import './VerticalAddressBar.css';
 import ProfileMenu from './ProfileMenu';
 import WorkspaceMenu from './WorkspaceMenu';
 import { usePromptPresence } from '../hooks/usePromptPresence';
@@ -68,6 +69,7 @@ function ForwardIcon() {
 type AddressBarProps = {
   inputRef?: React.RefObject<HTMLInputElement | null>;
   inTopBar?: boolean;
+  side?: 'left' | 'right';
 };
 
 type AddressMenuAction = {
@@ -150,7 +152,7 @@ function readSiteSettingsPageInfo(url: string | undefined): SiteSettingsPageInfo
   };
 }
 
-export default function AddressBar({ inputRef, inTopBar = false }: AddressBarProps) {
+export default function AddressBar({ inputRef, inTopBar = false, side }: AddressBarProps) {
   const sidebarSettings = useSidebarSettings();
   const profilesInSidebar = sidebarSettings.sidebarEnabled && sidebarSettings.sidebarSections.includes('profiles');
   const {
@@ -186,6 +188,20 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
   const addressInputRef = inputRef ?? localInputRef;
   const completedSuggestionRef = useRef<AddressSuggestion | null>(null);
   const addressFieldRef = useRef<HTMLDivElement | null>(null);
+  const [outwardWidth, setOutwardWidth] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    if (!side || !addressFocused) { setOutwardWidth(null); return; }
+    const measure = () => {
+      const bounds = addressFieldRef.current?.getBoundingClientRect();
+      if (!bounds) return;
+      const available = side === 'left' ? window.innerWidth - bounds.left - 12 : bounds.right - 12;
+      setOutwardWidth(Math.max(0, Math.min(600, available)));
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [side, addressFocused]);
+  const expandedAddressWidth = side && addressFocused && input.trim().length > 0 ? outwardWidth : null;
   const suggestionsId = useId();
   const suggestions = useMemo(
     () => getAddressSuggestions(input, bookmarks, historyEntries, [...tabs, ...otherWindowTabs], activeId),
@@ -611,6 +627,7 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
     ipc.on('site-permission-request', onSitePermissionRequest);
     const cancel = (_event: unknown, requestId: unknown) => setPermissionRequests(current => current.filter(request => request.requestId !== requestId));
     ipc.on('site-permission-cancel', cancel);
+    void ipc.invoke('site-permissions-ready').catch(() => undefined);
     return () => {
       ipc.off('site-permission-request', onSitePermissionRequest);
       ipc.off('site-permission-cancel', cancel);
@@ -761,20 +778,23 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
 
   return (
     <div
-      className={inTopBar ? 'address-bar-in-topbar' : undefined}
+      className={`address-bar ${inTopBar ? 'address-bar-in-topbar' : ''} ${side ? 'address-bar-in-vertical-tabs' : ''}`}
+      data-side={side}
+      data-animate={animationsEnabled}
       onDoubleClick={inTopBar ? (event) => event.stopPropagation() : undefined}
       style={{
         position: 'relative',
         display: 'flex',
         alignItems: 'center',
-        padding: inTopBar ? '0' : 'var(--layoutAddressBarPaddingY, 6px)',
+        padding: side ? '6px' : inTopBar ? '0' : 'var(--layoutAddressBarPaddingY, 6px)',
         gap: 4,
-        background: inTopBar ? 'transparent' : 'var(--surfaceBgHover, var(--tabBgHover))',
-        borderTop: inTopBar ? undefined : '1px solid var(--surfaceBorder, var(--tabBorder))',
+        background: inTopBar || side ? 'transparent' : 'var(--surfaceBgHover, var(--tabBgHover))',
+        borderTop: inTopBar || side ? undefined : '1px solid var(--surfaceBorder, var(--tabBorder))',
         flex: inTopBar ? 1 : undefined,
         minWidth: 0,
       }}
     >
+      <div className="address-navigation-controls" style={{ display: side ? 'flex' : 'contents', alignItems: 'center', gap: 4 }}>
       <button
         onClick={goBack}
         disabled={!canGoBack}
@@ -843,10 +863,13 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
         {isPageLoading ? <X size={16} strokeWidth={1.9} aria-hidden="true" /> : <ReloadIcon />}
       </button>
 
+      </div>
+
       <div
         ref={addressFieldRef}
         className={`address-field ${suggestionsVisible ? 'address-field-expanded' : ''} ${suggestionsAnimated ? 'address-field-animated' : ''}`}
-        style={{ position: 'relative', flex: 1, minWidth: 0 }}
+        data-outward={!!expandedAddressWidth}
+        style={{ position: 'relative', flex: side ? expandedAddressWidth ? `0 0 ${expandedAddressWidth}px` : '1 0 100%' : 1, marginLeft: side === 'right' && expandedAddressWidth ? `calc(100% - ${expandedAddressWidth}px)` : undefined, order: side ? 1 : undefined, minWidth: 0 }}
       >
         <input
           ref={addressInputRef}
@@ -1020,6 +1043,7 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
         )}
       </div>
 
+      <div className="address-page-controls" style={{ display: side ? 'flex' : 'contents', alignItems: 'center', justifyContent: 'flex-end', flex: side ? 1 : undefined, flexWrap: 'wrap', minWidth: 0, gap: 4 }}>
       <WebAppButton key={`web-app-${activeId}`} animationsEnabled={animationsEnabled} onOpen={closeMenusForDeviceChooser} />
 
       <PageZoomControl key={`zoom-${activeId}`} animationsEnabled={animationsEnabled} onOpen={closeMenusForDeviceChooser} />
@@ -1206,6 +1230,8 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
             })}
           </div>
         )}
+      </div>
+
       </div>
 
       {displayedPermissionRequest && (

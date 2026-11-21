@@ -1,3 +1,4 @@
+import { resolveAddressBarPosition } from './features/settings/addressBarPlacement';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useTabs } from './features/tabs/TabsProvider';
 import TabsProvider from './features/tabs/TabsProvider';
@@ -221,9 +222,7 @@ function Browser() {
     const settings = getBrowserSettings();
     return settings.tabStripPosition ?? 'top';
   });
-  const [verticalTabsAddressBarInTopBar, setVerticalTabsAddressBarInTopBar] = useState(
-    () => getBrowserSettings().verticalTabsAddressBarInTopBar,
-  );
+
   const {
     tabs,
     newTab,
@@ -331,7 +330,6 @@ function Browser() {
       applyLayout(getLayoutById(settings.layoutId));
       setShowPerfOverlay(settings.dev && settings.showPerfOverlay);
       setTabStripPosition(settings.tabStripPosition ?? 'top');
-      setVerticalTabsAddressBarInTopBar(settings.verticalTabsAddressBarInTopBar);
       setShowBookmarksBar(settings.showBookmarksBar);
       if (!electron?.ipcRenderer) return;
 
@@ -430,10 +428,8 @@ function Browser() {
 
     if (hasAddedTab && activeTabIsNewlyCreated && isNewTabUrl) {
       window.requestAnimationFrame(() => {
-        const addressInput = addressInputRef.current;
-        if (!addressInput) return;
-        addressInput.focus();
-        addressInput.select();
+        addressInputRef.current?.focus();
+        addressInputRef.current?.select();
       });
     }
 
@@ -441,7 +437,8 @@ function Browser() {
   }, [tabs, activeId]);
 
   const isVerticalTabs = tabStripPosition === 'left' || tabStripPosition === 'right';
-  const addressBarInTopBar = isVerticalTabs && verticalTabsAddressBarInTopBar;
+  const addressPosition = resolveAddressBarPosition(sidebarSettings.addressBarPosition, isVerticalTabs);
+  const addressBarInTopBar = addressPosition === 'topbar';
   const hideBars = isFullscreen;
   const showVerticalTabSidebar = isVerticalTabs && !hideBars;
 
@@ -464,15 +461,17 @@ function Browser() {
           flex: 1,
           minHeight: 0,
           display: 'flex',
-          flexDirection: tabStripPosition === 'right' ? 'row-reverse' : 'row',
+          flexDirection: 'row',
           width: '100%',
         }}
       >
+        <BrowserSidebar hidden={hideBars} />
         {showVerticalTabSidebar && (
           <div
             style={{
-              width: 240,
-              minWidth: 160,
+              width: 280,
+              minWidth: 200,
+              order: tabStripPosition === 'right' ? 1 : 0,
               maxWidth: 360,
               backgroundColor: 'var(--surfaceBg, var(--tabBg))',
               backgroundImage: 'linear-gradient(var(--surfaceBorder, var(--tabBorder)), var(--surfaceBorder, var(--tabBorder)))',
@@ -483,6 +482,7 @@ function Browser() {
               flexDirection: 'column',
             }}
           >
+            {addressPosition === 'vertical-tabs' && <AddressBar inputRef={addressInputRef} side={tabStripPosition === 'right' ? 'right' : 'left'} />}
             <TabBar key={restoreRevision} orientation="vertical" />
           </div>
         )}
@@ -496,11 +496,10 @@ function Browser() {
             flexDirection: 'column',
           }}
         >
-          {!hideBars && !addressBarInTopBar && <AddressBar inputRef={addressInputRef} />}
+          {!hideBars && addressPosition === 'toolbar' && <AddressBar inputRef={addressInputRef} />}
           {!hideBars && showBookmarksBar && !(sidebarSettings.sidebarEnabled && sidebarSettings.sidebarSections.includes('bookmarks')) && <BookmarksBar />}
           <FindBar open={findBarOpen} focusToken={findBarFocusToken} onClose={closeFindBar} />
           <div style={{ flex: 1, minHeight: 0, display: 'flex', position: 'relative' }}>
-            <BrowserSidebar hidden={hideBars} />
             <TabView />
             <GitRepositoryDock />
             <DevToolsDock />

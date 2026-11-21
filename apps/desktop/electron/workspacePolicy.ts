@@ -22,6 +22,7 @@ export const WORKSPACE_SETTING_KEYS = [
   'disableNewTabIntro',
   'tabStripPosition',
   'verticalTabsAddressBarInTopBar',
+  'addressBarPosition',
   'showBookmarkButton',
   'showBookmarksBar',
   'showProfileMenu',
@@ -43,12 +44,16 @@ export const WORKSPACE_SETTING_KEYS = [
 ] as const;
 export function workspaceSettings(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
-  return Object.fromEntries(
+  const settings = Object.fromEntries(
     WORKSPACE_SETTING_KEYS.filter((key) => key in value).map((key) => [
       key,
       (value as Record<string, unknown>)[key],
     ]),
   );
+  if (!('addressBarPosition' in settings) && typeof settings.verticalTabsAddressBarInTopBar === 'boolean') {
+    settings.addressBarPosition = settings.verticalTabsAddressBarInTopBar ? 'topbar' : 'toolbar';
+  }
+  return settings;
 }
 export const WORKSPACE_ICONS = [
   'panels',

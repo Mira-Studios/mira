@@ -1,6 +1,7 @@
 import { DEFAULT_THEME_ID } from '../themes/themeLoader';
 import { electron } from '../../electronBridge';
 import { workspaceSettings } from '../../../electron/workspacePolicy';
+import { normalizeAddressBarPosition, type AddressBarPosition } from './addressBarPlacement';
 import { normalizeBackgroundImageSource } from '../../themes/backgroundImage';
 import { DEFAULT_LAYOUT_ID } from '../layouts/layoutLoader';
 import { DEFAULT_HISTORY_RETENTION_DAYS, normalizeHistoryRetentionDays, pruneHistoryEntries } from '../../../electron/historyPolicy';
@@ -98,6 +99,7 @@ export type BrowserSettings = {
   startupRestoreBehavior: StartupRestoreBehavior;
   tabStripPosition: TabStripPosition;
   verticalTabsAddressBarInTopBar: boolean;
+  addressBarPosition: AddressBarPosition;
   searchEngine: SearchEngine;
   searchEngineShortcutsEnabled: boolean;
   searchEngineShortcutPrefix: string;
@@ -154,6 +156,7 @@ export const DEFAULT_BROWSER_SETTINGS: BrowserSettings = {
   startupRestoreBehavior: 'ask',
   tabStripPosition: 'top',
   verticalTabsAddressBarInTopBar: true,
+  addressBarPosition: 'topbar',
   searchEngine: 'google',
   searchEngineShortcutsEnabled: false,
   searchEngineShortcutPrefix: DEFAULT_SEARCH_ENGINE_SHORTCUT_PREFIX,
@@ -547,6 +550,7 @@ export function normalizeBrowserSettings(value: unknown): BrowserSettings {
     runOnStartup: normalizeRunOnStartup(candidate.runOnStartup),
     startupRestoreBehavior: normalizeStartupRestoreBehavior(candidate.startupRestoreBehavior),
     tabStripPosition: normalizeTabStripPosition(candidate.tabStripPosition),
+    addressBarPosition: normalizeAddressBarPosition(candidate.addressBarPosition, candidate.verticalTabsAddressBarInTopBar),
     verticalTabsAddressBarInTopBar:
       typeof candidate.verticalTabsAddressBarInTopBar === 'boolean'
         ? candidate.verticalTabsAddressBarInTopBar

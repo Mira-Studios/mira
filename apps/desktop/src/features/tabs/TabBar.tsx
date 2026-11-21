@@ -1473,24 +1473,17 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
                   minHeight: 0,
                   cursor: 'default',
                   WebkitAppRegion: 'no-drag',
-                  borderRadius:
-                    tab.id === activeId
-                      ? isVertical
-                        ? isRightSidebar
-                          ? `0 ${tabRadius} ${tabRadius} 0`
-                          : `${tabRadius} 0 0 ${tabRadius}`
-                        : `${tabRadius} ${tabRadius} 0 0`
-                      : tabRadius,
+                  borderRadius: isVertical || tab.id !== activeId ? tabRadius : `${tabRadius} ${tabRadius} 0 0`,
                   display: 'flex',
                   gap: 6,
                   alignItems: !isVertical && isActive ? 'flex-start' : 'center',
                   whiteSpace: 'nowrap',
                   flex: isVertical ? '0 0 auto' : groupCollapsed ? '0 1 0px' : tab.isPinned ? '0 0 38px' : `1 1 ${TAB_TARGET_WIDTH}`,
                   minWidth: isVertical ? 0 : sizeCollapsed ? 0 : tab.isPinned ? 38 : TAB_MIN_WIDTH,
-                  maxWidth: isVertical ? (isActive ? 'none' : '100%') : sizeCollapsed ? 0 : tab.isPinned ? 38 : TAB_TARGET_WIDTH,
-                  overflow: isActive && !sizeCollapsed ? 'visible' : 'hidden',
+                  maxWidth: isVertical ? '100%' : sizeCollapsed ? 0 : tab.isPinned ? 38 : TAB_TARGET_WIDTH,
+                  overflow: !isVertical && isActive && !sizeCollapsed ? 'visible' : 'hidden',
                   padding: sizeCollapsed ? '0' : tab.isPinned && !isVertical ? '0'
-                    : isVertical && isActive ? (isRightSidebar ? '0 6px 0 16px' : '0 12px 0 10px') : '0 6px 0 10px',
+                    : '0 6px 0 10px',
                   paddingBottom: 0,
                   justifyContent: tab.isPinned && !isVertical ? 'center' : undefined,
                   position: incomingTab?.tab.id === tab.id ? 'absolute' : tab.isPinned ? 'sticky' : 'relative',
@@ -1500,17 +1493,13 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
                   marginRight:
                     !isVertical && sizeCollapsed
                       ? `calc(-1 * ${TAB_STRIP_GAP})`
-                      : isActive && isVertical && !isRightSidebar
-                      ? '-6px'
                       : isVertical && group && isRightSidebar
                       ? '10px'
                       : 0,
                   borderWidth: sizeCollapsed ? 0 : borderWidth,
                   borderTopColor: isActive ? activeOutlineColor : undefined,
                   marginLeft:
-                    isActive && isVertical && isRightSidebar
-                      ? '-6px'
-                      : isVertical && group && !isRightSidebar
+                    isVertical && group && !isRightSidebar
                       ? '10px'
                       : 0,
                   background:
@@ -1524,10 +1513,10 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
                     ? !isVertical ? 'var(--surfaceBgHover, var(--tabBgHover))' : activeOutlineColor
                     : undefined,
                   borderLeftColor: isActive
-                    ? isVertical && isRightSidebar ? 'var(--surfaceBgHover, var(--tabBgHover))' : activeOutlineColor
+                    ? activeOutlineColor
                     : undefined,
                   borderRightColor: isActive
-                    ? isVertical && !isRightSidebar ? 'var(--surfaceBgHover, var(--tabBgHover))' : activeOutlineColor
+                    ? activeOutlineColor
                     : undefined,
                   pointerEvents:
                     isExiting || groupCollapsed || (isActivelyDragging && tab.id !== draggingTabId) ? 'none' : 'auto',
@@ -1536,7 +1525,7 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
                   borderTopWidth: sizeCollapsed ? 0 : tab.isSleeping ? borderWidth : undefined,
                 }}
               >
-                {isActive && !sizeCollapsed && <TabConnection vertical={isVertical} rightSidebar={isRightSidebar} color={!isVertical ? groupColor || undefined : undefined} />}
+                {isActive && !isVertical && !sizeCollapsed && <TabConnection vertical={isVertical} rightSidebar={isRightSidebar} color={!isVertical ? groupColor || undefined : undefined} />}
                 <div data-tab-content style={{
                   display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, width: '100%',
                   height: `calc(${TAB_ROW_HEIGHT} - 2 * ${borderWidth})`, flexShrink: 0,
@@ -1603,9 +1592,10 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
           {incomingTab && !previewBeforeId ? incomingPreview : null}
           <button
             onClick={() => newTab()}
-            className="theme-btn theme-btn-nav nav-icon-btn tab-new-tab-btn"
+            className={`tab-new-tab-btn ${isVertical ? 'theme-tab tab-new-tab-vertical' : 'theme-btn theme-btn-nav nav-icon-btn'}`}
+            aria-label="New tab"
             style={{
-              height: NEW_TAB_BUTTON_SIZE,
+              height: isVertical ? TAB_ROW_HEIGHT : NEW_TAB_BUTTON_SIZE,
               flex: isVertical
                 ? '0 0 auto'
                 : 'none',
@@ -1626,10 +1616,17 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
               WebkitAppRegion: 'no-drag',
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center',
+              justifyContent: isVertical ? 'flex-start' : 'center',
+              padding: isVertical ? '0 10px' : undefined,
+              border: 'none',
+              gap: 6,
+              fontSize: 13,
+              color: isVertical ? 'var(--text2, var(--tabText))' : undefined,
+              cursor: 'pointer',
             }}
           >
             <Plus size={16} strokeWidth={2.2} aria-hidden="true" />
+            {isVertical && <span>New tab</span>}
           </button>
         </div>
         <TabGroupOutlines scrollRef={scrollRef} tabs={tabs} activeId={activeId} vertical={isVertical} rightSidebar={isRightSidebar} draggingTabId={draggingTabId} draggingGroupId={draggingGroupId} />
@@ -1709,11 +1706,11 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
               data-tab-drag-preview={draggedTab.id}
               style={{
                 height: isActive ? draggedTabHeight ?? TAB_ROW_HEIGHT : TAB_ROW_HEIGHT,
-                borderRadius: isActive ? (isVertical ? (isRightSidebar ? `0 ${tabRadius} ${tabRadius} 0` : `${tabRadius} 0 0 ${tabRadius}`) : `${tabRadius} ${tabRadius} 0 0`) : tabRadius,
+                borderRadius: isVertical || !isActive ? tabRadius : `${tabRadius} ${tabRadius} 0 0`,
                 borderTopColor: isActive ? activeOutlineColor : undefined,
                 borderBottomColor: isActive ? (!isVertical ? 'var(--surfaceBgHover, var(--tabBgHover))' : activeOutlineColor) : undefined,
-                borderLeftColor: isActive ? (isVertical && isRightSidebar ? 'var(--surfaceBgHover, var(--tabBgHover))' : activeOutlineColor) : undefined,
-                borderRightColor: isActive ? (isVertical && !isRightSidebar ? 'var(--surfaceBgHover, var(--tabBgHover))' : activeOutlineColor) : undefined,
+                borderLeftColor: isActive ? activeOutlineColor : undefined,
+                borderRightColor: isActive ? activeOutlineColor : undefined,
                 display: 'flex',
                 gap: 6,
                 alignItems: isActive && !isVertical ? 'flex-start' : 'center',
@@ -1726,12 +1723,12 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
                 boxShadow: isActive ? undefined : 'var(--tabDragShadow, 0 6px 18px rgba(0, 0, 0, 0.28))',
                 position: 'relative',
                 overflow: isActive ? 'visible' : 'hidden',
-                padding: draggedTab.isPinned && !isVertical ? '0' : isVertical && isActive ? (isRightSidebar ? '0 6px 0 16px' : '0 12px 0 10px') : '0 6px 0 10px',
+                padding: draggedTab.isPinned && !isVertical ? '0' : '0 6px 0 10px',
                 justifyContent: draggedTab.isPinned && !isVertical ? 'center' : undefined,
                 background: draggedTab.id === activeId ? 'var(--surfaceBgHover, var(--tabBgHover))' : undefined,
               }}
             >
-              {isActive && <TabConnection vertical={isVertical} rightSidebar={isRightSidebar} color={groupColor} />}
+              {isActive && !isVertical && <TabConnection vertical={isVertical} rightSidebar={isRightSidebar} color={groupColor} />}
               <div data-tab-drag-content style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', minWidth: 0,
                 height: `calc(${TAB_ROW_HEIGHT} - 2 * ${borderWidth})`, flexShrink: 0,
                 justifyContent: draggedTab.isPinned && !isVertical ? 'center' : undefined }}>

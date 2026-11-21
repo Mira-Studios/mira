@@ -1,3 +1,4 @@
+import type { AddressBarPosition } from '../features/settings/addressBarPlacement';
 import { SITE_SETTINGS_PERMISSION_ORDER, sitePermissionLabel } from '../../electron/sitePermissionPolicy';
 import { confirmDialog } from '../components/appDialogs';
 import { Children, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
@@ -324,8 +325,8 @@ function SettingsContent({ workspaceMode }: { workspaceMode: boolean }) {
   const [showPerfOverlay, setShowPerfOverlay] = useState(() => initialSettings.showPerfOverlay);
   const [showBookmarkButton, setShowBookmarkButton] = useState(() => initialSettings.showBookmarkButton);
   const [showProfileMenu, setShowProfileMenu] = useState(() => initialSettings.showProfileMenu);
-  const [verticalTabsAddressBarInTopBar, setVerticalTabsAddressBarInTopBar] = useState(
-    () => initialSettings.verticalTabsAddressBarInTopBar,
+  const [addressBarPosition, setAddressBarPosition] = useState(
+    () => initialSettings.addressBarPosition,
   );
   const [showBookmarksBar, setShowBookmarksBar] = useState(() => initialSettings.showBookmarksBar);
   const [cookiesEnabled, setCookiesEnabled] = useState(() => initialSettings.cookiesEnabled);
@@ -698,7 +699,7 @@ function SettingsContent({ workspaceMode }: { workspaceMode: boolean }) {
         startupRestoreBehavior,
         showPerfOverlay,
         tabStripPosition,
-        verticalTabsAddressBarInTopBar,
+        addressBarPosition,
         showBookmarkButton,
         showProfileMenu,
         showBookmarksBar,
@@ -745,7 +746,7 @@ function SettingsContent({ workspaceMode }: { workspaceMode: boolean }) {
     startupRestoreBehavior,
     showPerfOverlay,
     tabStripPosition,
-    verticalTabsAddressBarInTopBar,
+    addressBarPosition,
     showBookmarkButton,
     showProfileMenu,
     showBookmarksBar,
@@ -1965,22 +1966,12 @@ function SettingsContent({ workspaceMode }: { workspaceMode: boolean }) {
                   </select>
                 </div>
                 <div className="settings-setting-row">
-                  <label htmlFor="vertical-tabs-address-bar-in-topbar" className="settings-setting-meta">
-                    <span className="settings-setting-label">URL bar in top bar with vertical tabs</span>
-                    <span className="settings-setting-description">
-                      Move the URL bar and navigation controls into the top bar when tabs are on the left or right.
-                    </span>
-                  </label>
-                  <input
-                    id="vertical-tabs-address-bar-in-topbar"
-                    type="checkbox"
-                    className="settings-toggle settings-setting-control"
-                    checked={verticalTabsAddressBarInTopBar}
-                    onChange={(e) => {
-                      setVerticalTabsAddressBarInTopBar(e.currentTarget.checked);
-                      setSaveStatus('saving');
-                    }}
-                  />
+                  <label htmlFor="address-bar-position" className="settings-setting-meta"><span className="settings-setting-label">URL bar position</span></label>
+                  <select id="address-bar-position" className="theme-input settings-select-input settings-select-limit settings-setting-control" value={addressBarPosition} onChange={event => { const next = event.currentTarget.value as AddressBarPosition; setAddressBarPosition(next); setSaveStatus('saving'); }}>
+                    <option value="toolbar">Toolbar</option>
+                    <option value="topbar">Top bar with vertical tabs</option>
+                    <option value="vertical-tabs" disabled={tabStripPosition === 'top'}>Vertical tab panel</option>
+                  </select>
                 </div>
                 <div className="settings-setting-row">
                   <label htmlFor="show-bookmark-button" className="settings-setting-meta">
