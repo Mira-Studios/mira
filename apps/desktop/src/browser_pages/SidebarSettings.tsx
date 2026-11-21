@@ -11,7 +11,7 @@ import { useSidebarSettings } from '../features/sidebar/useSidebarSettings';
 export default function SidebarSettings() {
   const settings = useSidebarSettings();
   const available = SIDEBAR_SECTIONS.filter(
-    (section) => !electron?.isPrivate || section !== 'profiles',
+    (section) => !electron?.isPrivate || (section !== 'profiles' && section !== 'workspaces'),
   );
   const ordered = settings.sidebarSectionOrder.filter((section) => available.includes(section));
   return (

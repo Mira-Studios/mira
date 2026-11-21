@@ -1,0 +1,126 @@
+.workspace-avatar {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+}
+.workspace-titlebar-context {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 24px;
+  padding: 0 14px;
+  margin: 0 4px;
+  max-width: 180px;
+  min-width: 0;
+  flex-shrink: 1;
+  color: var(--text2);
+  font-size: 12px;
+  line-height: 1;
+  -webkit-app-region: drag;
+}
+.workspace-titlebar-context > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workspace-avatar img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.workspace-sidebar-row {
+  display: flex;
+  min-width: 0;
+}
+.workspace-sidebar-row > button {
+  width: 100%;
+}
+.workspace-editor-creation {
+  width: min(420px, calc(100vw - 40px));
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+.workspace-icon-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: flex-end;
+}
+.workspace-icon-picker button {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  border: 0;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+}
+.workspace-icon-picker [aria-pressed='true'] {
+  background: var(--navButtonBgActive);
+}
+.workspace-editor-creation .workspace-icon-picker {
+  justify-content: flex-start;
+  margin: 12px 0;
+}
+.workspace-editor-creation .site-interaction-actions button {
+  border: 0;
+}
+.settings-redesign .workspace-delete {
+  border: 0;
+  color: var(--accentDanger, #ef4444);
+  align-self: flex-start;
+  padding: 8px 0;
+}
+.workspace-settings-shell .settings-title {
+  font-size: 23px;
+  white-space: nowrap;
+}
+.workspace-settings-identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+.workspace-save-status {
+  margin-left: auto;
+  font-size: 12px;
+}
+.settings-redesign .workspace-starting-tabs {
+  align-items: stretch;
+  flex-direction: column;
+}
+.workspace-starting-tabs textarea {
+  min-height: 130px;
+  resize: vertical;
+  width: 100%;
+}
+.workspace-starting-tabs button {
+  align-self: flex-end;
+}
+.workspace-window-context {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 12px;
+  margin-bottom: 4px;
+}
+.workspace-window-context > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.workspace-window-context span {
+  color: var(--text2);
+  font-size: 11px;
+}
+.workspace-window-context strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}

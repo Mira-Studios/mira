@@ -7,6 +7,9 @@ import appWordmark from '../assets/mira.png';
 import NewTabAppearanceSettings from './NewTabAppearanceSettings';
 import ProfileSettings from './ProfileSettings';
 import SidebarSettings from './SidebarSettings';
+import Workspaces from './Workspaces';
+import { WorkspaceMenuSetting } from '../components/WorkspaceMenu';
+import WorkspaceDetails from './WorkspaceDetails';
 import { useTabs } from '../features/tabs/TabsProvider';
 import { useDownloads } from '../features/downloads/DownloadProvider';
 import { clearHistoryEntries } from '../features/history/clientHistory';
@@ -112,7 +115,7 @@ type SetDefaultBrowserResponse = {
   };
 };
 
-type SettingsSectionId = 'general' | 'search' | 'appearance' | 'layout' | 'profiles' | 'privacy-security' | 'app' | 'dev';
+type SettingsSectionId = 'general' | 'search' | 'appearance' | 'layout' | 'profiles' | 'workspaces' | 'workspace' | 'privacy-security' | 'app' | 'dev';
 
 type PrivacySecuritySubsection = 'site-permissions' | 'cookies';
 
@@ -122,6 +125,8 @@ const SETTINGS_SECTION_ICONS = {
   appearance: Palette,
   layout: PanelsTopLeft,
   profiles: UserRound,
+  workspaces: PanelsTopLeft,
+  workspace: PanelsTopLeft,
   'privacy-security': Shield,
   app: AppWindow,
   dev: Code2,
@@ -156,6 +161,7 @@ const SETTINGS_SECTION_TABS: Array<{
     label: 'App',
   },
   { id: 'profiles', label: 'Profiles' },
+  { id: 'workspaces', label: 'Workspaces' },
 ];
 
 const APP_DATA_STORAGE_KEYS = [
@@ -251,17 +257,17 @@ function SettingsVisibility({ visible, animated, children }: SettingsVisibilityP
   );
 }
 
-export default function Settings() {
+export default function Settings({ workspaceMode = false }: { workspaceMode?: boolean }) {
   const [revision, setRevision] = useState(0);
   useEffect(() => {
     const applied = () => setRevision(value => value + 1);
     window.addEventListener('mira:profile-settings-applied', applied);
     return () => window.removeEventListener('mira:profile-settings-applied', applied);
   }, []);
-  return <SettingsContent key={revision} />;
+  return <SettingsContent key={revision} workspaceMode={workspaceMode} />;
 }
 
-function SettingsContent() {
+function SettingsContent({ workspaceMode }: { workspaceMode: boolean }) {
   const [appVersion, setAppVersion] = useState('');
   useEffect(() => {
     let active = true;
@@ -1106,10 +1112,10 @@ function SettingsContent() {
   const isDevSettingsEnabled = initialSettings.dev;
   const settingsSectionTabs = useMemo<Array<{ id: SettingsSectionId; label: string }>>(
     () =>
-      (isDevSettingsEnabled
+      (workspaceMode ? [{ id: 'workspace' as const, label: 'Workspace' }, ...SETTINGS_SECTION_TABS.filter(section => ['general', 'search', 'appearance', 'layout', 'app'].includes(section.id))] : isDevSettingsEnabled
         ? [...SETTINGS_SECTION_TABS, { id: 'dev' as const, label: 'Dev' }]
-        : SETTINGS_SECTION_TABS).filter(section => !electron?.isPrivate || section.id !== 'profiles'),
-    [isDevSettingsEnabled],
+        : SETTINGS_SECTION_TABS).filter(section => !electron?.isPrivate || (section.id !== 'profiles' && section.id !== 'workspaces')),
+    [isDevSettingsEnabled, workspaceMode],
   );
   const settingsSectionIds = useMemo(
     () => settingsSectionTabs.map((section) => section.id),
@@ -1123,8 +1129,8 @@ function SettingsContent() {
 
   const isSettingsTab = useMemo(() => {
     const trimmed = activeTabUrl.trim();
-    return trimmed.toLowerCase().startsWith('mira://settings');
-  }, [activeTabUrl]);
+    return trimmed.toLowerCase().startsWith(workspaceMode ? 'mira://workspacesettings' : 'mira://settings');
+  }, [activeTabUrl, workspaceMode]);
   const isBuiltInNewTabPage = useMemo(() => isBuiltInNewTabPageUrl(newTabPage), [newTabPage]);
   const hasTriggeredUpdateCheckRef = useRef(false);
 
@@ -1201,12 +1207,12 @@ function SettingsContent() {
 
   return (
     <div
-      className={`settings-page settings-redesign ${
+      className={`settings-page settings-redesign ${workspaceMode ? 'workspace-settings-shell' : ''} ${
         animationsEnabled ? 'settings-page-animations-enabled' : 'settings-page-animations-disabled'
       }`}
     >
       <header className="settings-header">
-        <h1 className="settings-title">Settings</h1>
+        <h1 className="settings-title">{workspaceMode ? 'Workspace settings' : 'Settings'}</h1>
         <span className="theme-text2 settings-save-indicator" role="status">
           {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? 'Saved' : ''}
         </span>
@@ -1269,6 +1275,8 @@ function SettingsContent() {
           className={`settings-section ${animationsEnabled ? 'settings-section-animated' : ''}`}
         >
           <h2 className="settings-section-heading">{settingsSectionTabs.find((section) => section.id === activeSection)?.label}</h2>
+          {activeSection === 'workspaces' && <Workspaces />}
+          {workspaceMode && activeSection === 'workspace' && <WorkspaceDetails />}
           {activeSection === 'general' && (
             <>
               <SettingsGroup>
@@ -1478,7 +1486,7 @@ function SettingsContent() {
                 </SettingsVisibility>
               </SettingsGroup>
 
-              <SettingsGroup>
+              {!workspaceMode && <SettingsGroup>
                 <div className="settings-card-header">
                   <h3 className="settings-card-title">Browsing</h3>
                 </div>
@@ -1527,7 +1535,7 @@ function SettingsContent() {
                     }}
                   />
                 </label>
-              </SettingsGroup>
+              </SettingsGroup>}
             </>
           )}
 
@@ -2012,6 +2020,7 @@ function SettingsContent() {
                   <input id="show-profile-menu" type="checkbox" className="settings-toggle settings-setting-control"
                     checked={showProfileMenu} onChange={e => { setShowProfileMenu(e.currentTarget.checked); setSaveStatus('saving'); }} />
                 </div>}
+                <WorkspaceMenuSetting />
                 <div className="settings-setting-row">
                   <label htmlFor="show-bookmarks-bar" className="settings-setting-meta">
                     <span className="settings-setting-label">Show bookmarks bar</span>
@@ -2234,7 +2243,7 @@ function SettingsContent() {
                 </label>
               </SettingsGroup>
 
-              <SettingsGroup>
+              {!workspaceMode && <><SettingsGroup>
                 <div className="settings-card-header">
                   <h3 className="settings-card-title">Startup</h3>
                 </div>
@@ -2450,7 +2459,7 @@ function SettingsContent() {
                 {!!updateStatus && (
                   <div className="theme-text2 settings-status">{updateStatus}</div>
                 )}
-              </SettingsGroup>
+              </SettingsGroup></>}
             </>
           )}
 

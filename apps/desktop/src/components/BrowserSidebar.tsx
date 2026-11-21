@@ -26,6 +26,7 @@ import { useSidebarSettings } from '../features/sidebar/useSidebarSettings';
 import { SIDEBAR_SECTION_LABELS, type SidebarSection } from '../features/sidebar/sidebarSettings';
 import './BrowserSidebar.css';
 import SidebarTooltip from './SidebarTooltip';
+import WorkspaceList from './WorkspaceList';
 
 const SidebarTooltips = createContext(true);
 
@@ -268,10 +269,16 @@ function SidebarRecentlyClosed() {
 }
 
 const sectionComponents: Record<SidebarSection, React.ComponentType> = {
+  workspaces: SidebarWorkspaces,
   bookmarks: SidebarBookmarks,
   profiles: SidebarProfiles,
   'recently-closed': SidebarRecentlyClosed,
 };
+
+function SidebarWorkspaces() {
+  const tooltips = useContext(SidebarTooltips);
+  return <WorkspaceList sidebar tooltips={tooltips} />;
+}
 
 export default function BrowserSidebar({ hidden = false }: { hidden?: boolean }) {
   const settings = useSidebarSettings();
@@ -307,7 +314,7 @@ export default function BrowserSidebar({ hidden = false }: { hidden?: boolean })
   const sections = settings.sidebarSectionOrder.filter(
     (section) =>
       settings.sidebarSections.includes(section) &&
-      (!electron?.isPrivate || section !== 'profiles'),
+      (!electron?.isPrivate || (section !== 'profiles' && section !== 'workspaces')),
   );
   const tooltips = !expanded && settings.sidebarShowTooltips;
   const CollapseIcon = (settings.sidebarSide === 'left') === expanded ? ChevronLeft : ChevronRight;

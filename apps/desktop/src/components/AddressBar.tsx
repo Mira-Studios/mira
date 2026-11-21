@@ -1,5 +1,6 @@
 import ContextMenu from './ContextMenu';
 import ProfileMenu from './ProfileMenu';
+import WorkspaceMenu from './WorkspaceMenu';
 import { usePromptPresence } from '../hooks/usePromptPresence';
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -271,10 +272,13 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
   useEffect(() => { setReloadMenuAnchor(null); }, [activeId]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [profilesOpen, setProfilesOpen] = useState(false);
+  const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
+  const closeWorkspaceMenu = useCallback(() => setWorkspaceMenuOpen(false), []);
   const closeProfiles = useCallback(() => setProfilesOpen(false), []);
   const [showProfileMenu, setShowProfileMenu] = useState(() => getBrowserSettings().showProfileMenu);
   const [menuClosing, setMenuClosing] = useState(false);
   const [siteSettingsOpen, setSiteSettingsOpen] = useState(false);
+  useEffect(() => { if (menuOpen || siteSettingsOpen || profilesOpen) setWorkspaceMenuOpen(false); }, [menuOpen, siteSettingsOpen, profilesOpen]);
   const [siteSettingsClosing, setSiteSettingsClosing] = useState(false);
   const [permissionRequests, setPermissionRequests] = useState<SitePermissionRequestPayload[]>([]);
   const [animationsEnabled, setAnimationsEnabled] = useState(
@@ -702,6 +706,10 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
       icon: Settings2,
       onSelect: openBrowserSettingsPage,
     },
+    ...(electron?.workspaceId && !electron.isPrivate ? [{
+      id: 'workspace-settings', label: 'Workspace settings', icon: Settings2,
+      onSelect: () => newTab(`mira://WorkspaceSettings${electron?.workspaceId ? `#workspace=${encodeURIComponent(electron.workspaceId)}` : ''}`),
+    }] : []),
     {
       id: 'toggle-sidebar',
       label: sidebarSettings.sidebarEnabled ? 'Hide Sidebar' : 'Show Sidebar',
@@ -1091,6 +1099,7 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
 
       <DownloadButton />
 
+      {!electron?.isPrivate && !(sidebarSettings.sidebarEnabled && sidebarSettings.sidebarSections.includes('workspaces')) && sidebarSettings.showWorkspaceMenu && <WorkspaceMenu open={workspaceMenuOpen} showButton onClose={closeWorkspaceMenu} onOpen={() => { closeMenu(); closeSiteSettings(); closeProfiles(); setWorkspaceMenuOpen(true); }} />}
       {!electron?.isPrivate && !profilesInSidebar && showProfileMenu && <ProfileMenu open={profilesOpen} showButton animationsEnabled={animationsEnabled}
         onClose={closeProfiles} onOpen={() => { closeMenu(); closeSiteSettings(); setProfilesOpen(true); }} />}
       <div ref={menuRef} style={{ position: 'relative' }}>
@@ -1160,6 +1169,10 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
               );
             })}
             <hr className="address-menu-divider" />
+            {!electron?.isPrivate && !sidebarSettings.showWorkspaceMenu && !(sidebarSettings.sidebarEnabled && sidebarSettings.sidebarSections.includes('workspaces')) && <>
+              <WorkspaceMenu open embedded onClose={closeMenu} />
+              <hr className="address-menu-divider" />
+            </>}
             {!electron?.isPrivate && !profilesInSidebar && !showProfileMenu && <>
               <ProfileMenu open showButton={false} embedded animationsEnabled={animationsEnabled}
                 onClose={closeMenu} onOpen={openMenu} />

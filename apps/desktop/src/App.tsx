@@ -7,6 +7,7 @@ import AddressBar from './components/AddressBar';
 import BookmarksBar from './components/BookmarksBar';
 import BrowserSidebar from './components/BrowserSidebar';
 import { useSidebarSettings } from './features/sidebar/useSidebarSettings';
+import WorkspaceEditor from './components/WorkspaceEditor';
 import FindBar from './components/FindBar';
 import TopBar from './components/TopBar';
 import RestoreTabsPrompt from './components/RestoreTabsPrompt';
@@ -506,6 +507,7 @@ function Browser() {
       <RestoreTabsPrompt />
       <SiteInteractionPrompts />
       <ProfileEditor />
+      <WorkspaceEditor />
       <UpdatePrompt
         open={!!pendingUpdate && !restorePromptOpen}
         update={pendingUpdate}

@@ -47,6 +47,8 @@ import { setupFileEditors } from './fileEditors.ts';
 import { setupBackgroundImages } from './backgroundImages.ts';
 import { setupGitRepositories } from './gitRepositories.ts';
 import { configureProfiles, setupProfiles } from './profiles.ts';
+import { WorkspaceStore } from './workspaceStore.ts';
+import { workspaceSettings } from './workspacePolicy.ts';
 
 // Isolate development before sessions or the single-instance lock use these paths.
 const isDevelopment = !app.isPackaged;
@@ -61,6 +63,85 @@ const profileContext = configureProfiles(
   isDevelopment && process.env.MIRA_TEST_USER_DATA_DIR ? process.env.MIRA_TEST_USER_DATA_DIR : app.getPath('userData'),
 );
 let profileHandlers: ReturnType<typeof setupProfiles> | undefined;
+const workspaceByWindow = new Map<number, string>();
+let workspaceStore: WorkspaceStore;
+let openWorkspaceWindow: (id: string) => BrowserWindow;
+
+function setupWorkspaces() {
+  workspaceStore = new WorkspaceStore(app.getPath('userData'));
+  const trusted = (sender: WebContents) => {
+    const win = BrowserWindow.fromWebContents(sender);
+    if (!win || win.webContents !== sender || isPrivateContents(sender)) throw new Error('Workspaces are unavailable in this window.');
+    return win;
+  };
+  const broadcast = () => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!isPrivateContents(win.webContents)) win.webContents.send('workspaces-changed');
+    }
+  };
+  ipcMain.on('workspace-bootstrap', (event) => {
+    try {
+      const win = trusted(event.sender);
+      const id = workspaceByWindow.get(win.id);
+      event.returnValue = id ? workspaceStore.list().find(entry => entry.id === id) : null;
+    } catch { event.returnValue = null; }
+  });
+  ipcMain.handle('workspaces-list', event => { trusted(event.sender); return workspaceStore.list(); });
+  ipcMain.handle('workspaces-save', (event, value) => {
+    trusted(event.sender);
+    const previousSettings = value?.id ? JSON.stringify(workspaceStore.get(value.id)?.settings) : undefined;
+    const saved = workspaceStore.save(value);
+    for (const [windowId, id] of workspaceByWindow) {
+      if (id === saved.id && previousSettings !== JSON.stringify(saved.settings)) BrowserWindow.fromId(windowId)?.webContents.send('workspace-settings-updated', saved.settings);
+    }
+    broadcast(); return saved;
+  });
+  ipcMain.handle('workspace-settings-save', (event, settings) => {
+    const win = trusted(event.sender);
+    const id = workspaceByWindow.get(win.id);
+    if (!id) throw new Error('This window is not a workspace.');
+    workspaceStore.setSettings(id, workspaceSettings(settings));
+    return true;
+  });
+  const openWorkspace = (id: string) => {
+    const entry = workspaceStore.get(id);
+    if (!entry) throw new Error('Workspace not found.');
+    const existing = [...workspaceByWindow].find(([, workspace]) => workspace === id);
+    const open = existing && BrowserWindow.fromId(existing[0]);
+    if (open && !open.isDestroyed()) { if (open.isMinimized()) open.restore(); open.show(); open.focus(); return open; }
+    const urls = entry.urls.length ? entry.urls : ['mira://NewTab'];
+    const tabs = urls.map(url => ({ id: uuidv4(), url, title: url, history: [url], historyIndex: 0, reloadToken: 0, isSleeping: false, lastActiveAt: Date.now() }));
+    const snapshot = (entry.startup === 'restore' ? normalizeWindowSessionSnapshot(entry.session, true) : null)
+      ?? normalizeWindowSessionSnapshot({ tabs, activeId: tabs[0].id, savedAt: Date.now() }, true)!;
+    return createWindow(undefined, undefined, snapshot, { private: false, workspaceId: id });
+  };
+  openWorkspaceWindow = openWorkspace;
+  ipcMain.handle('workspaces-open', (event, id: string) => { trusted(event.sender); openWorkspace(id); return true; });
+  ipcMain.handle('workspaces-open-settings', (event, id: string) => {
+    trusted(event.sender);
+    const win = openWorkspace(id);
+    const show = () => { if (!win.isDestroyed()) win.webContents.send('open-url-in-new-tab', 'mira://WorkspaceSettings#section=workspace'); };
+    if (win.webContents.isLoading()) win.webContents.once('did-finish-load', () => setTimeout(show, 200));
+    else show();
+    return true;
+  });
+  ipcMain.handle('workspaces-remove', async (event, id: string) => {
+    const source = trusted(event.sender);
+    const entry = workspaceStore.get(id);
+    if (!entry) return false;
+    const accepted = await requestAppDialog(source, { kind: 'confirm', title: 'Delete workspace?', message: `Delete ${entry.name} and its saved tabs and settings?`, confirmLabel: 'Delete', cancelLabel: 'Cancel' });
+    if (!accepted.accepted) return false;
+    // A running workspace must close through the normal unsaved-page checks.
+    const existing = [...workspaceByWindow].find(([, workspace]) => workspace === id);
+    const win = existing && BrowserWindow.fromId(existing[0]);
+    if (win && !win.isDestroyed()) {
+      if (!await confirmWindowClose(win)) return false;
+      markWindowCloseAllowed(win); win.close();
+      if (!win.isDestroyed()) return false;
+    }
+    workspaceStore.remove(id); broadcast(); return true;
+  });
+}
 
 // Private partitions never use Chromium's persistent session storage.
 const privatePartitionsByWindow = new Map<number, string>();
@@ -99,6 +180,7 @@ interface TabSessionSnapshot {
 }
 
 interface WindowSessionSnapshot {
+  workspaceId?: string;
   tabs: TabSessionSnapshot[];
   activeId: string;
   savedAt: number;
@@ -1847,6 +1929,7 @@ function normalizeWindowSessionSnapshot(value: unknown, includeBlank = false): W
 
   return {
     tabs: orderGroupedTabs(tabs),
+    workspaceId: typeof candidate.workspaceId === 'string' && /^[a-f0-9-]{36}$/.test(candidate.workspaceId) ? candidate.workspaceId : undefined,
     activeId,
     savedAt:
       typeof candidate.savedAt === 'number' && Number.isFinite(candidate.savedAt)
@@ -2036,6 +2119,7 @@ function findTabDropTarget(draggedWindowId: number, tabId: string): { windowId: 
   for (const candidate of BrowserWindow.getAllWindows()) {
     if (candidate.id === draggedWindowId || candidate.isDestroyed() || !candidate.isVisible()
       || candidate.isMinimized() || isWebAppWindow(candidate.id)
+      || workspaceByWindow.get(candidate.id) !== workspaceByWindow.get(draggedWindowId)
       || privatePartitionsByWindow.get(candidate.id) !== privatePartitionsByWindow.get(draggedWindowId)) continue;
     const layout = tabDropLayouts.get(candidate.id);
     if (!layout) continue;
@@ -2148,7 +2232,7 @@ function startDetachedWindowDragSession(
 
 function collectPersistedSessionSnapshot(): PersistedSessionSnapshot | null {
   const windows = Array.from(windowSessionCache.entries())
-    .filter(([windowId]) => !privatePartitionsByWindow.has(windowId))
+    .filter(([windowId, snapshot]) => !privatePartitionsByWindow.has(windowId) && (!snapshot.workspaceId || !!workspaceStore?.get(snapshot.workspaceId)))
     .map(([, snapshot]) => snapshot)
     .filter((entry) => entry.tabs.length > 0)
     .sort((a, b) => b.savedAt - a.savedAt);
@@ -2193,7 +2277,7 @@ function normalizePersistedSessionSnapshot(parsed: unknown): PersistedSessionSna
   const candidate = parsed as Record<string, unknown>;
   const windowsRaw = Array.isArray(candidate.windows) ? candidate.windows : [];
   const windows = windowsRaw
-    .map((entry) => normalizeWindowSessionSnapshot(entry))
+    .map((entry) => normalizeWindowSessionSnapshot(entry, true))
     .filter((entry): entry is WindowSessionSnapshot => entry !== null);
   if (!windows.length) return null;
   return {
@@ -3722,13 +3806,24 @@ function setupSessionHandlers() {
     const sourceWindow = BrowserWindow.fromWebContents(event.sender);
     if (!sourceWindow || sourceWindow.isDestroyed() || privatePartitionsByWindow.has(sourceWindow.id)) return false;
 
+    const workspaceId = workspaceByWindow.get(sourceWindow.id);
+    if (workspaceId) {
+      const snapshot = normalizeWindowSessionSnapshot(payload, true);
+      if (!snapshot) return false;
+      workspaceStore.setSession(workspaceId, snapshot);
+      liveWindowSnapshots.set(sourceWindow.id, snapshot);
+      windowSessionCache.set(sourceWindow.id, { ...snapshot, workspaceId, bounds: sourceWindow.getBounds(), isMaximized: sourceWindow.isMaximized(), isFullScreen: sourceWindow.isFullScreen() });
+      scheduleSessionPersist();
+      return true;
+    }
+
     if (payload === null) {
       windowSessionCache.delete(sourceWindow.id);
       scheduleSessionPersist();
       return true;
     }
 
-    const normalized = normalizeWindowSessionSnapshot(payload);
+    const normalized = normalizeWindowSessionSnapshot(payload, true);
     if (!normalized) return false;
 
     const bounds = sourceWindow.getBounds();
@@ -3743,6 +3838,7 @@ function setupSessionHandlers() {
   });
 
   ipcMain.handle('session-get-restore-state', (event) => {
+    if (workspaceByWindow.has(BrowserWindow.fromWebContents(event.sender)?.id ?? -1)) return { hasPendingRestore: false, tabCount: 0, windowCount: 0 };
     if (isPrivateContents(event.sender)) return { hasPendingRestore: false, tabCount: 0, windowCount: 0 };
     if (!pendingRestoreSession) {
       return {
@@ -3764,11 +3860,17 @@ function setupSessionHandlers() {
     if (isPrivateContents(event.sender)) return null;
     const sourceWindow = BrowserWindow.fromWebContents(event.sender);
     if (!sourceWindow || sourceWindow.isDestroyed()) return null;
+    if (workspaceByWindow.has(sourceWindow.id)) return null;
     if (!pendingRestoreSession?.windows.length) return null;
 
     const restoreMode: SessionRestoreMode = mode === 'tabs' ? 'tabs' : 'windows';
-    const [primaryWindow, ...otherWindows] = pendingRestoreSession.windows;
+    const snapshots = pendingRestoreSession.windows;
     pendingRestoreSession = null;
+    for (const snapshot of snapshots) {
+      if (snapshot.workspaceId && workspaceStore.get(snapshot.workspaceId)) openWorkspaceWindow(snapshot.workspaceId);
+    }
+    const [primaryWindow, ...otherWindows] = snapshots.filter(snapshot => !snapshot.workspaceId);
+    if (!primaryWindow) return null;
 
     if (restoreMode === 'tabs') {
       return mergeRestoreWindowsIntoSingleSnapshot([primaryWindow, ...otherWindows]) ?? primaryWindow;
@@ -3794,7 +3896,8 @@ function setupSessionHandlers() {
     if (!sourceWindow || sourceWindow.isDestroyed()) return null;
     const suspendedSnapshot = suspendedWindowRestoreById.get(sourceWindow.id);
     if (suspendedSnapshot) return suspendedSnapshot;
-    const snapshot = bootRestoreByWindowId.get(sourceWindow.id) ?? null;
+    const snapshot = bootRestoreByWindowId.get(sourceWindow.id)
+      ?? liveWindowSnapshots.get(sourceWindow.id) ?? null;
     bootRestoreByWindowId.delete(sourceWindow.id);
     return snapshot;
   });
@@ -4147,8 +4250,14 @@ function setupBlockingSettingsHandlers() {
   ipcMain.handle('settings-set-window-suspension', (event, value: unknown) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win || event.sender !== win.webContents) return false;
+    if (workspaceByWindow.has(win.id)) {
+      windowSuspensionById.get(win.id)?.configure(normalizeWindowSuspensionSettings(value));
+      return true;
+    }
     windowSuspensionSettings = normalizeWindowSuspensionSettings(value);
-    for (const lifecycle of windowSuspensionById.values()) lifecycle.configure(windowSuspensionSettings);
+    for (const [id, lifecycle] of windowSuspensionById) {
+      if (!workspaceByWindow.has(id)) lifecycle.configure(windowSuspensionSettings);
+    }
     return true;
   });
   ipcMain.handle('settings-set-ad-block-enabled', async (_, enabled: unknown) => {
@@ -4292,6 +4401,8 @@ function setupWindowControlsHandlers() {
 
     const request = payload as { targetWindowId?: unknown; insertionIndex?: unknown; closeSourceOnComplete?: unknown;
       moveExistingWindow?: unknown; windowPointerOffsetX?: number; windowPointerOffsetY?: number };
+    // A workspace owns one window; never detach its tabs into an unscoped window.
+    if (workspaceByWindow.has(sourceWindow.id) && request.moveExistingWindow !== true) return null;
     if (normalized.dragMode && request.moveExistingWindow === true) {
       let offsetX = Number.isFinite(request.windowPointerOffsetX) ? request.windowPointerOffsetX! : normalized.pointerOffsetX ?? 140;
       const offsetY = Number.isFinite(request.windowPointerOffsetY) ? request.windowPointerOffsetY! : normalized.pointerOffsetY ?? 18;
@@ -4327,6 +4438,7 @@ function setupWindowControlsHandlers() {
       ? BrowserWindow.fromId(request.targetWindowId) : null;
     if (request.targetWindowId !== undefined && (!existingWindow || existingWindow.isDestroyed()
       || existingWindow.id === sourceWindow.id || isWebAppWindow(existingWindow.id)
+      || workspaceByWindow.get(existingWindow.id) !== workspaceByWindow.get(sourceWindow.id)
       || privatePartitionsByWindow.get(existingWindow.id) !== privatePartitionsByWindow.get(sourceWindow.id))) return null;
     const detachedWindow = existingWindow ?? createWindow(
       sourceWindow,
@@ -5746,6 +5858,7 @@ function createWindow(
     maximize?: boolean;
     showInactive?: boolean;
     private?: boolean;
+    workspaceId?: string;
   },
 ): BrowserWindow {
   const privatePartition = options?.private ? `mira-private-${uuidv4()}`
@@ -5792,7 +5905,7 @@ function createWindow(
     webPreferences: {
       // devTools: false,
       preload: path.join(__dirname, 'preload.js'),
-      additionalArguments: [`--mira-profile-id=${profileContext.id}`, ...(privatePartition ? [`--mira-private-partition=${privatePartition}`] : [])],
+      additionalArguments: [`--mira-profile-id=${profileContext.id}`, ...(options?.workspaceId ? [`--mira-workspace-id=${options.workspaceId}`] : []), ...(privatePartition ? [`--mira-private-partition=${privatePartition}`] : [])],
       webviewTag: true,
       contextIsolation: true,
       nodeIntegration: false,
@@ -5801,6 +5914,7 @@ function createWindow(
   });
 
   if (privatePartition) privatePartitionsByWindow.set(win.id, privatePartition);
+  if (options?.workspaceId) workspaceByWindow.set(win.id, options.workspaceId);
 
   const suspension = setupWindowSuspension(win, () => {
     const snapshot = liveWindowSnapshots.get(win.id);
@@ -5961,13 +6075,18 @@ function createWindow(
   });
 
   win.on('closed', () => {
+    const workspaceId = workspaceByWindow.get(win.id);
+    if (workspaceId) {
+      const snapshot = liveWindowSnapshots.get(win.id);
+      if (snapshot) workspaceStore.setSession(workspaceId, snapshot);
+    }
     tabDropLayouts.delete(win.id);
     windowSuspensionById.delete(win.id);
     suspendedWindowRestoreById.delete(win.id);
     liveWindowSnapshots.delete(win.id);
     const closedSnapshot = recentlyClosedWindowSnapshots.get(win.id);
     recentlyClosedWindowSnapshots.delete(win.id);
-    if (!privatePartition && closedSnapshot) {
+    if (!privatePartition && !workspaceId && closedSnapshot) {
       recentlyClosedEntries = addClosedWindow(recentlyClosedEntries, closedSnapshot);
       saveRecentlyClosed();
       broadcastRecentlyClosed();
@@ -6008,6 +6127,7 @@ function createWindow(
     recentRendererRecoveryByWindow.delete(win.id);
     pendingInitialUrlByWindowId.delete(win.id);
     const noWindowsRemaining = BrowserWindow.getAllWindows().length === 0;
+    workspaceByWindow.delete(win.id);
     if (privatePartition) return;
 
     // Do not remove this snapshot immediately. Users may be closing windows
@@ -6322,9 +6442,10 @@ app.whenReady().then(async () => {
   setupVersionHandlers();
   setupPerformanceHandlers();
   setupSessionHandlers();
+  setupWorkspaces();
   setupOpenTabHandlers({
     scope: win => isWebAppWindow(win.id) || onboardingWindowIds.has(win.id) || profilePickerWindowIds.has(win.id) ? null
-      : privatePartitionsByWindow.get(win.id) ?? 'regular',
+      : privatePartitionsByWindow.get(win.id) ?? (workspaceByWindow.has(win.id) ? `workspace:${workspaceByWindow.get(win.id)}` : 'regular'),
     ready: win => !win.webContents.isLoadingMainFrame() &&
       !windowSuspensionById.get(win.id)?.isUnloaded && !windowSuspensionById.get(win.id)?.isRestoring,
   });

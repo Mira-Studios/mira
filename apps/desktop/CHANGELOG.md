@@ -9,6 +9,7 @@
 - Git sidebar
 - Profiles
 - Sidebar
+- Workspaces
 
 ### Improved
 

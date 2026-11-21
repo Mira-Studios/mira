@@ -1,4 +1,6 @@
 import { DEFAULT_THEME_ID } from '../themes/themeLoader';
+import { electron } from '../../electronBridge';
+import { workspaceSettings } from '../../../electron/workspacePolicy';
 import { normalizeBackgroundImageSource } from '../../themes/backgroundImage';
 import { DEFAULT_LAYOUT_ID } from '../layouts/layoutLoader';
 import { DEFAULT_HISTORY_RETENTION_DAYS, normalizeHistoryRetentionDays, pruneHistoryEntries } from '../../../electron/historyPolicy';
@@ -101,6 +103,7 @@ export type BrowserSettings = {
   dev: boolean;
   showBookmarkButton: boolean;
   showProfileMenu: boolean;
+  showWorkspaceMenu: boolean;
   showBookmarksBar: boolean;
   sidebarEnabled: boolean;
   sidebarMode: SidebarMode;
@@ -153,6 +156,7 @@ export const DEFAULT_BROWSER_SETTINGS: BrowserSettings = {
   dev: true,
   showBookmarkButton: true,
   showProfileMenu: false,
+  showWorkspaceMenu: false,
   showBookmarksBar: false,
   sidebarEnabled: false,
   sidebarMode: 'collapsed',
@@ -553,6 +557,7 @@ export function normalizeBrowserSettings(value: unknown): BrowserSettings {
     showPerfOverlay: normalizeShowPerfOverlay(candidate.showPerfOverlay),
     showBookmarkButton: normalizeShowBookmarkButton(candidate.showBookmarkButton),
     showProfileMenu: candidate.showProfileMenu === true,
+    showWorkspaceMenu: candidate.showWorkspaceMenu === true,
     showBookmarksBar: normalizeShowBookmarksBar(candidate.showBookmarksBar),
     sidebarEnabled: candidate.sidebarEnabled === true,
     sidebarMode: candidate.sidebarMode === 'collapsed' || candidate.sidebarMode === 'expanded' || candidate.sidebarMode === 'hover' ? candidate.sidebarMode : candidate.sidebarExpanded === true ? 'expanded' : 'collapsed',
@@ -703,10 +708,10 @@ export function getSearchUrlFromInput(
 export function getBrowserSettings(): BrowserSettings {
   try {
     const raw = localStorage.getItem(BROWSER_SETTINGS_STORAGE_KEY);
-    if (!raw) return DEFAULT_BROWSER_SETTINGS;
-
-    const parsed = JSON.parse(raw) as unknown;
-    return normalizeBrowserSettings(parsed);
+    const parsed = raw ? JSON.parse(raw) : {};
+    const overrides = electron?.workspaceId
+      ? workspaceSettings(JSON.parse(localStorage.getItem(`mira.workspace.settings.v1.${electron.workspaceId}`) || '{}')) : {};
+    return normalizeBrowserSettings({ ...parsed, ...overrides });
   } catch {
     return DEFAULT_BROWSER_SETTINGS;
   }
@@ -735,7 +740,11 @@ export function saveBrowserSettings(next: Partial<BrowserSettings>): BrowserSett
     }
   }
   try {
-    localStorage.setItem(BROWSER_SETTINGS_STORAGE_KEY, JSON.stringify(normalized));
+    if (electron?.workspaceId) {
+      const overrides = workspaceSettings(normalized);
+      localStorage.setItem(`mira.workspace.settings.v1.${electron.workspaceId}`, JSON.stringify(overrides));
+      void electron.ipcRenderer.invoke('workspace-settings-save', overrides).catch(() => undefined);
+    } else localStorage.setItem(BROWSER_SETTINGS_STORAGE_KEY, JSON.stringify(normalized));
   } catch {
     // Ignore storage failures and still return normalized values.
   }

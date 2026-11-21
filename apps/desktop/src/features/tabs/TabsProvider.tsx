@@ -231,14 +231,6 @@ function isNewTabUrl(url: string, defaultTabUrl: string): boolean {
   return normalized === 'mira://newtab' || normalized === defaultTabUrl.trim().toLowerCase();
 }
 
-function isSessionEphemeralTabUrl(url: string): boolean {
-  return url.trim().toLowerCase() === 'mira://newtab';
-}
-
-function filterRestorableTabs(tabs: Tab[]): Tab[] {
-  return tabs.filter((tab) => tab.isPinned || tab.group || !isSessionEphemeralTabUrl(tab.url));
-}
-
 function createInitialTab(url: string): Tab {
   const now = Date.now();
   return {
@@ -385,7 +377,7 @@ function parseSnapshot(raw: string | null, defaultTabUrl: string): SessionSnapsh
     const tabs = tabsRaw
       .map((tab) => normalizeTab(tab, defaultTabUrl))
       .filter((tab): tab is Tab => tab !== null);
-    const restorableTabs = filterRestorableTabs(tabs);
+    const restorableTabs = tabs;
     if (!restorableTabs.length) return null;
 
     const activeIdRaw =
@@ -733,7 +725,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
 
   const persistSession = (nextTabs: Tab[], nextActiveId: string) => {
     if (electron?.isPrivate) return;
-    const restorableTabs = filterRestorableTabs(nextTabs);
+    const restorableTabs = nextTabs;
     const hasExplicitActiveId = restorableTabs.some((tab) => tab.id === nextActiveId);
     const fallbackActiveId =
       restorableTabs.length > 0
@@ -828,7 +820,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
     const bootstrapSessionRestore = async () => {
       const fullscreen = ipc.invoke<boolean>('window-is-fullscreen').catch(() => false);
       try {
-        if (electron?.isPrivate) {
+        if (electron?.isPrivate || electron?.workspaceId) {
           const windowRestore = await ipc.invoke<SessionSnapshot | null>('session-take-window-restore');
           if (cancelled) return;
           if (windowRestore?.tabs.length) applyRestoredSnapshot(windowRestore);
@@ -1057,6 +1049,8 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
         return 'Compose Email';
       case 'themecreator':
         return 'Theme Creator';
+      case 'workspacesettings':
+        return 'Workspace settings';
       default:
         // return a capitalized version of the url
         return route.charAt(0).toUpperCase() + route.slice(1);
@@ -2480,10 +2474,10 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
   }, [tabs]);
 
   useEffect(() => {
-    if (!hydratedRef.current) return;
+    if (!hydratedRef.current || !isBootstrapReady) return;
     if (restorePromptOpen) return;
     persistSession(tabs, activeId);
-  }, [tabs, activeId, restorePromptOpen]);
+  }, [tabs, activeId, restorePromptOpen, isBootstrapReady]);
 
   useEffect(() => {
     const ipc = electron?.ipcRenderer;

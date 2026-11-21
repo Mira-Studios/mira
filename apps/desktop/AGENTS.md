@@ -34,6 +34,15 @@ When adding or changing any feature (including New Tab cards):
   `electron/profileSettingsPolicy.ts`. Never add tabs, bookmarks, history, site
   permissions, or cookies to it. Apply incoming preferences before initial paint
   and notify open settings views so stale forms cannot overwrite synced values.
+- Workspaces are owned by the current profile and stored in `workspaces.v1.json`
+  under its `userData` directory. A workspace owns one window. Tag its restart
+  snapshot with its workspace ID, restore it into that workspace, and never merge
+  its tabs into ordinary windows. Prevent tab transfers across workspace
+  boundaries. Read preferences through `getBrowserSettings()` and write through
+  `saveBrowserSettings()` so window overrides remain workspace scoped. Add new
+  window-local preferences to `electron/workspacePolicy.ts` deliberately; never
+  include cookies, history, profile sync, OS integration, or other profile data.
+  Workspace creation only collects identity; editing belongs on its settings page.
 
 Run `npm run test:profiles --workspace apps/desktop` for storage and migration
 tests. Build the renderer before `npm run test:profiles-ui --workspace apps/desktop`

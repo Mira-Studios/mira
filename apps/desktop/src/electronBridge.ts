@@ -10,6 +10,7 @@ interface ElectronBridge {
   isPrivate?: boolean;
   privatePartition?: string;
   profileId?: string;
+  workspaceId?: string;
   isMacOS: boolean;
   appVersion?: string | null;
   getAppVersion?: () => Promise<string>;

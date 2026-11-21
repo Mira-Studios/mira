@@ -1,10 +1,11 @@
-export const SIDEBAR_SECTIONS = ['bookmarks', 'profiles', 'recently-closed'] as const;
+export const SIDEBAR_SECTIONS = ['bookmarks', 'profiles', 'recently-closed', 'workspaces'] as const;
 export type SidebarSection = (typeof SIDEBAR_SECTIONS)[number];
 export type SidebarSide = 'left' | 'right';
 export type SidebarMode = 'collapsed' | 'expanded' | 'hover';
 export const SIDEBAR_SECTION_LABELS: Record<SidebarSection, string> = {
   bookmarks: 'Bookmarks',
   profiles: 'Profiles',
+  workspaces: 'Workspaces',
   'recently-closed': 'Recently closed',
 };
 

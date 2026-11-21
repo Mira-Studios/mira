@@ -28,6 +28,9 @@
     "test:profiles": "node --test tests/profileStore.test.ts",
     "test:profiles-ui": "node tests/profiles.integration.ts",
     "test:sidebar": "node tests/sidebar.integration.ts",
+    "test:workspaces": "node --test tests/workspaceStore.test.ts",
+    "test:workspaces-ui": "node tests/workspaces.integration.ts",
+    "test:window-restore": "node tests/windowRestore.integration.ts",
     "preview": "vite preview",
     "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json,css,md}\""
   },

@@ -4,6 +4,16 @@ const { contextBridge, ipcRenderer } = require('electron');
 const isMacOS = process.platform === 'darwin';
 const privatePartition = process.argv.find((arg) => arg.startsWith('--mira-private-partition='))?.split('=')[1];
 const profileId = process.argv.find((arg) => arg.startsWith('--mira-profile-id='))?.slice('--mira-profile-id='.length);
+const workspaceId = !privatePartition ? process.argv.find(arg => arg.startsWith('--mira-workspace-id='))?.slice('--mira-workspace-id='.length) : undefined;
+if (workspaceId) {
+  const workspace = ipcRenderer.sendSync('workspace-bootstrap');
+  if (workspace) localStorage.setItem(`mira.workspace.settings.v1.${workspaceId}`, JSON.stringify(workspace.settings));
+  ipcRenderer.on('workspace-settings-updated', (_event, settings) => {
+    localStorage.setItem(`mira.workspace.settings.v1.${workspaceId}`, JSON.stringify(settings));
+    window.dispatchEvent(new Event('mira:profile-settings-applied'));
+    window.dispatchEvent(new Event('mira:settings-changed'));
+  });
+}
 const appVersion = process.env.MIRA_VERSION || null;
 const rendererListeners = new Map();
 let nextRendererListenerId = 0;
@@ -66,6 +76,7 @@ contextBridge.exposeInMainWorld('electron', {
   isPrivate: !!privatePartition,
   privatePartition,
   profileId: privatePartition ? undefined : profileId,
+  workspaceId,
   isMacOS,
   appVersion,
   ipcSubscriptionIds: true,

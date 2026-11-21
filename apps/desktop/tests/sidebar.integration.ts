@@ -441,7 +441,7 @@ try {
     await evaluate(
       `[...document.querySelectorAll('.sidebar-section-controls input')].map(input => input.id)`,
     ),
-    ['sidebar-section-bookmarks', 'sidebar-section-profiles', 'sidebar-section-recently-closed'],
+    ['sidebar-section-bookmarks', 'sidebar-section-profiles', 'sidebar-section-recently-closed', 'sidebar-section-workspaces'],
     'Disabling a section does not reorder settings rows',
   );
   await click('[aria-label="Move Profiles down"]');

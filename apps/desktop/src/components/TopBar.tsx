@@ -3,6 +3,8 @@ import { Copy, Minus, Square, X } from 'lucide-react';
 import { electron } from '../electronBridge';
 import appIcon from '../assets/mira_icon.png';
 import appWordmark from '../assets/mira.png';
+import { useWorkspaces } from '../features/workspaces/useWorkspaces';
+import { WorkspaceIcon } from './WorkspaceList';
 import {
   BROWSER_SETTINGS_CHANGED_EVENT,
   getBrowserSettings,
@@ -205,6 +207,8 @@ export default function TopBar({
     </div>
   );
 
+  const workspaces = useWorkspaces();
+  const workspace = workspaces.find(item => item.id === electron?.workspaceId);
   const useNativeWindowsControls = isWindows && isTitleBarOverlayEnabled;
   const controlsSection = isMacOS ? (
     <div
@@ -336,6 +340,7 @@ export default function TopBar({
       {electron?.isPrivate && (
         <span style={{ fontSize: 12, padding: '0 10px', color: 'var(--surfaceText, var(--text1))', flexShrink: 0 }}>Private</span>
       )}
+      {workspace && <div className="workspace-titlebar-context" aria-label={`You are in workspace ${workspace.name}`} title={`Workspace: ${workspace.name}`}><WorkspaceIcon workspace={workspace} size={16} /><span>{workspace.name}</span></div>}
       {isMacOS ? (
         brandSection
       ) : (
