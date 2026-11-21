@@ -14,6 +14,8 @@ import {
   History,
   Lock,
   Plus,
+  PanelLeft,
+  PanelRight,
   Printer,
   RotateCw,
   Search,
@@ -45,6 +47,8 @@ import { isEditorUrl, saveEditor } from '../features/editor/editorLifecycle';
 import FileTypeIcon from '../features/tabs/FileTypeIcon';
 import GitButton from '../features/git/GitButton';
 import { useGitRepository } from '../features/git/GitProvider';
+import { useSidebarSettings } from '../features/sidebar/useSidebarSettings';
+import { saveBrowserSettings } from '../features/settings/browserSettings';
 
 const MENU_ANIMATION_MS = 150;
 
@@ -146,6 +150,8 @@ function readSiteSettingsPageInfo(url: string | undefined): SiteSettingsPageInfo
 }
 
 export default function AddressBar({ inputRef, inTopBar = false }: AddressBarProps) {
+  const sidebarSettings = useSidebarSettings();
+  const profilesInSidebar = sidebarSettings.sidebarEnabled && sidebarSettings.sidebarSections.includes('profiles');
   const {
     tabs,
     activeId,
@@ -697,6 +703,12 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
       onSelect: openBrowserSettingsPage,
     },
     {
+      id: 'toggle-sidebar',
+      label: sidebarSettings.sidebarEnabled ? 'Hide Sidebar' : 'Show Sidebar',
+      icon: sidebarSettings.sidebarSide === 'right' ? PanelRight : PanelLeft,
+      onSelect: () => { saveBrowserSettings({ sidebarEnabled: !sidebarSettings.sidebarEnabled }); },
+    },
+    {
       id: 'close-window',
       label: 'Close Window',
       icon: X,
@@ -1079,7 +1091,7 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
 
       <DownloadButton />
 
-      {!electron?.isPrivate && showProfileMenu && <ProfileMenu open={profilesOpen} showButton animationsEnabled={animationsEnabled}
+      {!electron?.isPrivate && !profilesInSidebar && showProfileMenu && <ProfileMenu open={profilesOpen} showButton animationsEnabled={animationsEnabled}
         onClose={closeProfiles} onOpen={() => { closeMenu(); closeSiteSettings(); setProfilesOpen(true); }} />}
       <div ref={menuRef} style={{ position: 'relative' }}>
         <button
@@ -1148,7 +1160,7 @@ export default function AddressBar({ inputRef, inTopBar = false }: AddressBarPro
               );
             })}
             <hr className="address-menu-divider" />
-            {!electron?.isPrivate && !showProfileMenu && <>
+            {!electron?.isPrivate && !profilesInSidebar && !showProfileMenu && <>
               <ProfileMenu open showButton={false} embedded animationsEnabled={animationsEnabled}
                 onClose={closeMenu} onOpen={openMenu} />
               <hr className="address-menu-divider" />

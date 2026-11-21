@@ -50,6 +50,9 @@
 .settings-redesign .settings-profile-actions .theme-btn, .settings-redesign .settings-profile-icon-button { border: 0; background: transparent; }
 .settings-redesign .settings-profile-icon-button { width: 32px; height: 32px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
 .settings-redesign .settings-profile-sync-heading { margin-top: 26px; }
+.settings-redesign .sidebar-sections-heading { margin-top: 26px; }
+.settings-redesign .sidebar-section-controls { display: flex; align-items: center; gap: 10px; }
+.settings-redesign .sidebar-settings-icon { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border: 0; background: transparent; }
 .settings-page.settings-redesign {
   position: relative;
   max-width: 1120px;

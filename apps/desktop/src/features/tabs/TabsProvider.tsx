@@ -149,7 +149,7 @@ type TabsContextType = {
   ungroupTabs: (groupId: string) => void;
   closeTabGroup: (groupId: string) => Promise<void>;
   recentlyClosed: RecentlyClosedEntry[];
-  restoreRecentlyClosed: (id: string) => void;
+  restoreRecentlyClosed: (id: string, options?: { animate?: boolean }) => void;
   openRecentlyClosed: () => void;
   reopenLastClosedTab: () => void;
   openHistory: () => void;
@@ -1572,12 +1572,14 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
     }
   }, [closeTab]);
 
-  const restoreRecentlyClosed = useCallback((id?: string) => {
+  const restoreRecentlyClosed = useCallback((id?: string, options?: { animate?: boolean }) => {
     const apply = (restored: ReturnType<typeof restoreClosedEntry> | null) => {
       if (!restored) return;
       setTabs(current => current.concat(restored.tabs));
       setActiveId(restored.activeId);
-      setRestoreRevision(revision => revision + 1);
+      // Sidebar restores behave like newly opened tabs. Full restore surfaces
+      // retain their final-geometry reset so startup and session recovery don't move.
+      if (!options?.animate) setRestoreRevision(revision => revision + 1);
     };
     if (electron?.ipcRenderer) {
       void electron.ipcRenderer.invoke<ReturnType<typeof restoreClosedEntry> | null>('recently-closed-restore', id)

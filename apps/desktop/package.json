@@ -27,6 +27,7 @@
     "test:background-images": "electron electron/backgroundImages.smoke.ts",
     "test:profiles": "node --test tests/profileStore.test.ts",
     "test:profiles-ui": "node tests/profiles.integration.ts",
+    "test:sidebar": "node tests/sidebar.integration.ts",
     "preview": "vite preview",
     "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json,css,md}\""
   },

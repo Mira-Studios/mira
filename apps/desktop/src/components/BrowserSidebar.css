@@ -1,0 +1,213 @@
+.browser-sidebar {
+  --browser-sidebar-width: 48px;
+  display: flex;
+  flex-direction: column;
+  width: var(--browser-sidebar-width);
+  flex: 0 0 var(--browser-sidebar-width);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--surfaceBg, var(--tabBg));
+  color: var(--surfaceText, var(--text1));
+  border-right: 1px solid var(--surfaceBorder, var(--tabBorder));
+  order: -1;
+}
+.browser-sidebar-expanded {
+  --browser-sidebar-width: min(220px, 38vw);
+}
+.browser-sidebar[data-side='right'] {
+  order: 2;
+  border-right: 0;
+  border-left: 1px solid var(--surfaceBorder, var(--tabBorder));
+}
+.browser-sidebar-animated {
+  transition:
+    width 160ms ease,
+    flex-basis 160ms ease;
+}
+.browser-sidebar-sections {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  padding-top: 4px;
+}
+.browser-sidebar-section {
+  padding: 6px;
+}
+.browser-sidebar-section + .browser-sidebar-section {
+  border-top: 1px solid var(--surfaceBorder, var(--tabBorder));
+}
+.browser-sidebar-section-heading {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-bottom: 3px;
+  min-height: 30px;
+}
+.browser-sidebar .browser-sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 34px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: var(--layoutAddressMenuItemRadius, 8px);
+  background: transparent;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.browser-sidebar .browser-sidebar-item:hover:not(:disabled),
+.browser-sidebar .browser-sidebar-icon-button:hover:not(:disabled) {
+  background: var(--navButtonBgHover);
+}
+.browser-sidebar .browser-sidebar-item-current {
+  background: var(--navButtonBgActive);
+  color: var(--navButtonTextActive);
+}
+.browser-sidebar .browser-sidebar-section-link {
+  min-width: 0;
+  min-height: 30px;
+  color: var(--text2);
+  font-size: 12px;
+  font-weight: 500;
+}
+.browser-sidebar-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+}
+.browser-sidebar-avatar {
+  display: block;
+  width: 18px;
+  height: 18px;
+  object-fit: cover;
+  border-radius: 50%;
+}
+.browser-sidebar-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.browser-sidebar .browser-sidebar-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  border: 0;
+  border-radius: var(--layoutAddressMenuItemRadius, 8px);
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.browser-sidebar-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.browser-sidebar-list > li {
+  margin: 0;
+  padding: 0;
+}
+.browser-sidebar-expanded .browser-sidebar-list .browser-sidebar-item {
+  padding-left: calc(9px + var(--sidebar-item-depth, 0) * 12px);
+}
+.browser-sidebar-profile-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.browser-sidebar-profile-row > .browser-sidebar-item {
+  flex: 1;
+  min-width: 0;
+}
+.browser-sidebar-profile-edit {
+  opacity: 0;
+}
+.browser-sidebar-profile-row:hover .browser-sidebar-profile-edit,
+.browser-sidebar-profile-row:focus-within .browser-sidebar-profile-edit {
+  opacity: 1;
+}
+.browser-sidebar-empty {
+  margin: 7px 9px;
+  color: var(--text2);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.browser-sidebar-error {
+  margin: 7px 9px;
+  color: var(--accentDanger, #e58484);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.browser-sidebar-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-top: 1px solid var(--surfaceBorder, var(--tabBorder));
+  padding: 6px;
+}
+.browser-sidebar-tooltip {
+  position: fixed;
+  z-index: 6000;
+  max-width: min(280px, calc(100vw - 16px));
+  box-sizing: border-box;
+  padding: 8px 11px;
+  border: 1px solid var(--surfaceBorder, var(--tabBorder));
+  border-radius: var(--layoutAddressMenuItemRadius, 8px);
+  background: var(--surfaceBg, var(--tabBg));
+  color: var(--surfaceText, var(--text1));
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--bg) 35%, transparent);
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+.browser-sidebar-tooltip-animated {
+  animation: sidebar-tooltip-in 100ms ease both;
+}
+@keyframes sidebar-tooltip-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.browser-sidebar:not(.browser-sidebar-expanded) .browser-sidebar-label,
+.browser-sidebar:not(.browser-sidebar-expanded) .browser-sidebar-section-action,
+.browser-sidebar:not(.browser-sidebar-expanded) .browser-sidebar-current-check,
+.browser-sidebar:not(.browser-sidebar-expanded) .browser-sidebar-profile-edit,
+.browser-sidebar:not(.browser-sidebar-expanded) .browser-sidebar-folder-caret,
+.browser-sidebar:not(.browser-sidebar-expanded) .browser-sidebar-empty {
+  display: none;
+}
+.browser-sidebar:not(.browser-sidebar-expanded) .browser-sidebar-error {
+  overflow: hidden;
+  height: 4px;
+  border-radius: 4px;
+  background: var(--accentDanger, #e58484);
+  color: transparent;
+}
+.browser-sidebar button:focus-visible {
+  outline: 2px solid var(--focusOutline, var(--accentPrimary));
+  outline-offset: -2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .browser-sidebar-animated {
+    transition: none;
+  }
+  .browser-sidebar-tooltip-animated {
+    animation: none;
+  }
+}

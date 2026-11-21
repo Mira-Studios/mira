@@ -5,6 +5,8 @@ import TabBar from './features/tabs/TabBar';
 import TabView from './features/tabs/TabView';
 import AddressBar from './components/AddressBar';
 import BookmarksBar from './components/BookmarksBar';
+import BrowserSidebar from './components/BrowserSidebar';
+import { useSidebarSettings } from './features/sidebar/useSidebarSettings';
 import FindBar from './components/FindBar';
 import TopBar from './components/TopBar';
 import RestoreTabsPrompt from './components/RestoreTabsPrompt';
@@ -200,6 +202,7 @@ function PerfOverlay() {
 }
 
 function Browser() {
+  const sidebarSettings = useSidebarSettings();
   const addressInputRef = useRef<HTMLInputElement | null>(null);
   const previousTabIdsRef = useRef<string[] | null>(null);
   const didCheckLaunchUpdateRef = useRef(false);
@@ -489,9 +492,10 @@ function Browser() {
           }}
         >
           {!hideBars && !addressBarInTopBar && <AddressBar inputRef={addressInputRef} />}
-          {!hideBars && showBookmarksBar && <BookmarksBar />}
+          {!hideBars && showBookmarksBar && !(sidebarSettings.sidebarEnabled && sidebarSettings.sidebarSections.includes('bookmarks')) && <BookmarksBar />}
           <FindBar open={findBarOpen} focusToken={findBarFocusToken} onClose={closeFindBar} />
           <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
+            <BrowserSidebar hidden={hideBars} />
             <TabView />
             <GitRepositoryDock />
             <DevToolsDock />

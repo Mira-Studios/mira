@@ -8,6 +8,7 @@
 - New Tab background
 - Git sidebar
 - Profiles
+- Sidebar
 
 ### Improved
 

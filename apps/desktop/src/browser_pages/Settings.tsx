@@ -4,6 +4,7 @@ import { AppWindow, Check, ChevronLeft, Cookie, Globe, RefreshCw, Trash2, Chevro
 import './Settings.css';
 import NewTabAppearanceSettings from './NewTabAppearanceSettings';
 import ProfileSettings from './ProfileSettings';
+import SidebarSettings from './SidebarSettings';
 import { useTabs } from '../features/tabs/TabsProvider';
 import { useDownloads } from '../features/downloads/DownloadProvider';
 import { clearHistoryEntries } from '../features/history/clientHistory';
@@ -2043,6 +2044,7 @@ function SettingsContent() {
               {!!importMessage && (
                 <div className="theme-text2 settings-inline-message">{importMessage}</div>
               )}
+              <SidebarSettings />
             </>
           )}
 

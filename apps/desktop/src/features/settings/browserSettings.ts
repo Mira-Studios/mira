@@ -3,6 +3,7 @@ import { normalizeBackgroundImageSource } from '../../themes/backgroundImage';
 import { DEFAULT_LAYOUT_ID } from '../layouts/layoutLoader';
 import { DEFAULT_HISTORY_RETENTION_DAYS, normalizeHistoryRetentionDays, pruneHistoryEntries } from '../../../electron/historyPolicy';
 import type { HistoryRetentionDays } from '../../../electron/historyPolicy';
+import { normalizeSidebarSections, normalizeSidebarSectionOrder, SIDEBAR_SECTIONS, type SidebarSection, type SidebarSide, type SidebarMode } from '../sidebar/sidebarSettings';
 
 export type TabSleepUnit = 'seconds' | 'minutes' | 'hours';
 export type TabSleepMode = 'freeze' | 'discard';
@@ -101,6 +102,12 @@ export type BrowserSettings = {
   showBookmarkButton: boolean;
   showProfileMenu: boolean;
   showBookmarksBar: boolean;
+  sidebarEnabled: boolean;
+  sidebarMode: SidebarMode;
+  sidebarSide: SidebarSide;
+  sidebarSections: SidebarSection[];
+  sidebarSectionOrder: SidebarSection[];
+  sidebarShowTooltips: boolean;
   cookiesEnabled: boolean;
 };
 
@@ -147,6 +154,12 @@ export const DEFAULT_BROWSER_SETTINGS: BrowserSettings = {
   showBookmarkButton: true,
   showProfileMenu: false,
   showBookmarksBar: false,
+  sidebarEnabled: false,
+  sidebarMode: 'collapsed',
+  sidebarSide: 'left',
+  sidebarSections: [...SIDEBAR_SECTIONS],
+  sidebarSectionOrder: [...SIDEBAR_SECTIONS],
+  sidebarShowTooltips: true,
   cookiesEnabled: true,
 };
 
@@ -470,6 +483,7 @@ export function normalizeBrowserSettings(value: unknown): BrowserSettings {
 
   const candidate = value as Partial<BrowserSettings> & {
     hiddenDevSettingEnabled?: unknown;
+    sidebarExpanded?: unknown;
   };
   const minimizedWindowSleepUnit = candidate.minimizedWindowSleepUnit === 'seconds'
     || candidate.minimizedWindowSleepUnit === 'hours'
@@ -540,6 +554,12 @@ export function normalizeBrowserSettings(value: unknown): BrowserSettings {
     showBookmarkButton: normalizeShowBookmarkButton(candidate.showBookmarkButton),
     showProfileMenu: candidate.showProfileMenu === true,
     showBookmarksBar: normalizeShowBookmarksBar(candidate.showBookmarksBar),
+    sidebarEnabled: candidate.sidebarEnabled === true,
+    sidebarMode: candidate.sidebarMode === 'collapsed' || candidate.sidebarMode === 'expanded' || candidate.sidebarMode === 'hover' ? candidate.sidebarMode : candidate.sidebarExpanded === true ? 'expanded' : 'collapsed',
+    sidebarSide: candidate.sidebarSide === 'right' ? 'right' : 'left',
+    sidebarSections: normalizeSidebarSections(candidate.sidebarSections),
+    sidebarSectionOrder: normalizeSidebarSectionOrder(candidate.sidebarSectionOrder ?? candidate.sidebarSections),
+    sidebarShowTooltips: candidate.sidebarShowTooltips !== false,
     cookiesEnabled: normalizeCookiesEnabled(candidate.cookiesEnabled),
     historyRetentionDays: normalizeHistoryRetentionDays(candidate.historyRetentionDays),
     dev: normalizeDevSetting(candidate.dev ?? candidate.hiddenDevSettingEnabled),
