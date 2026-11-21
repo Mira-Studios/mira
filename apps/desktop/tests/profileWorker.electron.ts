@@ -65,6 +65,7 @@ async function run() {
       index?: number;
       value?: string;
       file?: string;
+      bounds?: { x: number; y: number; width: number; height: number };
     };
     try {
       command = JSON.parse(fs.readFileSync(path.join(directory, `${id}-command.json`), 'utf8'));
@@ -82,6 +83,31 @@ async function run() {
       let result: unknown;
       if (command.action === 'eval')
         result = await win.webContents.executeJavaScript(command.code!);
+      if (command.action === 'window-info')
+        result = {
+          processId: win.webContents.getOSProcessId(),
+          bounds: win.getBounds(),
+          content: win.getContentBounds(),
+          parent: win.getParentWindow()?.id ?? null,
+          onTop: win.isAlwaysOnTop(),
+          visible: win.isVisible(),
+          minimized: win.isMinimized(),
+          focused: win.isFocused(),
+        };
+      if (command.action === 'window-bounds') {
+        win.setBounds(command.bounds!);
+        result = win.getBounds();
+      }
+      if (command.action === 'window-hide') {
+        win.hide();
+        result = true;
+      }
+      if (command.action === 'window-show') {
+        if (win.isMinimized()) win.restore();
+        win.show();
+        win.focus();
+        result = true;
+      }
       if (command.action === 'snapshot')
         result = {
           pid: process.pid,
@@ -108,7 +134,10 @@ async function run() {
         result = true;
       }
       if (command.action === 'screenshot') {
-        if (!new URL(win.webContents.getURL()).searchParams.has('profilePicker')) {
+        if (
+          !new URL(win.webContents.getURL()).searchParams.has('profilePicker') &&
+          !new URL(win.webContents.getURL()).searchParams.has('pip')
+        ) {
           if (win.isMaximized()) win.unmaximize();
           win.setBounds({ x: 50, y: 50, width: 1200, height: 850 });
         }

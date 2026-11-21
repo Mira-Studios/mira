@@ -11,6 +11,7 @@
 - Sidebar
 - Workspaces
 - Restore tracks muted tabs
+- Picture in Picture
 
 ### Improved
 

@@ -43,6 +43,13 @@ When adding or changing any feature (including New Tab cards):
   window-local preferences to `electron/workspacePolicy.ts` deliberately; never
   include cookies, history, profile sync, OS integration, or other profile data.
   Workspace creation only collects identity; editing belongs on its settings page.
+- Picture-in-picture windows are auxiliary players, never browser windows or
+  session-restore targets. Route video/controls only between the owning guest
+  frame and its player. Keep source tabs/windows awake while a player is active.
+  Placement preferences live in profile `userData`; private placements stay in
+  memory. In-window and desktop positions are separate, with the latest resized
+  size carried between modes. Never use native owner/child relationships for PiP;
+  keep its in-window presentation bounded to its owner and follow owner visibility.
 
 Run `npm run test:profiles --workspace apps/desktop` for storage and migration
 tests. Build the renderer before `npm run test:profiles-ui --workspace apps/desktop`

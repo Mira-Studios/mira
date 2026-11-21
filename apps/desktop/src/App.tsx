@@ -8,6 +8,7 @@ import BookmarksBar from './components/BookmarksBar';
 import BrowserSidebar from './components/BrowserSidebar';
 import { useSidebarSettings } from './features/sidebar/useSidebarSettings';
 import WorkspaceEditor from './components/WorkspaceEditor';
+import PictureInPicture from './components/PictureInPicture';
 import FindBar from './components/FindBar';
 import TopBar from './components/TopBar';
 import RestoreTabsPrompt from './components/RestoreTabsPrompt';
@@ -337,6 +338,7 @@ function Browser() {
       const overlayColor = rootStyles.getPropertyValue('--surfaceBg').trim() || '#1a2029';
 
       void Promise.allSettled([
+        electron.ipcRenderer.invoke('settings-set-picture-in-picture', { onTabSwitch: settings.pipOnTabSwitch, onWindowHidden: settings.pipOnWindowHidden, themeId: settings.themeId }),
         electron.ipcRenderer.invoke('settings-set-devtools-open-mode', settings.devToolsOpenMode),
         electron.ipcRenderer.invoke('settings-set-window-suspension', {
           enabled: settings.suspendMinimizedWindows,
@@ -523,6 +525,7 @@ function Browser() {
 }
 
 export default function App() {
+  if (new URLSearchParams(window.location.search).get('pip') === '1') return <PictureInPicture />;
   if (new URLSearchParams(window.location.search).get('profilePicker') === '1') return <><ProfilePicker /><ProfileEditor /><SiteInteractionPrompts /></>;
   if (new URLSearchParams(window.location.search).get('webApp') === '1') return <WebAppWindow />;
   const isOnboardingWindow = new URLSearchParams(window.location.search).get('onboarding') === '1';

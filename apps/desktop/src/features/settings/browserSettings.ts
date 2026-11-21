@@ -79,6 +79,8 @@ export type BrowserSettings = {
   tabSleepUnit: TabSleepUnit;
   tabSleepMode: TabSleepMode;
   suspendMinimizedWindows: boolean;
+  pipOnTabSwitch: boolean;
+  pipOnWindowHidden: boolean;
   minimizedWindowSleepValue: number;
   minimizedWindowSleepUnit: TabSleepUnit;
   devToolsOpenMode: DevToolsOpenMode;
@@ -132,6 +134,8 @@ export const DEFAULT_BROWSER_SETTINGS: BrowserSettings = {
   tabSleepUnit: 'minutes',
   tabSleepMode: 'freeze',
   suspendMinimizedWindows: false,
+  pipOnTabSwitch: true,
+  pipOnWindowHidden: true,
   minimizedWindowSleepValue: 5,
   minimizedWindowSleepUnit: 'minutes',
   devToolsOpenMode: 'side',
@@ -558,6 +562,8 @@ export function normalizeBrowserSettings(value: unknown): BrowserSettings {
     showBookmarkButton: normalizeShowBookmarkButton(candidate.showBookmarkButton),
     showProfileMenu: candidate.showProfileMenu === true,
     showWorkspaceMenu: candidate.showWorkspaceMenu === true,
+    pipOnTabSwitch: candidate.pipOnTabSwitch !== false,
+    pipOnWindowHidden: candidate.pipOnWindowHidden !== false,
     showBookmarksBar: normalizeShowBookmarksBar(candidate.showBookmarksBar),
     sidebarEnabled: candidate.sidebarEnabled === true,
     sidebarMode: candidate.sidebarMode === 'collapsed' || candidate.sidebarMode === 'expanded' || candidate.sidebarMode === 'hover' ? candidate.sidebarMode : candidate.sidebarExpanded === true ? 'expanded' : 'collapsed',

@@ -10,6 +10,7 @@ import SidebarSettings from './SidebarSettings';
 import Workspaces from './Workspaces';
 import { WorkspaceMenuSetting } from '../components/WorkspaceMenu';
 import WorkspaceDetails from './WorkspaceDetails';
+import PictureInPictureSettings from '../components/PictureInPictureSettings';
 import { useTabs } from '../features/tabs/TabsProvider';
 import { useDownloads } from '../features/downloads/DownloadProvider';
 import { clearHistoryEntries } from '../features/history/clientHistory';
@@ -1354,6 +1355,7 @@ function SettingsContent({ workspaceMode }: { workspaceMode: boolean }) {
                 </SettingsVisibility>
               </SettingsGroup>
 
+              <PictureInPictureSettings />
               <SettingsGroup>
                 <div className="settings-card-header">
                   <h3 className="settings-card-title">Tab Sleep</h3>

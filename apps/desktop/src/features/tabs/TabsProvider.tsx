@@ -494,6 +494,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
     return () => electron?.ipcRenderer.off('editor-state', state);
   }, []);
   const [tabAudioState, setTabAudioState] = useState<Record<string, { audible: boolean; muted: boolean }>>({});
+  const [pipSourceTabId, setPipSourceTabId] = useState<string | null>(null);
   const [loadingTabIds, setLoadingTabIds] = useState<Set<string>>(() => new Set());
   const setTabLoading = useCallback((id: string, loading: boolean) => {
     setLoadingTabIds((current) => {
@@ -1047,6 +1048,25 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
 
     return undefined;
   }, []);
+
+  useEffect(() => {
+    const ipc = electron?.ipcRenderer;
+    if (!ipc) return;
+    const returnToTab = (_event: unknown, webContentsId: number) => {
+      const id = findTabIdForWebContentsId(webContentsId);
+      if (id) setActiveId(id);
+    };
+    const unmuted = (_event: unknown, webContentsId: number) => {
+      const id = findTabIdForWebContentsId(webContentsId);
+      if (!id) return;
+      setTabs(current => current.map(tab => tab.id === id ? { ...tab, isMuted: false } : tab));
+      syncTabAudio(id);
+    };
+    const pipSource = (_event: unknown, webContentsId: number | null) => setPipSourceTabId(webContentsId === null ? null : findTabIdForWebContentsId(webContentsId) ?? null);
+    ipc.on('pip-source-active', pipSource);
+    ipc.on('pip-return-to-tab', returnToTab); ipc.on('pip-tab-unmuted', unmuted);
+    return () => { ipc.off('pip-source-active', pipSource); ipc.off('pip-return-to-tab', returnToTab); ipc.off('pip-tab-unmuted', unmuted); };
+  }, [findTabIdForWebContentsId, syncTabAudio]);
 
   const miraUrlToName = useCallback((url?: string) => {
     if (!url?.startsWith('mira://')) {
@@ -2394,7 +2414,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
             return tab;
           }
 
-          if (tab.restoreDeferred || tab.editorDirty || hasDevTools(tab.id)) return tab;
+          if (tab.id === pipSourceTabId || tab.restoreDeferred || tab.editorDirty || hasDevTools(tab.id)) return tab;
           const shouldSleep = now - tab.lastActiveAt >= tabSleepAfterMs;
           if (shouldSleep && !tab.isSleeping) {
             changed = true;
@@ -2438,7 +2458,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
       let nextCheckInMs: number | null = null;
 
       for (const tab of tabs) {
-        if (tab.id === activeId || tab.isSleeping || tab.editorDirty || tab.restoreDeferred || hasDevTools(tab.id)) continue;
+        if (tab.id === activeId || tab.id === pipSourceTabId || tab.isSleeping || tab.editorDirty || tab.restoreDeferred || hasDevTools(tab.id)) continue;
         const remainingMs = Math.max(tab.lastActiveAt + tabSleepAfterMs - now, 0);
         if (nextCheckInMs === null || remainingMs < nextCheckInMs) {
           nextCheckInMs = remainingMs;
@@ -2461,7 +2481,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
         tabSleepTimerRef.current = null;
       }
     };
-  }, [tabs, activeId, tabSleepAfterMs, dockedDevToolsIds]);
+  }, [tabs, activeId, tabSleepAfterMs, dockedDevToolsIds, pipSourceTabId]);
 
   // Cleanup effect for component unmount
   useEffect(() => {

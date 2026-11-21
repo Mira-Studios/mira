@@ -35,6 +35,8 @@ export const WORKSPACE_SETTING_KEYS = [
   'tabSleepUnit',
   'tabSleepMode',
   'suspendMinimizedWindows',
+  'pipOnTabSwitch',
+  'pipOnWindowHidden',
   'minimizedWindowSleepValue',
   'minimizedWindowSleepUnit',
 ] as const;

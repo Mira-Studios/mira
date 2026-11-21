@@ -49,6 +49,8 @@ import { setupGitRepositories } from './gitRepositories.ts';
 import { configureProfiles, setupProfiles } from './profiles.ts';
 import { WorkspaceStore } from './workspaceStore.ts';
 import { workspaceSettings } from './workspacePolicy.ts';
+import { setupPictureInPicture } from './pictureInPicture.ts';
+let pictureInPicture: ReturnType<typeof setupPictureInPicture> | undefined;
 
 // Isolate development before sessions or the single-instance lock use these paths.
 const isDevelopment = !app.isPackaged;
@@ -4584,6 +4586,7 @@ function setupWindowControlsHandlers() {
       : -1;
     if (id <= 0) {
       activeWebContentsByWindow.delete(hostWindow.id);
+      pictureInPicture?.setActive(hostWindow, null);
       devTools.setActive(hostWindow, -1);
       return false;
     }
@@ -4591,6 +4594,7 @@ function setupWindowControlsHandlers() {
     const target = electronWebContents.fromId(id);
     if (!target || target.isDestroyed()) {
       activeWebContentsByWindow.delete(hostWindow.id);
+      pictureInPicture?.setActive(hostWindow, null);
       devTools.setActive(hostWindow, -1);
       return false;
     }
@@ -4602,6 +4606,7 @@ function setupWindowControlsHandlers() {
     }
 
     activeWebContentsByWindow.set(hostWindow.id, target);
+    pictureInPicture?.setActive(hostWindow, target.id);
     devTools.setActive(hostWindow, target.id);
     return true;
   });
@@ -5757,13 +5762,13 @@ function setupApplicationMenu() {
 }
 
 function getFirstBrowserWindow(): BrowserWindow | null {
-  return BrowserWindow.getAllWindows().find((win) => !win.isDestroyed() && !onboardingWindowIds.has(win.id) && !profilePickerWindowIds.has(win.id) && !privatePartitionsByWindow.has(win.id) && !isWebAppWindow(win.id))
+  return BrowserWindow.getAllWindows().find((win) => !win.isDestroyed() && !pictureInPicture?.isWindow(win.id) && !onboardingWindowIds.has(win.id) && !profilePickerWindowIds.has(win.id) && !privatePartitionsByWindow.has(win.id) && !isWebAppWindow(win.id))
     ?? null;
 }
 
-function loadRendererShell(win: BrowserWindow, options?: { onboarding?: boolean; webApp?: boolean; profilePicker?: boolean }): void {
+function loadRendererShell(win: BrowserWindow, options?: { onboarding?: boolean; webApp?: boolean; profilePicker?: boolean; pip?: boolean }): void {
   const onboarding = options?.onboarding === true;
-  const query: Record<string, string> | undefined = onboarding ? { onboarding: '1' } : options?.webApp ? { webApp: '1' } : options?.profilePicker ? { profilePicker: '1' } : undefined;
+  const query: Record<string, string> | undefined = options?.pip ? { pip: '1' } : onboarding ? { onboarding: '1' } : options?.webApp ? { webApp: '1' } : options?.profilePicker ? { profilePicker: '1' } : undefined;
   if (!app.isPackaged) {
     const search = query ? `?${new URLSearchParams(query)}` : '';
     win.loadURL(`http://localhost:5173${search}`);
@@ -5869,6 +5874,7 @@ function createWindow(
   if (privatePartition && !privatePartitions.has(privatePartition)) {
     privatePartitions.add(privatePartition);
     const privateSession = session.fromPartition(privatePartition, { cache: false });
+    pictureInPicture?.registerSession(privateSession);
     privateSession.setUserAgent(session.defaultSession.getUserAgent());
     setupSessionPermissions(privateSession);
     setupAdBlocker(privateSession);
@@ -5917,6 +5923,7 @@ function createWindow(
 
   if (privatePartition) privatePartitionsByWindow.set(win.id, privatePartition);
   if (options?.workspaceId) workspaceByWindow.set(win.id, options.workspaceId);
+  pictureInPicture?.track(win);
 
   const suspension = setupWindowSuspension(win, () => {
     const snapshot = liveWindowSnapshots.get(win.id);
@@ -5930,7 +5937,7 @@ function createWindow(
     const isBusy = () => {
       if (isQuitting || win.isDestroyed() || !win.isMinimized() || win.webContents.isLoading()
         || devTools.hasOpen(win) || win.webContents.isDevToolsOpened() || win.getChildWindows().some(child => !child.isDestroyed())
-        || hasWindowDeviceActivity(win.id) || hasPendingWindowInteraction(win.id)
+        || pictureInPicture?.isSourceWindow(win.id) || hasWindowDeviceActivity(win.id) || hasPendingWindowInteraction(win.id)
         || pendingDetachedTabTransferByWindowId.has(win.id) || activeDetachedWindowDragBySourceWindowId.has(win.id)
         || [...pendingSitePermissionRequests.values()].some(request => request.hostWindowId === win.id)) return true;
       // Unknown download ownership is protected too. Paused/interrupted items remain resumable.
@@ -6321,7 +6328,7 @@ function routeIncomingBrowserUrl(rawUrl: string): void {
 
   const focusedWindow = BrowserWindow.getFocusedWindow();
   const focusedBrowserWindow =
-    focusedWindow && !focusedWindow.isDestroyed() && !onboardingWindowIds.has(focusedWindow.id) && !isWebAppWindow(focusedWindow.id)
+    focusedWindow && !focusedWindow.isDestroyed() && !pictureInPicture?.isWindow(focusedWindow.id) && !onboardingWindowIds.has(focusedWindow.id) && !isWebAppWindow(focusedWindow.id)
       ? focusedWindow
       : null;
   const fallbackWindow = getFirstBrowserWindow();
@@ -6444,9 +6451,14 @@ app.whenReady().then(async () => {
   setupVersionHandlers();
   setupPerformanceHandlers();
   setupSessionHandlers();
+  pictureInPicture = setupPictureInPicture({
+    preload: path.join(__dirname, 'preload.js'), load: win => loadRendererShell(win, { pip: true }),
+    hostFor: getHostWindowForContents, privateHost: host => privatePartitionsByWindow.has(host.id),
+    scope: host => workspaceByWindow.get(host.id) ?? 'profile',
+  });
   setupWorkspaces();
   setupOpenTabHandlers({
-    scope: win => isWebAppWindow(win.id) || onboardingWindowIds.has(win.id) || profilePickerWindowIds.has(win.id) ? null
+    scope: win => pictureInPicture?.isWindow(win.id) || isWebAppWindow(win.id) || onboardingWindowIds.has(win.id) || profilePickerWindowIds.has(win.id) ? null
       : privatePartitionsByWindow.get(win.id) ?? (workspaceByWindow.has(win.id) ? `workspace:${workspaceByWindow.get(win.id)}` : 'regular'),
     ready: win => !win.webContents.isLoadingMainFrame() &&
       !windowSuspensionById.get(win.id)?.isUnloaded && !windowSuspensionById.get(win.id)?.isRestoring,
