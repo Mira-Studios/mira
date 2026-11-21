@@ -166,6 +166,7 @@ const APP_STATE_FILE = 'app-state.json';
 const SITE_PERMISSIONS_FILE = 'site-permissions.json';
 
 interface TabSessionSnapshot {
+  isMuted?: boolean;
   group?: TabGroup;
   isPinned?: boolean;
   id: string;
@@ -1879,6 +1880,7 @@ function normalizeTabSessionSnapshot(value: unknown, includeBlank = false): TabS
     url,
     title: title || url,
     isPinned: candidate.isPinned === true,
+    isMuted: candidate.isMuted === true,
     group: candidate.isPinned === true ? undefined : normalizeTabGroup(candidate.group),
     favicon:
       typeof candidate.favicon === 'string' && candidate.favicon.trim()

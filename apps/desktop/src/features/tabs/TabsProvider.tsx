@@ -132,6 +132,7 @@ type TabsContextType = {
   tabs: Tab[];
   tabAudioState: Record<string, { audible: boolean; muted: boolean }>;
   syncTabAudio: (id: string) => void;
+  restoreTabAudio: (id: string) => void;
   toggleTabMuted: (id: string) => void;
   isPageLoading: boolean;
   setTabLoading: (id: string, loading: boolean) => void;
@@ -330,6 +331,7 @@ function normalizeTab(value: unknown, defaultTabUrl: string): Tab | null {
     title,
     favicon,
     isPinned: value.isPinned === true,
+    isMuted: value.isMuted === true,
     group: value.isPinned === true ? undefined : normalizeTabGroup(value.group),
     history: normalizedHistory,
     historyIndex,
@@ -998,11 +1000,23 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
 
   const toggleTabMuted = useCallback((id: string) => {
     const webview = webviewMap.current[id];
-    if (!webview?.setAudioMuted || !webview.isAudioMuted) return;
+    const tab = tabsRef.current.find(tab => tab.id === id);
+    if (!tab) return;
+    const muted = !tab.isMuted;
+    setTabs(current => current.map(tab => tab.id === id ? { ...tab, isMuted: muted } : tab));
+    updateTabAudio(id, false, muted);
     try {
-      webview.setAudioMuted(!webview.isAudioMuted());
-      syncTabAudio(id);
+      webview?.setAudioMuted?.(muted);
+      if (webview) syncTabAudio(id);
     } catch { /* A closing guest has no audio to control. */ }
+  }, [syncTabAudio, updateTabAudio]);
+
+  const restoreTabAudio = useCallback((id: string) => {
+    const muted = tabsRef.current.find(tab => tab.id === id)?.isMuted === true;
+    try {
+      webviewMap.current[id]?.setAudioMuted?.(muted);
+      syncTabAudio(id);
+    } catch { /* The guest reapplies its saved mute state when ready. */ }
   }, [syncTabAudio]);
 
   useEffect(() => {
@@ -2662,6 +2676,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
         tabs,
         tabAudioState,
         syncTabAudio,
+        restoreTabAudio,
         toggleTabMuted,
         activeId,
         newTab,

@@ -481,6 +481,7 @@ export default function TabView() {
     registerWebview,
     setTabLoading,
     syncTabAudio,
+    restoreTabAudio,
     updateFindInPageMatches,
     newTabToRight,
     goBack,
@@ -1144,7 +1145,10 @@ export default function TabView() {
       handleDidStartLoading(tabId);
     };
     const didStopLoadingHandler = () => setTabLoading(tabId, false);
-    const didAttachHandler = () => restoreNativeHistory(webview);
+    const didAttachHandler = () => {
+      restoreTabAudio(tabId);
+      restoreNativeHistory(webview);
+    };
     const navigationStartedHandler = (event: Event) => {
       handleNavigationStarted(tabId, event);
     };
@@ -1152,6 +1156,7 @@ export default function TabView() {
       handleDidFailLoad(tabId, event);
     };
     const domReadyHandler = () => {
+      restoreTabAudio(tabId);
       setTabLoading(tabId, webview.isLoading?.() ?? false);
       syncTabAudio(tabId);
       handleDomReady(webview);

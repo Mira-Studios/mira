@@ -32,6 +32,7 @@ export type Tab = {
   title: string;
   favicon?: string;
   isPinned?: boolean;
+  isMuted?: boolean;
   group?: TabGroup;
   history: string[];
   historyIndex: number;

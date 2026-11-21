@@ -10,6 +10,7 @@
 - Profiles
 - Sidebar
 - Workspaces
+- Restore tracks muted tabs
 
 ### Improved
 
