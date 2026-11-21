@@ -46,6 +46,7 @@ type ScrollPageCommand = 'page-down' | 'page-up' | 'top' | 'bottom';
 type FindInPageMatchState = {
   activeMatchOrdinal: number;
   matches: number;
+  searching: boolean;
 };
 
 type WebviewElement = {
@@ -184,11 +185,13 @@ type TabsContextType = {
   stopFindInPage: () => void;
   findInPageActiveMatchOrdinal: number;
   findInPageMatches: number;
+  findInPageSearching: boolean;
   updateFindInPageMatches: (
     tabId: string,
     requestId: number,
     activeMatchOrdinal: number,
     matches: number,
+    finalUpdate?: boolean,
   ) => void;
   toggleDevTools: () => void;
   updateTabMetadata: (id: string, metadata: { title?: string; favicon?: string | null }) => void;
@@ -615,6 +618,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
   const activeFindInPageMatches = findInPageMatchesByTab[activeId] ?? {
     activeMatchOrdinal: 0,
     matches: 0,
+    searching: false,
   };
   const applyRestoredSnapshot = useCallback(
     (snapshot: SessionSnapshot) => {
@@ -693,9 +697,9 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
   }, []);
 
   const updateFindInPageMatches = useCallback(
-    (tabId: string, requestId: number, activeMatchOrdinal: number, matches: number) => {
+    (tabId: string, requestId: number, activeMatchOrdinal: number, matches: number, finalUpdate = true) => {
       const activeRequestId = activeFindRequestIdByTabRef.current[tabId];
-      if (typeof activeRequestId === 'number' && requestId !== activeRequestId) {
+      if (typeof activeRequestId !== 'number' || requestId !== activeRequestId) {
         return;
       }
 
@@ -710,15 +714,16 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
         if (
           existing &&
           existing.activeMatchOrdinal === nextActiveMatchOrdinal &&
-          existing.matches === nextMatches
+          existing.matches === nextMatches && existing.searching === !finalUpdate
         ) {
           return current;
         }
         return {
           ...current,
           [tabId]: {
-            activeMatchOrdinal: nextActiveMatchOrdinal,
-            matches: nextMatches,
+            activeMatchOrdinal: finalUpdate ? nextActiveMatchOrdinal : (existing?.activeMatchOrdinal ?? 0),
+            matches: finalUpdate ? nextMatches : (existing?.matches ?? 0),
+            searching: !finalUpdate,
           },
         };
       });
@@ -2132,6 +2137,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
   const searchInPage = useCallback(
     (query: string, options?: FindInPageOptions) => {
       if (isEditorUrl(tabsRef.current.find(tab => tab.id === activeId)?.url ?? '')) {
+        setFindInPageMatchesByTab(current => ({ ...current, [activeId]: { activeMatchOrdinal: current[activeId]?.activeMatchOrdinal ?? 0, matches: current[activeId]?.matches ?? 0, searching: true } }));
         const requestId = (activeFindRequestIdByTabRef.current[activeId] ?? 0) + 1;
         activeFindRequestIdByTabRef.current[activeId] = requestId;
         lastFindQueryByTabRef.current[activeId] = query.trim();
@@ -2153,9 +2159,9 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
       }
 
       const previousQuery = lastFindQueryByTabRef.current[activeId];
-      const isNewQuery = previousQuery !== normalizedQuery;
+      const isNewQuery = previousQuery !== normalizedQuery || options?.findNext !== true;
+      setFindInPageMatchesByTab(current => ({ ...current, [activeId]: { activeMatchOrdinal: current[activeId]?.activeMatchOrdinal ?? 0, matches: current[activeId]?.matches ?? 0, searching: true } }));
       if (isNewQuery) {
-        clearFindInPageMatchesForTab(activeId);
         if (typeof wv.stopFindInPage === 'function') {
           wv.stopFindInPage('clearSelection');
         }
@@ -2163,7 +2169,8 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
 
       const requestId = wv.findInPage(normalizedQuery, {
         forward: options?.forward ?? true,
-        findNext: options?.findNext ?? false,
+        // Electron uses true to start a session and false to advance it.
+        findNext: !(options?.findNext ?? false),
         matchCase: options?.matchCase ?? false,
       });
       if (typeof requestId === 'number' && Number.isFinite(requestId)) {
@@ -2742,6 +2749,7 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
         stopFindInPage,
         findInPageActiveMatchOrdinal: activeFindInPageMatches.activeMatchOrdinal,
         findInPageMatches: activeFindInPageMatches.matches,
+        findInPageSearching: activeFindInPageMatches.searching,
         updateFindInPageMatches,
         toggleDevTools,
         updateTabMetadata,

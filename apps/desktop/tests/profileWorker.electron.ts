@@ -91,6 +91,10 @@ async function run() {
         .sort((a, b) => a.id - b.id);
       const win = windows[command.index ?? 0];
       let result: unknown;
+      if (command.action === 'shortcut') {
+        win.webContents.send('app-shortcut', command.value);
+        result = true;
+      }
       if (command.action === 'menu-snapshot') result = nativeMenu?.items.map(item => item.label) ?? [];
       if (command.action === 'menu-select') {
         const menu = nativeMenu;

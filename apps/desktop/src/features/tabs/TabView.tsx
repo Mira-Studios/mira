@@ -1020,7 +1020,7 @@ export default function TabView() {
     const activeMatchOrdinal =
       typeof result.activeMatchOrdinal === 'number' ? result.activeMatchOrdinal : 0;
     const matches = typeof result.matches === 'number' ? result.matches : 0;
-    updateFindInPageMatches(tabId, requestId, activeMatchOrdinal, matches);
+    updateFindInPageMatches(tabId, requestId, activeMatchOrdinal, matches, result.finalUpdate !== false);
   });
 
   const handleContextMenu = React.useEffectEvent(

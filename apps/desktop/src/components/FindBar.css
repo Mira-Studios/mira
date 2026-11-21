@@ -1,0 +1,114 @@
+.find-popover-slot {
+  position: relative;
+  height: 0;
+  flex: 0 0 0;
+  z-index: 1450;
+}
+.find-popover.theme-panel {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: min(430px, calc(100% - 24px));
+  padding: 6px;
+  border-radius: 999px;
+  transform-origin: top right;
+  -webkit-app-region: no-drag;
+}
+.find-search-icon {
+  flex-shrink: 0;
+  margin-left: 8px;
+  color: var(--text2);
+}
+.find-popover .find-input {
+  flex: 1;
+  min-width: 0;
+  width: 0;
+  height: 28px;
+  padding: 0 4px;
+  border: 0;
+  box-shadow: none;
+  outline: none;
+  background: transparent;
+  font-size: 13px;
+}
+.find-count {
+  min-width: 36px;
+  text-align: center;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text2);
+}
+.find-count[data-empty='true'] {
+  color: var(--accentDanger, #ef6464);
+}
+.find-count[data-searching='true'] {
+  opacity: 0.65;
+}
+.find-popover .find-action {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+}
+.find-popover .find-action:hover:not(:disabled) {
+  background: var(--navButtonBgHover);
+}
+.find-popover .find-action:active:not(:disabled),
+.find-popover .find-case[aria-pressed='true'] {
+  background: var(--navButtonBgActive);
+}
+.find-popover .find-action:focus-visible {
+  outline: 2px solid var(--accentPrimary);
+  outline-offset: -2px;
+}
+.find-case {
+  font-size: 12px;
+  font-weight: 600;
+}
+.find-divider {
+  width: 1px;
+  height: 16px;
+  margin: 0 2px;
+  background: var(--surfaceBorder);
+}
+.find-popover-in {
+  animation: find-popover-in 150ms ease-out;
+}
+.find-popover-out {
+  animation: find-popover-out 150ms ease-in forwards;
+  pointer-events: none;
+}
+@keyframes find-popover-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes find-popover-out {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .find-popover-in,
+  .find-popover-out {
+    animation: none;
+  }
+}

@@ -1,12 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronDown, ChevronUp, X } from 'lucide-react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { ChevronDown, ChevronUp, Search, X } from 'lucide-react';
 import { useTabs } from '../features/tabs/TabsProvider';
+import { isEditorUrl } from '../features/editor/editorLifecycle';
+import { usePromptPresence } from '../hooks/usePromptPresence';
+import { electron } from '../electronBridge';
+import './FindBar.css';
 
-type FindBarProps = {
-  open: boolean;
-  focusToken: number;
-  onClose: () => void;
-};
+type FindBarProps = { open: boolean; focusToken: number; onClose: () => void };
 
 export default function FindBar({ open, focusToken, onClose }: FindBarProps) {
   const {
@@ -16,210 +16,151 @@ export default function FindBar({ open, focusToken, onClose }: FindBarProps) {
     stopFindInPage,
     findInPageActiveMatchOrdinal,
     findInPageMatches,
+    findInPageSearching,
   } = useTabs();
   const [query, setQuery] = useState('');
   const [matchCase, setMatchCase] = useState(false);
-  const inputRef = useRef<HTMLInputElement | null>(null);
-  const queryRef = useRef('');
+  const inputRef = useRef<HTMLInputElement>(null);
+  const request = useMemo(() => (open ? { requestId: 'find-in-page' } : null), [open]);
+  const { displayed, closing, animated } = usePromptPresence(request);
+  const visible = !!displayed;
   const activeTab = tabs.find((tab) => tab.id === activeId);
-  const canSearchInPage = !!activeTab && !activeTab.url.startsWith('mira://');
+  const canSearch =
+    !!activeTab && (!activeTab.url.startsWith('mira://') || isEditorUrl(activeTab.url));
   const hasQuery = query.trim().length > 0;
-  const runSearch = useCallback(
-    (nextQuery: string) => {
-      if (!canSearchInPage) {
-        stopFindInPage();
-        return;
-      }
-
-      const normalizedQuery = nextQuery.trim();
-      if (!normalizedQuery) {
-        stopFindInPage();
-        return;
-      }
-
-      searchInPage(normalizedQuery, {
-        forward: true,
-        findNext: false,
-        matchCase,
-      });
-    },
-    [canSearchInPage, matchCase, searchInPage, stopFindInPage],
-  );
-
-  const visibleMatchCount = canSearchInPage && hasQuery ? findInPageMatches : 0;
-  const visibleActiveMatch =
-    canSearchInPage && hasQuery
-      ? Math.min(Math.max(findInPageActiveMatchOrdinal, 0), visibleMatchCount)
-      : 0;
+  const count = canSearch && hasQuery ? findInPageMatches : 0;
+  const ordinal = count ? Math.min(findInPageActiveMatchOrdinal, count) : 0;
+  const close = useCallback(() => {
+    stopFindInPage();
+    onClose();
+  }, [stopFindInPage, onClose]);
 
   useEffect(() => {
-    if (!open) {
-      stopFindInPage();
-      return;
-    }
-
-    window.requestAnimationFrame(() => {
-      const input = inputRef.current;
-      if (!input) return;
-      input.focus();
-      input.select();
+    if (!open) return;
+    const frame = requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
     });
-  }, [open, focusToken, stopFindInPage]);
+    return () => cancelAnimationFrame(frame);
+  }, [open, focusToken, visible]);
 
-  useEffect(() => {
-    queryRef.current = query;
-  }, [query]);
+  useLayoutEffect(() => {
+    if (!open || !canSearch || !hasQuery) stopFindInPage();
+    else searchInPage(query, { forward: true, findNext: false, matchCase });
+  }, [open, canSearch, hasQuery, query, matchCase, activeId, searchInPage, stopFindInPage]);
+
+  useLayoutEffect(() => {
+    // Clear the old tab on switch or close without resetting counts on each keystroke.
+    return stopFindInPage;
+  }, [open, activeId, stopFindInPage]);
 
   useEffect(() => {
     if (!open) return;
-    runSearch(queryRef.current);
-  }, [open, activeId, matchCase, runSearch]);
-
-  useEffect(() => {
-    if (!open) return;
-
-    const onKeyDown = (event: KeyboardEvent) => {
+    const escape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
       event.preventDefault();
       event.stopPropagation();
-      onClose();
+      close();
     };
+    window.addEventListener('keydown', escape, true);
+    // Escape from a focused guest arrives through Electron's shortcut bridge.
+    const shortcut = (_event: unknown, action: unknown) => {
+      if (action === 'stop-loading') close();
+    };
+    electron?.ipcRenderer.on('app-shortcut', shortcut);
+    return () => {
+      window.removeEventListener('keydown', escape, true);
+      electron?.ipcRenderer.off('app-shortcut', shortcut);
+    };
+  }, [open, close]);
 
-    window.addEventListener('keydown', onKeyDown, true);
-    return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [open, onClose]);
-
-  const findNext = (forward: boolean) => {
-    if (!canSearchInPage || !hasQuery) return;
-    searchInPage(query, {
-      forward,
-      findNext: true,
-      matchCase,
-    });
+  const next = (forward: boolean) => {
+    if (canSearch && hasQuery) searchInPage(query, { forward, findNext: true, matchCase });
   };
-
-  if (!open) return null;
-
+  if (!displayed) return null;
   return (
-    <div
-      className="theme-panel"
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 6,
-        padding: '6px 8px',
-        borderTop: '1px solid var(--surfaceBorder, var(--tabBorder))',
-      }}
-    >
-      <input
-        ref={inputRef}
-        value={query}
-        onChange={(event) => {
-          const nextQuery = event.target.value;
-          queryRef.current = nextQuery;
-          setQuery(nextQuery);
-          if (open) {
-            runSearch(nextQuery);
-          }
-        }}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter') {
-            event.preventDefault();
-            findNext(!event.shiftKey);
-            return;
-          }
-          if (event.key !== 'Escape') return;
-          event.preventDefault();
-          onClose();
-        }}
-        placeholder={canSearchInPage ? 'Find in page' : 'Find unavailable on internal pages'}
-        disabled={!canSearchInPage}
-        className="theme-input"
-        style={{
-          width: 280,
-          padding: '6px 10px',
-          minHeight: 'var(--layoutNavButtonHeight, 30px)',
-        }}
-      />
-      <button
-        type="button"
-        title="Previous match (Shift+Enter)"
-        className="theme-btn theme-btn-nav nav-icon-btn"
-        onClick={() => findNext(false)}
-        disabled={!canSearchInPage || !hasQuery}
-        style={{
-          padding: '4px 8px',
-          height: 'var(--layoutNavButtonHeight, 30px)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
+    <div className="find-popover-slot">
+      <section
+        className={`theme-panel find-popover ${animated ? (closing ? 'find-popover-out' : 'find-popover-in') : ''}`}
+        role="search"
+        aria-label="Find in page"
+        inert={!open}
+        aria-hidden={!open}
       >
-        <ChevronUp size={16} strokeWidth={2.1} aria-hidden="true" />
-      </button>
-      <button
-        type="button"
-        title="Next match (Enter)"
-        className="theme-btn theme-btn-nav nav-icon-btn"
-        onClick={() => findNext(true)}
-        disabled={!canSearchInPage || !hasQuery}
-        style={{
-          padding: '4px 8px',
-          height: 'var(--layoutNavButtonHeight, 30px)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <ChevronDown size={16} strokeWidth={2.1} aria-hidden="true" />
-      </button>
-      <span
-        className="theme-text3"
-        aria-live="polite"
-        style={{
-          minWidth: 48,
-          textAlign: 'center',
-          fontVariantNumeric: 'tabular-nums',
-        }}
-      >
-        {`${visibleActiveMatch}/${visibleMatchCount}`}
-      </span>
-      <label
-        title="Match case"
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          marginLeft: 2,
-          userSelect: 'none',
-        }}
-      >
-        <span style={{ fontSize: 12, opacity: 0.85 }}>Case</span>
+        <Search className="find-search-icon" size={15} aria-hidden="true" />
         <input
-          type="checkbox"
-          className="settings-toggle"
-          checked={matchCase}
-          disabled={!canSearchInPage}
-          onChange={(event) => {
-            setMatchCase(event.currentTarget.checked);
+          ref={inputRef}
+          className="theme-input find-input"
+          aria-label="Find in page"
+          value={query}
+          placeholder={canSearch ? 'Find in page' : 'Unavailable on this page'}
+          disabled={!canSearch}
+          onChange={(event) => setQuery(event.currentTarget.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              next(!event.shiftKey);
+            }
           }}
         />
-      </label>
-      <button
-        type="button"
-        title="Close find"
-        className="theme-btn theme-btn-nav nav-icon-btn"
-        onClick={onClose}
-        style={{
-          padding: '4px 8px',
-          height: 'var(--layoutNavButtonHeight, 30px)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <X size={16} strokeWidth={2.1} aria-hidden="true" />
-      </button>
+        <output
+          className="find-count"
+          data-empty={hasQuery && count === 0 && !findInPageSearching}
+          data-searching={findInPageSearching}
+          aria-busy={findInPageSearching}
+          aria-live="polite"
+          aria-label={
+            findInPageSearching
+              ? 'Searching'
+              : hasQuery
+                ? `${ordinal} of ${count} matches`
+                : 'Enter text to find'
+          }
+        >
+          {hasQuery ? (findInPageSearching && !count ? '…' : `${ordinal}/${count}`) : ''}
+        </output>
+        <button
+          type="button"
+          className="theme-btn theme-btn-nav find-action find-case"
+          aria-label="Match case"
+          title="Match case"
+          aria-pressed={matchCase}
+          disabled={!canSearch}
+          onClick={() => setMatchCase((value) => !value)}
+        >
+          Aa
+        </button>
+        <span className="find-divider" aria-hidden="true" />
+        <button
+          type="button"
+          className="theme-btn theme-btn-nav find-action"
+          aria-label="Previous match"
+          title="Previous match (Shift+Enter)"
+          disabled={!count}
+          onClick={() => next(false)}
+        >
+          <ChevronUp size={16} />
+        </button>
+        <button
+          type="button"
+          className="theme-btn theme-btn-nav find-action"
+          aria-label="Next match"
+          title="Next match (Enter)"
+          disabled={!count}
+          onClick={() => next(true)}
+        >
+          <ChevronDown size={16} />
+        </button>
+        <button
+          type="button"
+          className="theme-btn theme-btn-nav find-action"
+          aria-label="Close find"
+          title="Close find (Escape)"
+          onClick={close}
+        >
+          <X size={16} />
+        </button>
+      </section>
     </div>
   );
 }
