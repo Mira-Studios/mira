@@ -1,6 +1,6 @@
 # Roadmap
 
-## v1.3.0
+## v1.4.0
 
 - [ ] Manage and clear site storage beyond cookies (local storage, IndexedDB, and cache storage)
 - [ ] Split view tabs
