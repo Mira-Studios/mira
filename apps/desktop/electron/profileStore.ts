@@ -193,15 +193,17 @@ export class ProfileStore {
     }
   }
 
-  create(name: unknown): Profile {
-    const profile = { id: randomUUID(), name: this.validateName(name) };
+  create(name: unknown, initialize?: (directory: string, profile: Profile) => void): Profile {
+    const profile: Profile = { id: randomUUID(), name: this.validateName(name) };
     return this.update((registry) => {
       fs.mkdirSync(this.dataPath(profile.id), { recursive: true });
       fs.writeFileSync(
         path.join(this.dataPath(profile.id), 'app-state.json'),
         JSON.stringify({ onboardingCompleted: true }),
       );
-      registry.profiles.push(profile);
+        // Finish external-data imports before discovery can launch this profile.
+        initialize?.(this.dataPath(profile.id), profile);
+        registry.profiles.push(profile);
       return profile;
     });
   }

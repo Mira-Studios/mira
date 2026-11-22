@@ -15,6 +15,24 @@ if (workspaceId) {
   });
 }
 const appVersion = process.env.MIRA_VERSION || null;
+// A new imported profile receives bookmarks once, before React reads its collection.
+// The durable marker also protects against a crash between applying and acknowledging.
+if (profileId && !privatePartition && !workspaceId) {
+  try {
+    const seed = ipcRenderer.sendSync('browser-import-bookmarks-bootstrap');
+    if (seed && typeof seed.id === 'string' && Array.isArray(seed.bookmarks)) {
+      const marker = 'mira.import.bookmarks.v1';
+      if (localStorage.getItem(marker) !== seed.id) {
+        const existing = JSON.parse(localStorage.getItem('mira.bookmarks.v1') || '[]');
+        if (!Array.isArray(existing)) throw new Error('Existing bookmarks could not be read.');
+        const ids = new Set(existing.map(item => item.id));
+        localStorage.setItem('mira.bookmarks.v1', JSON.stringify([...existing, ...seed.bookmarks.filter(item => !ids.has(item.id))]));
+        localStorage.setItem(marker, seed.id);
+      }
+      ipcRenderer.send('browser-import-bookmarks-applied', seed.id);
+    }
+  } catch (error) { console.error('Could not apply imported bookmarks:', error); }
+}
 const rendererListeners = new Map();
 let nextRendererListenerId = 0;
 

@@ -1085,6 +1085,10 @@ export default function TabsProvider({ children }: { children: React.ReactNode }
     switch (route.toLowerCase()) {
       case 'newtab':
         return 'New Tab';
+      case 'gettingstarted':
+        return 'Getting started';
+      case 'import':
+        return 'Import browser data';
       case 'recently-closed':
         return 'Recently Closed';
       case 'mailto':

@@ -1,6 +1,9 @@
 import { SITE_SETTINGS_PERMISSION_ORDER, sitePermissionLabel, mapPermissionIdsFromDetails, describeSitePermissionRequest, automaticSitePermissionDecision, isSitePermissionId as validSitePermissionId, type SitePermissionId } from './sitePermissionPolicy.ts';
 import { detachedTabBounds, tabDropIndex, type TabDropLayout } from './tabDrag.ts';
 import { HistoryStore } from './historyStore.ts';
+import { GettingStartedStore } from './gettingStartedStore.ts';
+import { GETTING_STARTED_STEPS, guideFinished } from './gettingStartedPolicy.ts';
+import { setupBrowserImport } from './browserImport.ts';
 import { setupOpenTabHandlers } from './openTabHandlers.ts';
 import { normalizeTabGroup, orderGroupedTabs, TAB_GROUP_COLORS, type TabGroup } from './tabGroups.ts';
 import { addClosedTab, addClosedWindow, pruneRecentlyClosed, restoreClosedEntry, type RecentlyClosedEntry } from './recentlyClosed.ts';
@@ -5434,6 +5437,33 @@ function setupIncomingUrlHandlers() {
 }
 
 function setupOnboardingHandlers() {
+  const guide = new GettingStartedStore(app.getPath('userData'));
+  let claimed = false;
+  const eligible = (sender: Electron.WebContents) => {
+    const win = BrowserWindow.fromWebContents(sender);
+    return !!win && win.webContents === sender && !isPrivateContents(sender)
+      && !workspaceByWindow.has(win.id) && !onboardingWindowIds.has(win.id)
+      && !profilePickerWindowIds.has(win.id) && !isWebAppWindow(win.id)
+      && !pictureInPicture?.isWindow(win.id);
+  };
+  setupBrowserImport({ eligible, importHistory: entries => historyStore.import(entries), changed: broadcastHistoryChange, profiles: profileContext.store });
+  ipcMain.handle('getting-started-claim', async event => {
+    if (!eligible(event.sender) || claimed) return false;
+    const state = await guide.read();
+    if (claimed) return false;
+    claimed = true;
+    return !guideFinished(state);
+  });
+  ipcMain.handle('getting-started-state', event => {
+    if (!eligible(event.sender)) throw new Error('Open setup in a regular profile window.');
+    return guide.read();
+  });
+  ipcMain.handle('getting-started-update', (event, input: { step?: string; dismiss?: boolean } = {}) => {
+    if (!eligible(event.sender)) throw new Error('Open setup in a regular profile window.');
+    const step = GETTING_STARTED_STEPS.find(item => item === input.step);
+    if (!step && input.dismiss !== true) throw new Error('Unknown setup step.');
+    return guide.update(step, input.dismiss === true);
+  });
   ipcMain.handle('onboarding-complete', async (event) => {
     onboardingCompleted = true;
     await persistAppState().catch(() => undefined);

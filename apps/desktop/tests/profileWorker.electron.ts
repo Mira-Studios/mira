@@ -1,11 +1,17 @@
 // Only loaded by profiles.integration.ts from an isolated temporary app.
-import { app, BrowserWindow, dialog, session, Menu, webContents } from 'electron';
+import { app, BrowserWindow, dialog, session, Menu, webContents, ipcMain } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 
 const directory = process.env.MIRA_PROFILE_TEST_CONTROL!;
+{
+  const handle = ipcMain.handle.bind(ipcMain);
+  ipcMain.handle = (channel, listener) => handle(channel,
+    channel === 'getting-started-claim' && process.env.MIRA_GETTING_STARTED_TEST !== '1' ? () => false :
+    channel === 'browser-import-detect' && process.env.MIRA_GETTING_STARTED_TEST === '1' ? async (...args) => { await delay(200); return listener(...args); } : listener);
+}
 const id =
   process.argv.find((arg) => arg.startsWith('--mira-profile='))?.slice('--mira-profile='.length) ??
   'default';

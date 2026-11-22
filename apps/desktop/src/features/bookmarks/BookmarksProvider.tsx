@@ -1,6 +1,8 @@
 import { createContext, useContext, useState, useCallback, useRef, useEffect, type ReactNode } from 'react';
 import { confirmDialog } from '../../components/appDialogs';
 import { scopedCollectionKey } from '../storage/collectionStorage';
+import type { ImportedBookmark } from '../../../electron/browserImportPolicy';
+import { mergeImportedBookmarks, type BookmarkImportGroup } from '../../../electron/bookmarkImportPolicy';
 
 export type Bookmark = {
   id: string;
@@ -15,6 +17,8 @@ export type Bookmark = {
 
 type BookmarksContextType = {
   bookmarks: Bookmark[];
+  importBookmarks: (items: ImportedBookmark[], source: string) => number;
+  importBookmarkGroups: (groups: BookmarkImportGroup[]) => number;
   addBookmark: (bookmark: Omit<Bookmark, 'id' | 'createdAt' | 'updatedAt'>) => void;
   deleteBookmark: (id: string) => Promise<void>;
   updateBookmark: (bookmark: Bookmark) => void;
@@ -248,6 +252,15 @@ function addBookmarkToTree(
 
 export function BookmarksProvider({ children }: { children: ReactNode }) {
   const [bookmarks, setBookmarks] = useState<Bookmark[]>(() => loadBookmarksFromStorage());
+  const importBookmarkGroups = useCallback((groups: BookmarkImportGroup[]) => {
+    const existing = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]') as Bookmark[];
+    if (!Array.isArray(existing)) throw new Error('Your bookmarks could not be read. Import has been stopped to preserve them.');
+    const result = mergeImportedBookmarks(existing, groups);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(result.bookmarks));
+    setBookmarks(result.bookmarks);
+    return result.count;
+  }, []);
+  const importBookmarks = useCallback((items: ImportedBookmark[], source: string) => importBookmarkGroups([{ source, bookmarks: items }]), [importBookmarkGroups]);
   const pendingDeletions = useRef(new Set<string>());
   useEffect(() => {
     const refresh = (event: StorageEvent) => {
@@ -332,6 +345,8 @@ export function BookmarksProvider({ children }: { children: ReactNode }) {
     <BookmarksContext.Provider value={{
       bookmarks,
       addBookmark,
+      importBookmarks,
+      importBookmarkGroups,
       deleteBookmark,
       updateBookmark,
       getBookmarkById,

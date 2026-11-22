@@ -81,6 +81,23 @@ export class HistoryStore {
     });
   }
 
+  import(entries: { url: string; title: string; visitedAt: number }[]): Promise<number> {
+    return this.run(async () => {
+      const existing = this.snapshot();
+      const seen = new Set(existing.map(entry => JSON.stringify([entry.url, entry.visitedAt])));
+      const added = entries.filter(entry => {
+        const key = JSON.stringify([entry.url, entry.visitedAt]);
+        if (seen.has(key)) return false;
+        seen.add(key); return true;
+      }).map(entry => ({ ...entry, id: randomUUID() }));
+      const next = pruneHistoryEntries([...existing, ...added].sort((a, b) => b.visitedAt - a.visitedAt), this.retention);
+      await fs.writeFile(this.historyPath, JSON.stringify(next), 'utf8');
+      this.entries = next;
+      const ids = new Set(added.map(entry => entry.id));
+      return next.filter(entry => ids.has(entry.id)).length;
+    });
+  }
+
   add(payload: { url?: string; title?: string }): Promise<boolean> {
     return this.run(async () => {
       const url = payload.url?.trim();

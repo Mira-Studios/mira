@@ -1,5 +1,5 @@
 import { resolveAddressBarPosition } from './features/settings/addressBarPlacement';
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from 'react';
 import { useTabs } from './features/tabs/TabsProvider';
 import TabsProvider from './features/tabs/TabsProvider';
 import TabBar from './features/tabs/TabBar';
@@ -261,6 +261,16 @@ function Browser() {
     isFullscreen,
     getWebContentsIdForTab,
   } = useTabs();
+  const openStartupGuide = useEffectEvent(() => {
+    const existing = tabs.find(tab => /^mira:\/\/gettingstarted(?:[/?#]|$)/i.test(tab.url));
+    if (existing) setActive(existing.id);
+    else newTab('mira://GettingStarted');
+  });
+  useEffect(() => {
+    void electron?.ipcRenderer.invoke<boolean>('getting-started-claim').then(open => {
+      if (open) openStartupGuide();
+    }).catch(error => console.error('Could not open setup:', error));
+  }, []);
   useBackgroundImageWarmup(/^mira:\/\/newtab(?:[?#/]|$)/i.test(tabs.find((tab) => tab.id === activeId)?.url ?? ''));
   const [settledRestoreRevision, setSettledRestoreRevision] = useState(-1);
   const isRestoringLayout = settledRestoreRevision !== restoreRevision;

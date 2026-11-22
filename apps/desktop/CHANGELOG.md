@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Added 
+
+- Data import
+- Getting started setup
+
 ## v1.3.0 - 2026-11-21
 
 ### Added

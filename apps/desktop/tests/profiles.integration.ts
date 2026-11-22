@@ -164,7 +164,7 @@ try {
     async () =>
       await evaluate<boolean>(
         'default',
-        `!!document.querySelector('.address-menu-panel .profile-menu-inline')`,
+        `!!document.querySelector('.address-menu-panel .profile-menu-inline[aria-label="Profiles"]')`,
       ),
     'Profiles are inside main menu',
   );
@@ -223,7 +223,7 @@ try {
   );
   await click(work, '[title="Menu"]');
   assert.equal(
-    await evaluate(work, `!!document.querySelector('.address-menu-panel .profile-menu-inline')`),
+    await evaluate(work, `!!document.querySelector('.address-menu-panel .profile-menu-inline[aria-label="Profiles"]')`),
     false,
     'Toolbar profiles are absent from main menu',
   );
@@ -318,7 +318,7 @@ try {
   );
   assert.equal(await evaluate(work, `!!document.querySelector('.profile-menu-trigger')`, 1), false);
   await evaluate(work, `document.querySelector('[title="Menu"]').click(); true`, 1);
-  assert.equal(await evaluate(work, `!!document.querySelector('.profile-menu-inline')`, 1), false);
+  assert.equal(await evaluate(work, `!!document.querySelector('.profile-menu-inline[aria-label="Profiles"]')`, 1), false);
   assert.equal(
     await evaluate(
       work,

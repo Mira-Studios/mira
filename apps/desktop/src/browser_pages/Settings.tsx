@@ -1263,6 +1263,13 @@ function SettingsContent({ workspaceMode }: { workspaceMode: boolean }) {
           {workspaceMode && activeSection === 'workspace' && <WorkspaceDetails />}
           {activeSection === 'general' && (
             <>
+              {!electron?.isPrivate && !electron?.workspaceId && <SettingsGroup>
+                <div className="settings-card-header"><h3 className="settings-card-title">Browser data</h3></div>
+                <div className="settings-setting-row">
+                  <div className="settings-setting-meta"><span className="settings-setting-label">Import browser data</span><span className="settings-setting-description">Bring bookmarks and history from another browser.</span></div>
+                  <button type="button" className="theme-btn theme-btn-nav settings-btn-pad" aria-label="Import browser data" onClick={() => navigate('mira://Import')}>Import</button>
+                </div>
+              </SettingsGroup>}
               <SettingsGroup>
                 <div className="settings-card-header">
                   <h3 className="settings-card-title">New Tab</h3>

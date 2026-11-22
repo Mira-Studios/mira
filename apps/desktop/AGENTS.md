@@ -14,6 +14,22 @@ When adding or changing any feature (including New Tab cards):
 - Renderer `localStorage`, IndexedDB, CacheStorage, and Electron's
   `session.defaultSession` are automatically profile scoped. Keep versioned
   storage keys. Do not add a second global settings or card store.
+- The startup guide uses `getting-started.v1.json` in the profile directory,
+  independently of legacy theme onboarding. Keep its step catalog in
+  `gettingStartedPolicy.ts`; skipped steps count as completed. Only regular
+  profile windows claim startup guides or import browser data. Browser import
+  reads source profiles without modifying them and preserves existing Mira data.
+  Batch imports may merge into the current profile or initialize new profiles
+  from external browser data before publishing them in the registry. New-profile
+  bookmark seeds are applied once by preload and acknowledged only after local
+  storage succeeds. Never write directly into another running profile's Chromium
+  storage. Keep browser logos bundled, and use only cached local profile pictures.
+  Layout setup has separate visual pages and saves its current page under
+  `mira.setup.layout-page.v1` in profile localStorage. Apply choices immediately
+  through `saveBrowserSettings`; Back must preserve changes. Previews use the
+  current theme and the same placement rules as the real browser chrome.
+  Settings opens `mira://Import` with the same importer in standalone mode;
+  importing there must never complete, dismiss, or reset startup-guide steps.
 - Module-level maps and IPC broadcasts are profile scoped because a process
   owns only one profile. Never exchange feature data or tabs between profile
   processes. The shared registry holds discovery metadata, launch preferences,
