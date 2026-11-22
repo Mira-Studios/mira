@@ -379,49 +379,247 @@
           "mimeType": "application/xml"
         },
         {
-          "ext": [
-            "txt",
-            "text",
-            "md",
-            "markdown",
-            "json",
-            "jsonc",
-            "js",
-            "jsx",
-            "mjs",
-            "cjs",
-            "ts",
-            "tsx",
-            "css",
-            "scss",
-            "less",
-            "yaml",
-            "yml",
-            "toml",
-            "ini",
-            "conf",
-            "cfg",
-            "log",
-            "csv",
-            "tsv",
-            "py",
-            "rs",
-            "go",
-            "java",
-            "c",
-            "h",
-            "cpp",
-            "hpp",
-            "cs",
-            "sh",
-            "bash",
-            "ps1",
-            "sql",
-            "rb",
-            "php",
-            "vue",
-            "svelte"
-          ],
+          "ext": "txt",
+          "name": "Text and source code",
+          "role": "Editor",
+          "mimeType": "text/plain"
+        },
+        {
+          "ext": "text",
+          "name": "Text and source code",
+          "role": "Editor",
+          "mimeType": "text/plain"
+        },
+        {
+          "ext": "md",
+          "name": "Text and source code",
+          "role": "Editor",
+          "mimeType": "text/plain"
+        },
+        {
+          "ext": "markdown",
+          "name": "Text and source code",
+          "role": "Editor",
+          "mimeType": "text/plain"
+        },
+        {
+          "ext": "json",
+          "name": "Text and source code",
+          "role": "Editor",
+          "mimeType": "text/plain"
+        },
+        {
+          "ext": "jsonc",
+          "name": "Text and source code",
+          "role": "Editor",
+          "mimeType": "text/plain"
+        },
+        {
+          "ext": "js",
+          "name": "Text and source code",
+          "role": "Editor",
+          "mimeType": "text/plain"
+        },
+        {
+          "ext": "jsx",
+          "name": "Text and source code",
+          "role": "Editor",
+          "mimeType": "text/plain"
+        },
+        {
+          "ext": "mjs",
+          "name": "Text and source code",
+          "role": "Editor",
+          "mimeType": "text/plain"
+        },
+        {
+          "ext": "cjs",
+          "name": "Text and source code",
+          "role": "Editor",
+          "mimeType": "text/plain"
+        },
+        {
+          "ext": "ts",
+          "name": "Text and source code",
+          "role": "Editor",
+          "mimeType": "text/plain"
+        },
+        {
+          "ext": "tsx",
+          "name": "Text and source code",
+          "role": "Editor",
+          "mimeType": "text/plain"
+        },
+        {
+          "ext": "css",
+          "name": "Text and source code",
+          "role": "Editor",
+          "mimeType": "text/plain"
+        },
+        {
+          "ext": "scss",
+          "name": "Text and source code",
+          "role": "Editor",
+          "mimeType": "text/plain"
+        },
+        {
+          "ext": "less",
+          "name": "Text and source code",
+          "role": "Editor",
+          "mimeType": "text/plain"
+        },
+        {
+          "ext": "yaml",
+          "name": "Text and source code",
+          "role": "Editor",
+          "mimeType": "text/plain"
+        },
+        {
+          "ext": "yml",
+          "name": "Text and source code",
+          "role": "Editor",
+          "mimeType": "text/plain"
+        },
+        {
+          "ext": "toml",
+          "name": "Text and source code",
+          "role": "Editor",
+          "mimeType": "text/plain"
+        },
+        {
+          "ext": "ini",
+          "name": "Text and source code",
+          "role": "Editor",
+          "mimeType": "text/plain"
+        },
+        {
+          "ext": "conf",
+          "name": "Text and source code",
+          "role": "Editor",
+          "mimeType": "text/plain"
+        },
+        {
+          "ext": "cfg",
+          "name": "Text and source code",
+          "role": "Editor",
+          "mimeType": "text/plain"
+        },
+        {
+          "ext": "log",
+          "name": "Text and source code",
+          "role": "Editor",
+          "mimeType": "text/plain"
+        },
+        {
+          "ext": "csv",
+          "name": "Text and source code",
+          "role": "Editor",
+          "mimeType": "text/plain"
+        },
+        {
+          "ext": "tsv",
+          "name": "Text and source code",
+          "role": "Editor",
+          "mimeType": "text/plain"
+        },
+        {
+          "ext": "py",
+          "name": "Text and source code",
+          "role": "Editor",
+          "mimeType": "text/plain"
+        },
+        {
+          "ext": "rs",
+          "name": "Text and source code",
+          "role": "Editor",
+          "mimeType": "text/plain"
+        },
+        {
+          "ext": "go",
+          "name": "Text and source code",
+          "role": "Editor",
+          "mimeType": "text/plain"
+        },
+        {
+          "ext": "java",
+          "name": "Text and source code",
+          "role": "Editor",
+          "mimeType": "text/plain"
+        },
+        {
+          "ext": "c",
+          "name": "Text and source code",
+          "role": "Editor",
+          "mimeType": "text/plain"
+        },
+        {
+          "ext": "h",
+          "name": "Text and source code",
+          "role": "Editor",
+          "mimeType": "text/plain"
+        },
+        {
+          "ext": "cpp",
+          "name": "Text and source code",
+          "role": "Editor",
+          "mimeType": "text/plain"
+        },
+        {
+          "ext": "hpp",
+          "name": "Text and source code",
+          "role": "Editor",
+          "mimeType": "text/plain"
+        },
+        {
+          "ext": "cs",
+          "name": "Text and source code",
+          "role": "Editor",
+          "mimeType": "text/plain"
+        },
+        {
+          "ext": "sh",
+          "name": "Text and source code",
+          "role": "Editor",
+          "mimeType": "text/plain"
+        },
+        {
+          "ext": "bash",
+          "name": "Text and source code",
+          "role": "Editor",
+          "mimeType": "text/plain"
+        },
+        {
+          "ext": "ps1",
+          "name": "Text and source code",
+          "role": "Editor",
+          "mimeType": "text/plain"
+        },
+        {
+          "ext": "sql",
+          "name": "Text and source code",
+          "role": "Editor",
+          "mimeType": "text/plain"
+        },
+        {
+          "ext": "rb",
+          "name": "Text and source code",
+          "role": "Editor",
+          "mimeType": "text/plain"
+        },
+        {
+          "ext": "php",
+          "name": "Text and source code",
+          "role": "Editor",
+          "mimeType": "text/plain"
+        },
+        {
+          "ext": "vue",
+          "name": "Text and source code",
+          "role": "Editor",
+          "mimeType": "text/plain"
+        },
+        {
+          "ext": "svelte",
           "name": "Text and source code",
           "role": "Editor",
           "mimeType": "text/plain"
