@@ -1406,6 +1406,7 @@ textarea {
   color: var(--tabTextHover, var(--surfaceTextHover));
 }
 
+
 .tab-strip-scroll {
   scrollbar-width: none;
   -ms-overflow-style: none;
@@ -2460,13 +2461,15 @@ textarea {
   height: calc(var(--tabConnectionRadius) + 2px);
 }
 .tab-connection-horizontal .tab-connection-curve {
-  bottom: -1px;
+  bottom: -0.7px;
 }
 .tab-connection-horizontal .tab-connection-curve-0 {
   left: calc(-1 * var(--tabConnectionRadius));
+  transform: translateX(var(--tabConnectionStartOffset, 0px));
 }
 .tab-connection-horizontal .tab-connection-curve-1 {
   right: calc(-1 * var(--tabConnectionRadius));
+  transform: translateX(var(--tabConnectionEndOffset, 0px));
 }
 .tab-connection-horizontal::after {
   content: '';

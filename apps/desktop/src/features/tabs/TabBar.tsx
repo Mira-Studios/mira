@@ -5,7 +5,7 @@ import { promptDialog } from '../../components/appDialogs';
 import TabFavicon from './TabFavicon';
 import { openQuickNavigateEditor } from '../quickNavigate/quickNavigate';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { ChevronDown, Pin, Plus, Volume2, VolumeX, X } from 'lucide-react';
+import { ChevronDown, Plus, Volume2, VolumeX, X } from 'lucide-react';
 import { useTabs } from './TabsProvider';
 import { isEditorUrl } from '../editor/editorLifecycle';
 import type { Tab } from './types';
@@ -22,6 +22,8 @@ const TAB_TARGET_WIDTH = 'var(--layoutTabTargetWidth, 220px)';
 const TAB_MIN_WIDTH = 'var(--layoutTabMinWidth, 100px)';
 const TAB_STRIP_GAP = 'var(--layoutTabGap, 6px)';
 const TAB_ROW_HEIGHT = 'var(--layoutTabHeight, 27px)';
+const PINNED_GRID_COLUMNS = 3;
+const PINNED_GRID_HEIGHT = 44;
 const NEW_TAB_BUTTON_SIZE = `max(20px, calc(${TAB_ROW_HEIGHT} - 4px))`;
 const TAB_SWAP_TRIGGER_RATIO = 0.5;
 const TAB_GROUP_EXIT_DISTANCE_PX = 24;
@@ -803,7 +805,10 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
             const maxY = containerRect.bottom - (draggedRect.height - dragPointerToTopRef.current);
             nextY = clamp(nextY, minY, maxY);
           }
-          setDraggedTabPosition({ x: 0, y: nextY });
+          const pinned = currentTabs.find(tab => tab.id === draggingTabId)?.isPinned;
+          const nextX = pinned && containerRect && draggedRect
+            ? clamp(event.clientX, containerRect.left + dragPointerToLeftRef.current, containerRect.right - (draggedRect.width - dragPointerToLeftRef.current)) : 0;
+          setDraggedTabPosition({ x: nextX, y: nextY });
         } else {
           let nextX = event.clientX;
           if (containerRect && draggedRect) {
@@ -826,6 +831,26 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
       if (now - lastSwapAtRef.current < TAB_SWAP_COOLDOWN_MS) return;
 
       const draggedTab = currentTabs[currentIndex];
+      if (isVertical && draggedTab.isPinned) {
+        const pinned = currentTabs.filter(tab => tab.isPinned);
+        const bottom = Math.max(...pinned.map(tab => tabElementRefs.current[tab.id]?.getBoundingClientRect().bottom ?? 0));
+        if (event.clientY <= bottom + 8) {
+          const target = pinned.find(tab => {
+            if (tab.id === draggingTabId) return false;
+            const element = tabElementRefs.current[tab.id];
+            if (!element) return false;
+            const rect = element.getBoundingClientRect();
+            const transform = new DOMMatrixReadOnly(getComputedStyle(element).transform);
+            const left = rect.left - transform.m41; const top = rect.top - transform.m42;
+            return event.clientX > left + rect.width * .2 && event.clientX < left + rect.width * .8 && event.clientY > top + rect.height * .15 && event.clientY < top + rect.height * .85;
+          });
+          if (target) {
+            moveTabToIndex(draggingTabId, currentTabs.findIndex(tab => tab.id === target.id));
+            lastSwapAtRef.current = now;
+          }
+          return;
+        }
+      }
       const previewStart = pointerPrimary - (isVertical ? dragPointerToTopRef.current : dragPointerToLeftRef.current);
       const previewEnd = previewStart + (isVertical ? draggedRect?.height ?? 0 : draggedRect?.width ?? 0);
       const getGroupBounds = (groupId: string) => {
@@ -1074,7 +1099,10 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
       if (!orderChanged && !membershipChanged && !previewChanged) continue;
       if (!prevRect) continue;
       if (tabId === releasedDragTabId) continue;
-      const delta = isVertical ? prevRect.top - nextRect.top : prevRect.left - nextRect.left;
+      const gridTile = isVertical && renderedTabs.some(({ tab }) => tab.id === tabId && tab.isPinned);
+      const deltaX = prevRect.left - nextRect.left;
+      const deltaY = prevRect.top - nextRect.top;
+      const delta = gridTile ? Math.hypot(deltaX, deltaY) : isVertical ? deltaY : deltaX;
       if (Math.abs(delta) < 2) continue;
       if (!animationsEnabled) continue;
 
@@ -1094,8 +1122,8 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
 
       const animation = el.animate(
         [
-          { transform: isVertical ? `translateY(${delta}px)` : `translateX(${delta}px)` },
-          { transform: isVertical ? 'translateY(0px)' : 'translateX(0px)' },
+          { transform: gridTile ? `translate(${deltaX}px, ${deltaY}px)` : isVertical ? `translateY(${delta}px)` : `translateX(${delta}px)` },
+          { transform: gridTile ? 'translate(0px, 0px)' : isVertical ? 'translateY(0px)' : 'translateX(0px)' },
         ],
         {
           duration: TAB_REORDER_ANIMATION_MS,
@@ -1241,14 +1269,18 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
   // Extend the scroll viewport left so the curve fits without shifting the tabs right.
   const horizontalCurveBleed = `calc(${tabRadius} + ${borderWidth} + 4px)`;
   const horizontalTabInset = `calc(${horizontalCurveBleed} + 2px)`;
+  const horizontalScrollInset = canScrollLeft || canScrollRight || dragRegionsTemporarilyDisabled ? '2px' : horizontalTabInset;
 
   const displayedTabs = renderedTabs.filter(({ tab }) => tab.id !== outgoingTabId);
+  const pinnedOrder = new Map(displayedTabs.filter(({ tab }) => tab.isPinned).map(({ tab }, index) => [tab.id, index]));
   const previewTabs = incomingTab ? displayedTabs.filter(({ tab, phase }) => phase !== 'exiting' && tab.id !== incomingTab.tab.id) : [];
   const previewBeforeId = incomingTab ? previewTabs[incomingTab.index]?.tab.id : undefined;
   const incomingPreview = incomingTab ? (
     <div key="incoming-tab" data-tab-drop-preview={incomingTab.tab.id} aria-hidden="true"
       className="theme-tab theme-tab-selected"
-      style={{ height: TAB_ROW_HEIGHT, display: 'flex', alignItems: 'center', gap: 6,
+      style={{ height: isVertical && incomingTab.tab.isPinned ? PINNED_GRID_HEIGHT : TAB_ROW_HEIGHT, display: 'flex', alignItems: 'center', gap: 6,
+        gridColumn: isVertical ? incomingTab.tab.isPinned ? undefined : '1 / -1' : undefined,
+        justifyContent: incomingTab.tab.isPinned ? 'center' : undefined,
         flex: isVertical ? '0 0 auto' : incomingTab.tab.isPinned ? '0 0 38px' : `1 1 ${TAB_TARGET_WIDTH}`,
         minWidth: isVertical ? 0 : incomingTab.tab.isPinned ? 38 : TAB_MIN_WIDTH,
         maxWidth: isVertical ? undefined : incomingTab.tab.isPinned ? 38 : TAB_TARGET_WIDTH,
@@ -1280,7 +1312,7 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
         minWidth: 0,
         flex: 1,
         width: '100%',
-        height: isVertical ? '100%' : undefined,
+        height: isVertical ? 0 : undefined,
         WebkitAppRegion: dragRegionsTemporarilyDisabled ? 'no-drag' : 'drag',
         userSelect: isActivelyDragging ? 'none' : 'auto', // Prevent text selection during drag
         ['--tabEnterExitMs' as string]: `${TAB_ENTER_EXIT_DURATION_MS}ms`,
@@ -1295,27 +1327,34 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
           minWidth: 0,
           minHeight: 0,
           position: 'relative',
+          display: isVertical ? 'flex' : undefined,
+          flexDirection: isVertical ? 'column' : undefined,
           height: isVertical ? undefined : '100%',
         }}
       >
         <div
           ref={scrollRef}
           className="tab-strip-scroll"
+          data-orientation={orientation}
           style={{
-            display: 'flex',
+            display: isVertical ? 'grid' : 'flex',
+            gridTemplateColumns: isVertical ? `repeat(${PINNED_GRID_COLUMNS}, minmax(0, 1fr))` : undefined,
+            alignContent: isVertical ? 'start' : undefined,
             flexDirection: isVertical ? 'column' : 'row',
             gap: TAB_STRIP_GAP,
             overflowX: isVertical ? 'hidden' : 'auto',
             overflowY: isVertical ? 'auto' : 'hidden',
             alignItems: isVertical ? 'stretch' : 'center',
-            height: isVertical ? '100%' : 'calc(100% + 1px)',
+            height: isVertical ? 0 : 'calc(100% + 1px)',
+            flex: isVertical ? 1 : undefined,
+            minHeight: 0,
             boxSizing: 'border-box',
             // Keep overflow's native hit region inside the actual viewport.
             // Dropping the decorative left bleed also keeps scrolled tabs from
             // creating drag-blocking rectangles over the compact logo.
             WebkitAppRegion: canScrollLeft || canScrollRight || dragRegionsTemporarilyDisabled ? 'no-drag' : 'drag',
             marginLeft: isVertical || canScrollLeft || canScrollRight || dragRegionsTemporarilyDisabled ? undefined : `calc(-1 * ${horizontalCurveBleed} - 2px)`,
-            padding: isVertical ? 6 : `0 4px 0 ${canScrollLeft || canScrollRight || dragRegionsTemporarilyDisabled ? '2px' : horizontalTabInset}`,
+            padding: isVertical ? 6 : `0 4px 0 ${horizontalScrollInset}`,
             paddingBottom: isVertical ? 6 : 1,
           }}
         >
@@ -1325,10 +1364,10 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
             const audio = tabAudioState[tab.id] ?? (tab.isMuted ? { muted: true, audible: false } : undefined);
             const showAudio = audio?.audible || audio?.muted;
             const isInternalTab = tab.url.startsWith('mira://');
-            const faviconSize = isInternalTab ? 22 : 16;
+            const faviconSize = isInternalTab ? 22 : isVertical && tab.isPinned ? 20 : 16;
             const isExiting = phase === 'exiting';
             const isCollapsed = phase !== 'stable';
-            const pinnedIndex = displayedTabs.findIndex(item => item.tab.id === tab.id);
+            const pinnedIndex = pinnedOrder.get(tab.id) ?? 0;
             const group = tab.isPinned ? undefined : tab.group;
             const groupStart = group && displayedTabs.findIndex(item => item.tab.group?.id === group.id) === index;
             const groupColor = group && TAB_GROUP_COLORS[group.color];
@@ -1348,7 +1387,7 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
                 aria-label={`${group.collapsed ? 'Expand' : 'Collapse'} ${group.name || 'unnamed group'}`}
                 aria-expanded={!group.collapsed}
                 className={`theme-btn tab-group-header${isVertical ? ' tab-group-header-vertical' : ''}`}
-                style={{ backgroundColor: groupColor, minWidth: group.name ? undefined : 20, maxWidth: isVertical ? '100%' : 150, alignSelf: isVertical ? 'stretch' : undefined, flexShrink: 0 }}
+                style={{ gridColumn: isVertical ? '1 / -1' : undefined, backgroundColor: groupColor, minWidth: group.name ? undefined : 20, maxWidth: isVertical ? '100%' : 150, alignSelf: isVertical ? 'stretch' : undefined, flexShrink: 0 }}
                 onClick={() => { if (!suppressClickRef.current) updateTabGroup(group.id, { collapsed: !group.collapsed }); }}
                 onMouseDown={(event) => {
                   if (event.button !== 0) return;
@@ -1382,6 +1421,7 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
                 }}
                 data-tab-id={tab.id}
                 data-pinned={tab.isPinned ? 'true' : undefined}
+                aria-label={tab.isPinned ? `Pinned tab: ${displayTitle}` : undefined}
                 aria-hidden={groupCollapsed || undefined}
                 inert={groupCollapsed || undefined}
                 title={tab.isPinned ? `Pinned: ${displayTitle}` : undefined}
@@ -1458,7 +1498,7 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
                   }
                   setTabMenuState({ tabId: tab.id, x: event.clientX, y: event.clientY });
                 }}
-                className={`theme-tab${group ? ' tab-group-member' : ''} ${tab.id === activeId ? 'theme-tab-selected' : ''}${
+                className={`theme-tab${isVertical && tab.isPinned ? ' vertical-pinned-tile' : ''}${group ? ' tab-group-member' : ''} ${tab.id === activeId ? 'theme-tab-selected' : ''}${
                   settledActiveId !== activeId && (tab.id === activeId || tab.id === settledActiveId)
                     ? ' tab-selection-changing' : ''
                 }${
@@ -1467,28 +1507,34 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
                     : ''
                 }`}
                 style={{
-                  height: isVertical && groupCollapsed ? 0 : !isVertical && isActive
-                    ? `calc((100% + ${TAB_ROW_HEIGHT}) / 2)` : TAB_ROW_HEIGHT,
-                  alignSelf: !isVertical && isActive ? 'flex-end' : undefined,
+                  height: isVertical && groupCollapsed ? 0 : isVertical && tab.isPinned ? PINNED_GRID_HEIGHT : !isVertical && isActive
+                    // The strip includes a 1px curve bleed. Refer to its declared
+                    // height: a percentage here changes during the first flex layout.
+                    ? `calc((var(--layoutTopBarHeight, 38px) + 1px + ${TAB_ROW_HEIGHT}) / 2)` : TAB_ROW_HEIGHT,
+                  alignSelf: !isVertical ? 'flex-start' : undefined,
+                  marginTop: !isVertical ? `calc((var(--layoutTopBarHeight, 38px) - ${TAB_ROW_HEIGHT}) / 2)` : undefined,
                   minHeight: 0,
                   cursor: 'default',
+                  gridColumn: isVertical && !tab.isPinned ? '1 / -1' : undefined,
                   WebkitAppRegion: 'no-drag',
                   borderRadius: isVertical || tab.id !== activeId ? tabRadius : `${tabRadius} ${tabRadius} 0 0`,
                   display: 'flex',
                   gap: 6,
-                  alignItems: !isVertical && isActive ? 'flex-start' : 'center',
+                  alignItems: !isVertical ? 'flex-start' : 'center',
                   whiteSpace: 'nowrap',
                   flex: isVertical ? '0 0 auto' : groupCollapsed ? '0 1 0px' : tab.isPinned ? '0 0 38px' : `1 1 ${TAB_TARGET_WIDTH}`,
                   minWidth: isVertical ? 0 : sizeCollapsed ? 0 : tab.isPinned ? 38 : TAB_MIN_WIDTH,
                   maxWidth: isVertical ? '100%' : sizeCollapsed ? 0 : tab.isPinned ? 38 : TAB_TARGET_WIDTH,
                   overflow: !isVertical && isActive && !sizeCollapsed ? 'visible' : 'hidden',
-                  padding: sizeCollapsed ? '0' : tab.isPinned && !isVertical ? '0'
+                  padding: sizeCollapsed ? '0' : tab.isPinned ? '0'
                     : '0 6px 0 10px',
                   paddingBottom: 0,
-                  justifyContent: tab.isPinned && !isVertical ? 'center' : undefined,
+                  justifyContent: tab.isPinned ? 'center' : undefined,
                   position: incomingTab?.tab.id === tab.id ? 'absolute' : tab.isPinned ? 'sticky' : 'relative',
-                  left: tab.isPinned && !isVertical ? `calc(${horizontalTabInset} + ${pinnedIndex} * (38px + ${TAB_STRIP_GAP}))` : undefined,
-                  top: tab.isPinned && isVertical ? `calc(${pinnedIndex} * (${TAB_ROW_HEIGHT} + ${TAB_STRIP_GAP}))` : undefined,
+                  // Sticky offsets already start inside the strip's padding.
+                  // Adding the inset again shifts only the pinned tab and its curves.
+                  left: tab.isPinned && !isVertical ? `calc(${pinnedIndex} * (38px + ${TAB_STRIP_GAP}))` : undefined,
+                  top: tab.isPinned && isVertical ? `calc(${Math.floor(pinnedIndex / PINNED_GRID_COLUMNS)} * (${PINNED_GRID_HEIGHT}px + ${TAB_STRIP_GAP}))` : undefined,
                   marginBottom: isVertical && groupCollapsed ? `calc(-1 * ${TAB_STRIP_GAP})` : 0,
                   marginRight:
                     !isVertical && sizeCollapsed
@@ -1503,7 +1549,7 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
                       ? '10px'
                       : 0,
                   background:
-                    tab.id === activeId ? 'var(--surfaceBgHover, var(--tabBgHover))' : tab.isPinned ? 'var(--surfaceBg, var(--tabBg))' : undefined,
+                    tab.id === activeId ? 'var(--surfaceBgHover, var(--tabBgHover))' : tab.isPinned && !isVertical ? 'var(--surfaceBg, var(--tabBg))' : undefined,
                   opacity: sizeCollapsed || incomingTab?.tab.id === tab.id
                     ? 0
                     : draggingTabId === tab.id && draggedTabPosition && !dragUsesNativeWindow
@@ -1528,11 +1574,11 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
                 {isActive && !isVertical && !sizeCollapsed && <TabConnection vertical={isVertical} rightSidebar={isRightSidebar} color={!isVertical ? groupColor || undefined : undefined} />}
                 <div data-tab-content style={{
                   display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, width: '100%',
-                  height: `calc(${TAB_ROW_HEIGHT} - 2 * ${borderWidth})`, flexShrink: 0,
-                  justifyContent: tab.isPinned && !isVertical ? 'center' : undefined,
+                  height: isVertical && tab.isPinned ? '100%' : `calc(${TAB_ROW_HEIGHT} - 2 * ${borderWidth})`, flexShrink: 0,
+                  justifyContent: tab.isPinned ? 'center' : undefined,
                 }}>
                 {(!tab.isPinned || isVertical || !showAudio) && <TabFavicon url={tab.url} src={displayFavicon} size={faviconSize} deferred={tab.restoreDeferred} />}
-                {(!tab.isPinned || isVertical) && <span
+                {!tab.isPinned && <span
                   title={displayTitle}
                   className="tab-title"
                   style={{
@@ -1546,8 +1592,7 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
                 >
                   {displayTitle}
                 </span>}
-                {tab.isPinned && isVertical && <Pin size={12} aria-hidden="true" style={{ flexShrink: 0 }} />}
-                {tab.editorDirty && <span role="img" aria-label="Unsaved changes" title="Unsaved changes" style={{ width: 22, height: 22, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', alignSelf: 'center', flexShrink: 0 }}><span style={{ width: 7, height: 7, borderRadius: '50%', background: 'currentColor' }} /></span>}
+                {tab.editorDirty && <span role="img" aria-label="Unsaved changes" title="Unsaved changes" style={{ width: isVertical && tab.isPinned ? 7 : 22, height: isVertical && tab.isPinned ? 7 : 22, position: isVertical && tab.isPinned ? 'absolute' : undefined, top: 4, right: 4, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', alignSelf: 'center', flexShrink: 0 }}><span style={{ width: 7, height: 7, borderRadius: '50%', background: 'currentColor' }} /></span>}
                 {showAudio && <button
                   type="button"
                   data-tab-drag-ignore="true"
@@ -1559,7 +1604,9 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
                     toggleTabMuted(tab.id);
                   }}
                   className="theme-btn tab-close-btn"
-                  style={{ padding: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+                  style={{ padding: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                    ...(isVertical && tab.isPinned ? { position: 'absolute', right: 2, bottom: 2, padding: 2 } as CSSProperties : {}),
+                  }}
                 >
                   {audio.muted ? <VolumeX size={14} aria-hidden="true" /> : <Volume2 size={14} aria-hidden="true" />}
                 </button>}
@@ -1596,6 +1643,7 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
             aria-label="New tab"
             style={{
               height: isVertical ? TAB_ROW_HEIGHT : NEW_TAB_BUTTON_SIZE,
+              gridColumn: isVertical ? '1 / -1' : undefined,
               flex: isVertical
                 ? '0 0 auto'
                 : 'none',
@@ -1629,6 +1677,15 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
             {isVertical && <span>New tab</span>}
           </button>
         </div>
+        {pinnedOrder.size > 0 && (isVertical || canScrollLeft || canScrollRight) && <div
+          aria-hidden="true"
+          data-pinned-tab-background="true"
+          style={{ position: 'absolute', top: 0, left: 0, pointerEvents: 'none', zIndex: 2,
+            background: 'var(--surfaceBg, var(--tabBg))',
+            width: isVertical ? '100%' : `calc(2px + ${pinnedOrder.size} * (38px + ${TAB_STRIP_GAP}))`,
+            height: isVertical ? `calc(6px + ${Math.ceil(pinnedOrder.size / PINNED_GRID_COLUMNS)} * (${PINNED_GRID_HEIGHT}px + ${TAB_STRIP_GAP}))` : '100%',
+          }}
+        />}
         <TabGroupOutlines scrollRef={scrollRef} tabs={tabs} activeId={activeId} vertical={isVertical} rightSidebar={isRightSidebar} draggingTabId={draggingTabId} draggingGroupId={draggingGroupId} />
         {!isVertical && (
           <>
@@ -1682,7 +1739,7 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
         const displayFavicon = getDisplayFavicon(draggedTab.url, draggedTab.favicon, draggedTab.restoreDeferred);
         const displayTitle = getDisplayTitle(draggedTab.url, draggedTab.title);
         const isInternalTab = draggedTab.url.startsWith('mira://');
-        const faviconSize = isInternalTab ? 22 : 16;
+        const faviconSize = isInternalTab ? 22 : isVertical && draggedTab.isPinned ? 20 : 16;
         const isActive = draggedTab.id === activeId;
         const groupColor = !draggedTab.isPinned && !isVertical && draggedTab.group ? TAB_GROUP_COLORS[draggedTab.group.color] : undefined;
         const activeOutlineColor = groupColor ?? 'var(--surfaceBorder, var(--tabBorder))';
@@ -1691,7 +1748,7 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
           <div
             style={{
               position: 'fixed',
-              left: isVertical
+              left: isVertical && draggedTab.isPinned ? draggedTabPosition.x - dragPointerToLeftRef.current : isVertical
                 ? isRightSidebar ? originalTabPosition?.x ?? 0 : originalTabPosition?.right ?? 0
                 : draggedTabPosition.x,
               top: !isVertical && originalTabPosition
@@ -1717,23 +1774,23 @@ export default function TabBar({ orientation = 'horizontal' }: { orientation?: '
                 whiteSpace: 'nowrap',
                 width: draggedTabWidth ?? TAB_TARGET_WIDTH,
                 minWidth: 0,
-                transform: isVertical
+                transform: isVertical && draggedTab.isPinned ? undefined : isVertical
                   ? isRightSidebar ? undefined : 'translateX(-100%)'
                   : `translateX(${-dragPointerWidthRatioRef.current * 100}%)`,
                 boxShadow: isActive ? undefined : 'var(--tabDragShadow, 0 6px 18px rgba(0, 0, 0, 0.28))',
                 position: 'relative',
                 overflow: isActive ? 'visible' : 'hidden',
-                padding: draggedTab.isPinned && !isVertical ? '0' : '0 6px 0 10px',
-                justifyContent: draggedTab.isPinned && !isVertical ? 'center' : undefined,
+                padding: draggedTab.isPinned ? '0' : '0 6px 0 10px',
+                justifyContent: draggedTab.isPinned ? 'center' : undefined,
                 background: draggedTab.id === activeId ? 'var(--surfaceBgHover, var(--tabBgHover))' : undefined,
               }}
             >
               {isActive && !isVertical && <TabConnection vertical={isVertical} rightSidebar={isRightSidebar} color={groupColor} />}
               <div data-tab-drag-content style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', minWidth: 0,
-                height: `calc(${TAB_ROW_HEIGHT} - 2 * ${borderWidth})`, flexShrink: 0,
-                justifyContent: draggedTab.isPinned && !isVertical ? 'center' : undefined }}>
+                height: isVertical && draggedTab.isPinned ? '100%' : `calc(${TAB_ROW_HEIGHT} - 2 * ${borderWidth})`, flexShrink: 0,
+                justifyContent: draggedTab.isPinned ? 'center' : undefined }}>
               <TabFavicon url={draggedTab.url} src={displayFavicon} size={faviconSize} deferred={draggedTab.restoreDeferred} />
-              {(!draggedTab.isPinned || isVertical) && <span
+              {!draggedTab.isPinned && <span
                 title={displayTitle}
                 className="tab-title"
                 style={{

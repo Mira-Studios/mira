@@ -7,6 +7,11 @@
 - Data import
 - Getting started setup
 
+### Improved
+
+- Pinned tabs
+- Tab connection curves
+
 ## v1.3.0 - 2026-11-21
 
 ### Added

@@ -93,6 +93,8 @@ async function run() {
       file?: string;
       bounds?: { x: number; y: number; width: number; height: number };
       webContentsId?: number;
+      input?: Electron.MouseInputEvent;
+      preserveBounds?: boolean;
     };
     try {
       command = JSON.parse(fs.readFileSync(path.join(directory, `${id}-command.json`), 'utf8'));
@@ -132,6 +134,10 @@ async function run() {
       }
       if (command.action === 'eval')
         result = await win.webContents.executeJavaScript(command.code!);
+      if (command.action === 'mouse-input' && command.input) {
+        win.webContents.sendInputEvent(command.input);
+        result = true;
+      }
       if (command.action === 'window-info')
         result = {
           processId: win.webContents.getOSProcessId(),
@@ -183,10 +189,10 @@ async function run() {
         result = true;
       }
       if (command.action === 'screenshot') {
-        if (
+          if (!command.preserveBounds && (
           !new URL(win.webContents.getURL()).searchParams.has('profilePicker') &&
           !new URL(win.webContents.getURL()).searchParams.has('pip')
-        ) {
+          )) {
           if (win.isMaximized()) win.unmaximize();
           win.setBounds({ x: 50, y: 50, width: 1200, height: 850 });
         }
