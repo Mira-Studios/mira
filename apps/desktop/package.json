@@ -45,7 +45,9 @@
     "test:getting-started": "node --test tests/gettingStarted.test.ts",
     "test:getting-started-ui": "node tests/gettingStarted.integration.ts",
     "preview": "vite preview",
-    "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json,css,md}\""
+    "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json,css,md}\"",
+    "test:updates": "node --test tests/updatePolicy.test.ts",
+    "test:updates-ui": "electron tests/updateProgress.electron.ts"
   },
   "build": {
     "appId": "com.fatalmistake02.mira",

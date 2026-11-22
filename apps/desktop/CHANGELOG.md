@@ -11,6 +11,13 @@
 
 - Pinned tabs
 - Tab connection curves
+- Updates
+
+### Fixed
+
+- Updates now preserve Linux install format (`.deb`, `.rpm`, or AppImage) and CPU architecture.
+- macOS updates install the matching application ZIP instead of attempting to execute a disk image.
+- Added update progress windows and automatic relaunch after installation, including Windows.
 
 ## v1.3.0 - 2026-11-21
 

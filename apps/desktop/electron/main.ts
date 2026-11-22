@@ -1,3 +1,4 @@
+import { installedUpdateFormat, selectUpdateAsset, downloadUpdate, installUpdate, updateInProgress } from './updateInstaller.ts';
 import { SITE_SETTINGS_PERMISSION_ORDER, sitePermissionLabel, mapPermissionIdsFromDetails, describeSitePermissionRequest, automaticSitePermissionDecision, isSitePermissionId as validSitePermissionId, type SitePermissionId } from './sitePermissionPolicy.ts';
 import { detachedTabBounds, tabDropIndex, type TabDropLayout } from './tabDrag.ts';
 import { HistoryStore } from './historyStore.ts';
@@ -19,7 +20,7 @@ import {
   session,
   webContents as electronWebContents,
 } from 'electron';
-import { execFileSync, spawn } from 'child_process';
+import { execFileSync } from 'child_process';
 import { v4 as uuidv4 } from 'uuid';
 import type {
   DownloadItem,
@@ -2175,87 +2176,7 @@ function compareSemver(left: string, right: string): number {
 }
 
 function pickInstallerAsset(release: GitHubRelease): GitHubReleaseAsset | null {
-  const assets = Array.isArray(release.assets) ? release.assets : [];
-  if (!assets.length) return null;
-
-  if (process.platform === 'win32') {
-    const setup = assets.find(
-      (asset) =>
-        typeof asset.name === 'string' &&
-        asset.name.toLowerCase().includes('-win-setup.') &&
-        asset.name.toLowerCase().endsWith('.exe'),
-    );
-    return setup ?? null;
-  }
-
-  if (process.platform === 'darwin') {
-    const archToken = process.arch === 'arm64' ? 'arm64' : process.arch === 'x64' ? 'x64' : '';
-    const hasMacArchToken = (assetName: string): boolean => {
-      if (!archToken) return false;
-      const normalized = assetName.toLowerCase();
-      return normalized.includes(`-mac-${archToken}.`);
-    };
-
-    const macArchDmg = assets.find(
-      (asset) =>
-        typeof asset.name === 'string' &&
-        asset.name.toLowerCase().endsWith('.dmg') &&
-        hasMacArchToken(asset.name),
-    );
-    if (macArchDmg) return macArchDmg;
-
-    const macArchZip = assets.find(
-      (asset) =>
-        typeof asset.name === 'string' &&
-        asset.name.toLowerCase().endsWith('.zip') &&
-        hasMacArchToken(asset.name),
-    );
-    if (macArchZip) return macArchZip;
-
-    // Fallback for older/renamed assets that do not include explicit arch tokens.
-    const dmg = assets.find(
-      (asset) => typeof asset.name === 'string' && asset.name.toLowerCase().endsWith('.dmg'),
-    );
-    if (dmg) return dmg;
-    const zip = assets.find(
-      (asset) => typeof asset.name === 'string' && asset.name.toLowerCase().endsWith('.zip'),
-    );
-    return zip ?? null;
-  }
-
-  if (process.platform === 'linux') {
-    const archTokens =
-      process.arch === 'arm64'
-        ? ['arm64', 'aarch64']
-        : process.arch === 'x64'
-          ? ['x86_64', 'amd64', 'x64']
-          : [];
-
-    const hasArchToken = (assetName: string): boolean => {
-      if (!archTokens.length) return false;
-      const normalized = assetName.toLowerCase();
-      return archTokens.some((token) => normalized.includes(token));
-    };
-
-    const pickByExtension = (extension: string): GitHubReleaseAsset | null => {
-      const archMatch = assets.find(
-        (asset) =>
-          typeof asset.name === 'string' &&
-          asset.name.toLowerCase().endsWith(extension) &&
-          hasArchToken(asset.name),
-      );
-      if (archMatch) return archMatch;
-
-      const genericMatch = assets.find(
-        (asset) => typeof asset.name === 'string' && asset.name.toLowerCase().endsWith(extension),
-      );
-      return genericMatch ?? null;
-    };
-
-    return pickByExtension('.appimage') ?? pickByExtension('.deb') ?? pickByExtension('.rpm');
-  }
-
-  return null;
+  return selectUpdateAsset(release.assets ?? [], process.platform, process.arch, installedUpdateFormat());
 }
 
 function pickPortableAsset(release: GitHubRelease): GitHubReleaseAsset | null {
@@ -2263,13 +2184,11 @@ function pickPortableAsset(release: GitHubRelease): GitHubReleaseAsset | null {
   if (!assets.length) return null;
 
   if (process.platform === 'win32') {
-    const portable = assets.find(
-      (asset) =>
-        typeof asset.name === 'string' &&
-        asset.name.toLowerCase().includes('-win.') &&
-        !asset.name.toLowerCase().includes('-win-setup.') &&
-        asset.name.toLowerCase().endsWith('.exe'),
-    );
+    const portable = assets.find((asset) => {
+      const name = asset.name?.toLowerCase() ?? '';
+      return name.endsWith('.exe') && !name.includes('setup')
+        && (name.includes(`-win-${process.arch}.`) || name.includes('-win.'));
+    });
     return portable ?? null;
   }
 
@@ -2320,7 +2239,7 @@ function canAutoInstallUpdatesOnLaunch(): boolean {
   if (!isSupportedPlatform) return false;
   if (!app.isPackaged || process.defaultApp) return false;
   if (isPortableBuild) return false;
-  return true;
+  return installedUpdateFormat() !== null;
 }
 
 async function checkForUpdates(includePrerelease: boolean): Promise<UpdateCheckResult | null> {
@@ -2352,21 +2271,33 @@ async function checkForUpdates(includePrerelease: boolean): Promise<UpdateCheckR
 }
 
 async function downloadAssetToDownloads(downloadUrl: string, assetName: string): Promise<string> {
-  const response = await fetch(downloadUrl, {
-    headers: {
-      Accept: 'application/octet-stream',
-      'User-Agent': 'mira-updater',
-    },
-    redirect: 'follow',
-  });
-  if (!response.ok) {
-    throw new Error(`Failed to download update (HTTP ${response.status}).`);
-  }
+  return downloadUpdate(downloadUrl, assetName, app.getPath('downloads'));
+}
 
-  const fileBuffer = Buffer.from(await response.arrayBuffer());
-  const targetPath = path.join(app.getPath('downloads'), assetName);
-  await fs.writeFile(targetPath, fileBuffer);
-  return targetPath;
+async function runInstallerUpdate(downloadUrl: string, assetName: string): Promise<void> {
+  await installUpdate({
+    downloadUrl, assetName, profileId: profileContext.id,
+    beforeInstall: async () => {
+      if (profileContext.store.read().profiles.some(profile => profile.id !== profileContext.id && profileContext.store.isRunning(profile.id))) {
+        throw new Error('Close Mira windows in other profiles before installing this update.');
+      }
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (win.isDestroyed() || win.webContents.getURL().startsWith('data:')) continue;
+        if (!await confirmWindowClose(win, false)) throw new Error('Update cancelled. Your pages are still open.');
+      }
+      persistSessionSnapshotSync();
+    },
+    quit: async () => {
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (win.isDestroyed() || win.webContents.getURL().startsWith('data:')) continue;
+        await allowWindowClose(win);
+        markWindowCloseAllowed(win);
+      }
+      hasAttemptedCloseAutoUpdate = true;
+      quitConfirmed = true;
+      app.quit();
+    },
+  });
 }
 
 function normalizeKilobytes(value: unknown): number | null {
@@ -3782,6 +3713,11 @@ function applyWindowStateFromSnapshot(
 }
 
 function setupUpdateHandlers() {
+  const trustedUpdateSender = (event: Electron.IpcMainInvokeEvent) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win || win.webContents !== event.sender || isPrivateContents(event.sender))
+      throw new Error('Updates are only available from a regular Mira window.');
+  };
   ipcMain.handle('updates-launch-auto-support', () => {
     return {
       canAutoInstall: canAutoInstallUpdatesOnLaunch(),
@@ -3791,6 +3727,7 @@ function setupUpdateHandlers() {
   ipcMain.handle(
     'updates-run-launch-auto',
     async (_event, options: { includePrerelease?: boolean } | undefined) => {
+      trustedUpdateSender(_event);
       if (hasAttemptedLaunchAutoUpdate) {
         return {
           ok: true,
@@ -3834,17 +3771,7 @@ function setupUpdateHandlers() {
           };
         }
 
-        const downloadedPath = await downloadAssetToDownloads(result.downloadUrl, result.assetName);
-        // Launch installer in silent mode for auto-updates (shows only progress bar)
-        const child = spawn(downloadedPath, ['/S'], {
-          detached: true,
-          stdio: 'ignore',
-        });
-        child.unref();
-
-        if (process.platform === 'win32') {
-          setTimeout(() => app.quit(), 1000).unref();
-        }
+        await runInstallerUpdate(result.downloadUrl, result.assetName);
 
         return {
           ok: true,
@@ -3885,6 +3812,7 @@ function setupUpdateHandlers() {
   ipcMain.handle(
     'updates-download-asset',
     async (_event, payload: { downloadUrl?: unknown; assetName?: unknown } | undefined) => {
+      trustedUpdateSender(_event);
       const downloadUrl = typeof payload?.downloadUrl === 'string' ? payload.downloadUrl.trim() : '';
       const assetName = typeof payload?.assetName === 'string' ? payload.assetName.trim() : '';
       if (!downloadUrl || !assetName) {
@@ -3912,6 +3840,7 @@ function setupUpdateHandlers() {
   ipcMain.handle(
     'updates-download-and-install',
     async (_event, payload: { downloadUrl?: unknown; assetName?: unknown } | undefined) => {
+      trustedUpdateSender(_event);
       const downloadUrl = typeof payload?.downloadUrl === 'string' ? payload.downloadUrl.trim() : '';
       const assetName = typeof payload?.assetName === 'string' ? payload.assetName.trim() : '';
       if (!downloadUrl || !assetName) {
@@ -3922,17 +3851,7 @@ function setupUpdateHandlers() {
       }
 
       try {
-        const downloadedPath = await downloadAssetToDownloads(downloadUrl, assetName);
-        // Launch installer in silent mode (shows only progress bar)
-        const child = spawn(downloadedPath, ['/S'], {
-          detached: true,
-          stdio: 'ignore',
-        });
-        child.unref();
-
-        if (process.platform === 'win32') {
-          setTimeout(() => app.quit(), 1000).unref();
-        }
+        await runInstallerUpdate(downloadUrl, assetName);
 
         return {
           ok: true,
@@ -3969,39 +3888,39 @@ function setupUpdateHandlers() {
 
 }
 
-async function runCloseAutoUpdate(): Promise<void> {
-  if (hasAttemptedCloseAutoUpdate) return;
+async function runCloseAutoUpdate(): Promise<boolean> {
+  if (hasAttemptedCloseAutoUpdate || updateInProgress()) return true;
   if (
     configuredAutoUpdateMode !== 'ask-on-close'
     && configuredAutoUpdateMode !== 'auto-on-close'
   ) {
-    return;
+    return true;
   }
 
   hasAttemptedCloseAutoUpdate = true;
 
   try {
     const result = await checkForUpdates(configuredAutoUpdateIncludePrerelease);
-    if (!result || !result.hasUpdate) return;
+    if (!result || !result.hasUpdate) return true;
 
     if (configuredAutoUpdateMode === 'ask-on-close') {
       const host = getFirstBrowserWindow();
-      if (!host) return;
+      if (!host) return true;
       const response = await requestAppDialog(host, {
         title: 'Update available',
         message: `Mira ${result.latestVersion} is ready to install.`,
         confirmLabel: 'Install update', cancelLabel: 'Skip',
       });
-      if (!response.accepted) return;
+      if (!response.accepted) return true;
     }
 
-    if (result.mode !== 'installer') return;
+    if (result.mode !== 'installer') return true;
 
-    const downloadedPath = await downloadAssetToDownloads(result.downloadUrl, result.assetName);
-    const openError = await shell.openPath(downloadedPath);
-    if (openError) return;
+    await runInstallerUpdate(result.downloadUrl, result.assetName);
+    return true;
   } catch {
-    // Swallow close-time update errors to avoid blocking shutdown.
+    // Keep the error window visible when an explicit quit initiated the update.
+    return false;
   }
 }
 
@@ -6426,6 +6345,7 @@ app.on('window-all-closed', () => {
 let quitConfirmed = false;
 let checkingQuit = false;
 app.on('before-quit', (event) => {
+  if (updateInProgress() && !quitConfirmed) { event.preventDefault(); return; }
   if (!hasSingleInstanceLock) return;
   const windows = BrowserWindow.getAllWindows().filter((win) => !win.isDestroyed());
   if (!quitConfirmed && windows.length) {
@@ -6441,7 +6361,7 @@ app.on('before-quit', (event) => {
             return;
           }
         }
-        await runCloseAutoUpdate();
+        if (!await runCloseAutoUpdate()) return;
         for (const win of windows) {
           if (!win.isDestroyed()) {
             await allowWindowClose(win);

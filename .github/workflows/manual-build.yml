@@ -239,33 +239,15 @@ jobs:
             exit 1
           fi
           
-          # Rename DMG files
-          dmg_count="$(find "$release_dir" -maxdepth 1 -type f -name "*.dmg" | wc -l | tr -d ' ')"
-          dmg_index=0
-          while IFS= read -r file; do
-            [[ -z "$file" ]] && continue
-            dmg_index=$((dmg_index + 1))
-            suffix=""
-            if [[ "$dmg_count" -gt 1 ]]; then
-              suffix="-$dmg_index"
+          # Keep architecture tokens: the updater must never install the other CPU build.
+          for file in "$release_dir"/*.{dmg,zip}; do
+            [[ ! -f "$file" ]] && continue
+            filename=$(basename "$file")
+            if [[ "$filename" =~ mac-(x64|arm64)\.(dmg|zip)$ ]]; then
+              target="$release_dir/$prefix-mac-${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+              [[ "$file" == "$target" ]] || mv "$file" "$target"
             fi
-            target="$release_dir/$prefix-mac$suffix.dmg"
-            mv "$file" "$target"
-          done < <(find "$release_dir" -maxdepth 1 -type f -name "*.dmg" | sort)
-          
-          # Rename ZIP files
-          zip_count="$(find "$release_dir" -maxdepth 1 -type f -name "*.zip" | wc -l | tr -d ' ')"
-          zip_index=0
-          while IFS= read -r file; do
-            [[ -z "$file" ]] && continue
-            zip_index=$((zip_index + 1))
-            suffix=""
-            if [[ "$zip_count" -gt 1 ]]; then
-              suffix="-$zip_index"
-            fi
-            target="$release_dir/$prefix-mac$suffix.zip"
-            mv "$file" "$target"
-          done < <(find "$release_dir" -maxdepth 1 -type f -name "*.zip" | sort)
+          done
 
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
