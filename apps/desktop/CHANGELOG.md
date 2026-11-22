@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v1.3.1 - 2026-11-22
+
 ### Added 
 
 - Data import
